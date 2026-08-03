@@ -1,0 +1,240 @@
+import React, { useState } from 'react';
+import { PostItem, SocialNetwork, InspirationFile } from '../types';
+import { X, Image, Video, Layers, Plus, Lightbulb } from 'lucide-react';
+
+interface NewPostModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  clientProjectId: string;
+  inspirations: InspirationFile[];
+  onCreatePost: (newPostData: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => void;
+}
+
+export const NewPostModal: React.FC<NewPostModalProps> = ({
+  isOpen,
+  onClose,
+  clientProjectId,
+  inspirations,
+  onCreatePost
+}) => {
+  if (!isOpen) return null;
+
+  const [title, setTitle] = useState('');
+  const [caption, setCaption] = useState('');
+  const [mediaUrl, setMediaUrl] = useState('https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80');
+  const [mediaType, setMediaType] = useState<'image' | 'video' | 'carousel'>('image');
+  const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>(['instagram', 'facebook']);
+  const [scheduledDate, setScheduledDate] = useState('2026-08-05T10:00');
+  const [selectedInspirations, setSelectedInspirations] = useState<string[]>([]);
+
+  const toggleNetwork = (network: SocialNetwork) => {
+    if (socialNetworks.includes(network)) {
+      setSocialNetworks(socialNetworks.filter(n => n !== network));
+    } else {
+      setSocialNetworks([...socialNetworks, network]);
+    }
+  };
+
+  const toggleInspiration = (id: string) => {
+    if (selectedInspirations.includes(id)) {
+      setSelectedInspirations(selectedInspirations.filter(i => i !== id));
+    } else {
+      setSelectedInspirations([...selectedInspirations, id]);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !caption.trim()) return;
+
+    onCreatePost({
+      clientProjectId,
+      title,
+      caption,
+      mediaUrl: mediaUrl.trim() || 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80',
+      mediaType,
+      socialNetworks: socialNetworks.length > 0 ? socialNetworks : ['instagram'],
+      scheduledDate,
+      status: 'rascunho', // Sempre inicia como Rascunho
+      inspirationReferenceIds: selectedInspirations
+    });
+
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl my-8 p-6 space-y-6">
+        
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Plus className="w-5 h-5 text-indigo-400" />
+              Novo Rascunho de Publicação
+            </h2>
+            <p className="text-xs text-slate-400">O post ficará em Rascunho para aguardar aprovação do cliente</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          
+          {/* Title */}
+          <div>
+            <label className="block text-slate-300 font-bold mb-1">Título / Identificador da Peça:</label>
+            <input
+              type="text"
+              required
+              placeholder="Ex: Carrossel Dicas de Café para o Fim de Semana"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Caption */}
+          <div>
+            <label className="block text-slate-300 font-bold mb-1">Legenda Recomendada:</label>
+            <textarea
+              required
+              rows={4}
+              placeholder="Digite o texto da legenda, emojis e hashtags..."
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
+              className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-sans leading-relaxed"
+            />
+          </div>
+
+          {/* Media URL & Type */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-slate-300 font-bold mb-1">URL da Mídia (Imagem ou Vídeo):</label>
+              <input
+                type="url"
+                required
+                value={mediaUrl}
+                onChange={(e) => setMediaUrl(e.target.value)}
+                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-300 font-bold mb-1">Formato da Mídia:</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMediaType('image')}
+                  className={`flex-1 py-2.5 rounded-xl border font-bold flex items-center justify-center gap-1 ${
+                    mediaType === 'image' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-950 text-slate-400 border-slate-800'
+                  }`}
+                >
+                  <Image className="w-4 h-4" /> Imagem
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaType('video')}
+                  className={`flex-1 py-2.5 rounded-xl border font-bold flex items-center justify-center gap-1 ${
+                    mediaType === 'video' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-950 text-slate-400 border-slate-800'
+                  }`}
+                >
+                  <Video className="w-4 h-4" /> Vídeo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaType('carousel')}
+                  className={`flex-1 py-2.5 rounded-xl border font-bold flex items-center justify-center gap-1 ${
+                    mediaType === 'carousel' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-950 text-slate-400 border-slate-800'
+                  }`}
+                >
+                  <Layers className="w-4 h-4" /> Carrossel
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Social Networks Selector */}
+          <div>
+            <label className="block text-slate-300 font-bold mb-1">Redes Sociais Destino:</label>
+            <div className="flex flex-wrap gap-2">
+              {(['instagram', 'facebook', 'tiktok', 'linkedin', 'youtube'] as SocialNetwork[]).map(net => (
+                <button
+                  key={net}
+                  type="button"
+                  onClick={() => toggleNetwork(net)}
+                  className={`px-3 py-2 rounded-xl capitalize font-bold border transition-colors ${
+                    socialNetworks.includes(net)
+                      ? 'bg-purple-600/30 text-purple-300 border-purple-500/50'
+                      : 'bg-slate-950 text-slate-400 border-slate-800'
+                  }`}
+                >
+                  {net}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Scheduled Date */}
+          <div>
+            <label className="block text-slate-300 font-bold mb-1">Data e Hora Programada de Publicação:</label>
+            <input
+              type="datetime-local"
+              value={scheduledDate}
+              onChange={(e) => setScheduledDate(e.target.value)}
+              className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Associate Inspirations from Client */}
+          {inspirations.length > 0 && (
+            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
+              <label className="block text-slate-300 font-bold flex items-center gap-1.5">
+                <Lightbulb className="w-4 h-4 text-amber-400" />
+                Vincular Modelo/Inspiração enviado pelo Cliente:
+              </label>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {inspirations.map(insp => (
+                  <label key={insp.id} className="flex items-center gap-2 text-slate-300 cursor-pointer p-1.5 rounded-lg hover:bg-slate-900">
+                    <input
+                      type="checkbox"
+                      checked={selectedInspirations.includes(insp.id)}
+                      onChange={() => toggleInspiration(insp.id)}
+                      className="rounded border-slate-700 text-indigo-600"
+                    />
+                    <span className="font-medium">{insp.title}</span>
+                    <span className="text-[10px] text-slate-500">({insp.uploadedByName})</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Submit Buttons */}
+          <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-600/20"
+            >
+              Salvar em Rascunho
+            </button>
+          </div>
+
+        </form>
+
+      </div>
+    </div>
+  );
+};
