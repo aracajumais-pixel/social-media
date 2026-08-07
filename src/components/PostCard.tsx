@@ -2,8 +2,10 @@ import React from 'react';
 import { PostItem, UserRole, SocialNetwork } from '../types';
 import { 
   CheckCircle, AlertCircle, Clock, MessageSquare, 
-  Instagram, Facebook, Linkedin, Video, Layers, Calendar, ExternalLink 
+  Instagram, Facebook, Linkedin, Video, Layers, Calendar, ExternalLink, Key, ShieldCheck 
 } from 'lucide-react';
+import { getTimeRemainingText, isTokenExpired } from '../utils/token';
+import { DriveImage } from './DriveImage';
 
 interface PostCardProps {
   post: PostItem;
@@ -11,6 +13,7 @@ interface PostCardProps {
   onOpenDetails: (post: PostItem) => void;
   onQuickApprove?: (postId: string) => void;
   onQuickRequestChange?: (postId: string) => void;
+  onOpenPublicApprovalLink?: (post: PostItem) => void;
 }
 
 export const PostCard: React.FC<PostCardProps> = ({
@@ -18,8 +21,11 @@ export const PostCard: React.FC<PostCardProps> = ({
   currentUserRole,
   onOpenDetails,
   onQuickApprove,
-  onQuickRequestChange
+  onQuickRequestChange,
+  onOpenPublicApprovalLink
 }) => {
+  const expired = isTokenExpired(post.tokenExpiresAt);
+  const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
   // Configurações visuais dos 3 únicos status permitidos
   const getStatusBadge = () => {
     switch (post.status) {
@@ -79,7 +85,7 @@ export const PostCard: React.FC<PostCardProps> = ({
       <div>
         {/* Top Header & Media Container */}
         <div className="relative aspect-video bg-slate-950 overflow-hidden cursor-pointer" onClick={() => onOpenDetails(post)}>
-          <img
+          <DriveImage
             src={post.mediaUrl}
             alt={post.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
@@ -113,7 +119,7 @@ export const PostCard: React.FC<PostCardProps> = ({
         {/* Caption & Info Body */}
         <div className="p-4 space-y-3">
           
-          {/* Social Networks List */}
+          {/* Social Networks List & Token Expiration Pill */}
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
             <span className="text-xs text-slate-400 font-medium">Canais:</span>
             <div className="flex items-center gap-2">
@@ -123,6 +129,28 @@ export const PostCard: React.FC<PostCardProps> = ({
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Token Hash Expiration Badge */}
+          <div className="flex items-center justify-between bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800/80 text-[11px]">
+            <span className="text-slate-400 font-medium flex items-center gap-1.5">
+              <Key className="w-3 h-3 text-indigo-400" /> Token 5d:
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onOpenPublicApprovalLink) onOpenPublicApprovalLink(post);
+                else onOpenDetails(post);
+              }}
+              className={`font-bold hover:underline flex items-center gap-1 ${
+                expired ? 'text-rose-400' : 'text-emerald-400'
+              }`}
+              title="Abrir Link Público de Aprovação"
+            >
+              <ShieldCheck className="w-3 h-3" />
+              <span>{timeInfo.text}</span>
+            </button>
           </div>
 
           {/* Caption Snippet */}

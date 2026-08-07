@@ -17,6 +17,7 @@ export interface SocialMediaUser {
   totalPostsCreated: number;
   avatarUrl?: string;
   status?: 'ativo' | 'bloqueado';
+  customFeePerPost?: number; // Taxa específica por post para este social media (substitui o valor global se preenchido)
 }
 
 export interface Comment {
@@ -55,6 +56,8 @@ export interface PostItem {
   socialNetworks: SocialNetwork[];
   scheduledDate: string;
   status: PostStatus;
+  approvalToken?: string; // Token secreto UUID para URL pública de aprovação
+  tokenExpiresAt?: string; // Data e hora limite de acesso (expira em 5 dias)
   comments: Comment[];
   inspirationReferenceIds?: string[];
   isPublished?: boolean; // Acompanhar se já foi publicado

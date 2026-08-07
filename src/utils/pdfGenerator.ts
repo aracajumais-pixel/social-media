@@ -1,5 +1,6 @@
 import { BillingReceipt, ClientProject } from '../types';
 import { valorPorExtenso } from './numberToWords';
+import { getEmbeddableMediaUrl } from './driveHelper';
 
 export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject) {
   const printWindow = window.open('', '_blank', 'width=800,height=900');
@@ -21,16 +22,19 @@ export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject) 
   const socialBank = receipt.socialMediaBank || '[Banco / Agência / Conta]';
   const socialCpfCnpj = receipt.socialMediaCpfCnpj || '[CNPJ ou CPF do Prestador]';
 
-  const logoHtml = client.logoUrl ? `
-    <img src="${client.logoUrl}" alt="Logo" style="max-height: 55px; max-width: 160px; object-fit: contain;" />
+  const logoUrlClean = client.logoUrl ? getEmbeddableMediaUrl(client.logoUrl) : '';
+  const signatureUrlClean = receipt.socialMediaSignatureUrl ? getEmbeddableMediaUrl(receipt.socialMediaSignatureUrl) : '';
+
+  const logoHtml = logoUrlClean ? `
+    <img src="${logoUrlClean}" alt="Logo" style="max-height: 55px; max-width: 160px; object-fit: contain;" />
   ` : `
     <div style="font-size: 13px; font-weight: bold; color: #475569; border: 1px dashed #cbd5e1; padding: 6px 12px; border-radius: 6px;">
       [Logo do Social Media / Agência]
     </div>
   `;
 
-  const signatureHtml = receipt.socialMediaSignatureUrl ? `
-    <img src="${receipt.socialMediaSignatureUrl}" alt="Assinatura Digital" style="max-height: 50px; margin-bottom: 4px;" />
+  const signatureHtml = signatureUrlClean ? `
+    <img src="${signatureUrlClean}" alt="Assinatura Digital" style="max-height: 50px; margin-bottom: 4px;" />
   ` : `
     <div style="font-family: 'Dancing Script', 'Brush Script MT', cursive; font-size: 24px; color: #1e293b; font-style: italic; margin-bottom: 2px;">
       ${socialName}

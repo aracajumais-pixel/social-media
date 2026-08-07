@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { PostItem, SocialNetwork, InspirationFile } from '../types';
-import { X, Image, Video, Layers, Plus, Lightbulb } from 'lucide-react';
+import { X, Image, Video, Layers, Plus, Lightbulb, HardDrive } from 'lucide-react';
+import { generateApprovalToken, calculateTokenExpirationDays } from '../utils/token';
+import { getEmbeddableMediaUrl, isGoogleDriveUrl } from '../utils/driveHelper';
 
 interface NewPostModalProps {
   isOpen: boolean;
@@ -21,10 +23,14 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
 
   const [title, setTitle] = useState('');
   const [caption, setCaption] = useState('');
-  const [mediaUrl, setMediaUrl] = useState('https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80');
+  const [mediaUrl, setMediaUrl] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'video' | 'carousel'>('image');
   const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>(['instagram', 'facebook']);
-  const [scheduledDate, setScheduledDate] = useState('2026-08-05T10:00');
+  const [scheduledDate, setScheduledDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().slice(0, 16);
+  });
   const [selectedInspirations, setSelectedInspirations] = useState<string[]>([]);
 
   const toggleNetwork = (network: SocialNetwork) => {
@@ -47,15 +53,21 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
     e.preventDefault();
     if (!title.trim() || !caption.trim()) return;
 
+    const processedMediaUrl = mediaUrl.trim() 
+      ? getEmbeddableMediaUrl(mediaUrl.trim())
+      : 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80';
+
     onCreatePost({
       clientProjectId,
       title,
       caption,
-      mediaUrl: mediaUrl.trim() || 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80',
+      mediaUrl: processedMediaUrl,
       mediaType,
       socialNetworks: socialNetworks.length > 0 ? socialNetworks : ['instagram'],
       scheduledDate,
       status: 'rascunho', // Sempre inicia como Rascunho
+      approvalToken: generateApprovalToken(),
+      tokenExpiresAt: calculateTokenExpirationDays(5),
       inspirationReferenceIds: selectedInspirations
     });
 
@@ -115,14 +127,28 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
           {/* Media URL & Type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-slate-300 font-bold mb-1">URL da Mídia (Imagem ou Vídeo):</label>
+              <label className="block text-slate-300 font-bold mb-1">URL da Mídia (Imagem, Vídeo ou Google Drive):</label>
               <input
                 type="url"
                 required
+                placeholder="Ex: https://drive.google.com/file/d/123.../view ou URL direta"
                 value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
+                onChange={(e) => {
+                  const rawUrl = e.target.value;
+                  const converted = rawUrl.trim() ? getEmbeddableMediaUrl(rawUrl) : rawUrl;
+                  setMediaUrl(converted);
+                }}
+                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-mono text-xs"
               />
+              {mediaUrl.includes('googleusercontent.com/d/') && (
+                <div className="mt-1.5 p-2 bg-emerald-950/60 border border-emerald-800/60 rounded-xl text-[11px] text-emerald-300 font-medium flex items-center gap-1.5">
+                  <span>✨ <strong>Tratamento Automático Ativo:</strong> O link do Google Drive foi convertido na URL direta da CDN de alta resolução (<code className="text-emerald-200">https://lh3.googleusercontent.com/d/ID</code>).</span>
+                </div>
+              )}
+              <p className="text-[10px] text-indigo-300 mt-1 flex items-center gap-1 font-medium">
+                <HardDrive className="w-3 h-3 text-indigo-400" />
+                Cole o link de compartilhamento do Google Drive (seja /file/d/..., view?usp=sharing ou com /view) - conversão automática!
+              </p>
             </div>
 
             <div>

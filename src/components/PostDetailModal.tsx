@@ -3,8 +3,11 @@ import { PostItem, UserRole, PostStatus, InspirationFile, SocialNetwork } from '
 import { 
   X, CheckCircle, AlertCircle, Clock, Copy, Send, 
   MessageSquare, Lightbulb, Share2, Calendar, Check, MessageCircle, HardDrive, Trash2, ExternalLink,
-  Instagram, Facebook, Linkedin
+  Instagram, Facebook, Linkedin, Key, ShieldCheck, RefreshCw, Pencil
 } from 'lucide-react';
+import { getTimeRemainingText, isTokenExpired, buildApprovalUrl, generateApprovalToken, calculateTokenExpirationDays } from '../utils/token';
+import { DriveImage } from './DriveImage';
+import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 
 interface PostDetailModalProps {
   post: PostItem | null;
@@ -18,6 +21,9 @@ interface PostDetailModalProps {
   onConfirmPreviewCleanup?: (postId: string) => void;
   onAddComment: (postId: string, commentText: string) => void;
   onSendWhatsAppAlert: (postId: string, message: string) => void;
+  onOpenPublicApprovalLink?: (post: PostItem) => void;
+  onRenewToken?: (postId: string) => void;
+  onUpdatePostFields?: (postId: string, fields: Partial<PostItem>) => void;
 }
 
 export const PostDetailModal: React.FC<PostDetailModalProps> = ({
@@ -31,14 +37,68 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onTogglePublished,
   onConfirmPreviewCleanup,
   onAddComment,
-  onSendWhatsAppAlert
+  onSendWhatsAppAlert,
+  onOpenPublicApprovalLink,
+  onRenewToken,
+  onUpdatePostFields
 }) => {
   if (!isOpen || !post) return null;
 
   const [newComment, setNewComment] = useState('');
   const [copiedCaption, setCopiedCaption] = useState(false);
+  const [copiedTokenUrl, setCopiedTokenUrl] = useState(false);
   const [whatsappText, setWhatsappText] = useState('');
   const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
+
+  // Editing Caption, Title and MediaUrl state
+  const [isEditingCaption, setIsEditingCaption] = useState(false);
+  const [editedCaption, setEditedCaption] = useState(post.caption);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(post.title);
+  const [isEditingMediaUrl, setIsEditingMediaUrl] = useState(false);
+  const [editedMediaUrl, setEditedMediaUrl] = useState(post.mediaUrl);
+
+  React.useEffect(() => {
+    if (post) {
+      setEditedCaption(post.caption);
+      setEditedTitle(post.title);
+      setEditedMediaUrl(post.mediaUrl);
+    }
+  }, [post?.id, post?.caption, post?.title, post?.mediaUrl]);
+
+  const handleSaveCaption = () => {
+    if (onUpdatePostFields && post) {
+      onUpdatePostFields(post.id, { caption: editedCaption });
+    }
+    setIsEditingCaption(false);
+  };
+
+  const handleSaveTitle = () => {
+    if (onUpdatePostFields && post) {
+      onUpdatePostFields(post.id, { title: editedTitle });
+    }
+    setIsEditingTitle(false);
+  };
+
+  const handleSaveMediaUrl = () => {
+    if (onUpdatePostFields && post) {
+      const converted = editedMediaUrl.trim() ? getEmbeddableMediaUrl(editedMediaUrl.trim()) : editedMediaUrl;
+      onUpdatePostFields(post.id, { mediaUrl: converted });
+    }
+    setIsEditingMediaUrl(false);
+  };
+
+  // Token Approval Info
+  const activeToken = post.approvalToken || 'sem-token';
+  const approvalUrl = buildApprovalUrl(activeToken);
+  const expired = isTokenExpired(post.tokenExpiresAt);
+  const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
+
+  const handleCopyApprovalLink = () => {
+    navigator.clipboard.writeText(approvalUrl);
+    setCopiedTokenUrl(true);
+    setTimeout(() => setCopiedTokenUrl(false), 2000);
+  };
 
   // Revision Form State
   const [showRevisionForm, setShowRevisionForm] = useState(false);
@@ -127,7 +187,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
             {/* Media Box */}
             <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 aspect-square relative flex items-center justify-center">
-              <img
+              <DriveImage
                 src={post.mediaUrl}
                 alt={post.title}
                 className="w-full h-full object-contain bg-slate-950"
@@ -141,6 +201,66 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Editable Media URL */}
+            {onUpdatePostFields && (
+              <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300 font-bold flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-indigo-400" /> URL da Mídia / Drive:
+                  </span>
+                  {!isEditingMediaUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingMediaUrl(true)}
+                      className="text-indigo-400 hover:text-indigo-300 font-bold text-[11px] flex items-center gap-1"
+                    >
+                      <Pencil className="w-3 h-3" /> Alterar URL
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={handleSaveMediaUrl}
+                        className="px-2 py-1 bg-indigo-600 text-white font-bold text-[10px] rounded-lg"
+                      >
+                        Salvar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingMediaUrl(false)}
+                        className="px-2 py-1 bg-slate-800 text-slate-400 text-[10px] rounded-lg"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {isEditingMediaUrl ? (
+                  <div className="space-y-1.5 pt-1">
+                    <input
+                      type="url"
+                      value={editedMediaUrl}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const converted = raw.trim() ? getEmbeddableMediaUrl(raw) : raw;
+                        setEditedMediaUrl(converted);
+                      }}
+                      placeholder="Cole novo link do Drive..."
+                      className="w-full bg-slate-950 text-white p-2.5 rounded-xl border border-indigo-500/50 text-[11px] font-mono focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      ✨ Links do Google Drive são convertidos instantaneamente para a CDN de alta resolução (<code className="text-emerald-400">https://lh3.googleusercontent.com/d/ID</code>).
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 font-mono truncate bg-slate-950 p-2 rounded-xl border border-slate-800/80">
+                    {post.mediaUrl}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Storage Lifecycle Notice */}
             <div className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 space-y-2 text-xs">
@@ -227,8 +347,46 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             
             {/* Title & Close */}
             <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold text-white leading-tight">{post.title}</h2>
+              <div className="space-y-2 flex-1">
+                {isEditingTitle ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editedTitle}
+                      onChange={(e) => setEditedTitle(e.target.value)}
+                      className="flex-1 bg-slate-900 text-white font-bold text-base p-2 rounded-xl border border-amber-500/60 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveTitle}
+                      className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1 shrink-0"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Salvar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingTitle(false)}
+                      className="px-3 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl shrink-0"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-white leading-tight">{post.title}</h2>
+                    {onUpdatePostFields && (
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingTitle(true)}
+                        className="p-1 hover:bg-slate-800 text-slate-400 hover:text-amber-400 rounded-lg transition-colors"
+                        title="Editar título"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
                 
                 {/* Interactive Channels Selector for Social Media / Client */}
                 <div className="space-y-1">
@@ -266,6 +424,73 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+
+            {/* Link de Aprovação com Token Hash (5 Dias de Expiração) */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-indigo-500/30 space-y-3 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-indigo-600/30 text-indigo-300">
+                    <Key className="w-4 h-4 text-indigo-400" />
+                  </div>
+                  <span className="text-xs font-bold text-white">Link Público de Aprovação (5 Dias)</span>
+                </div>
+
+                {expired ? (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> Expirado (5 dias)
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> {timeInfo.text}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                Link com Hash Único de Segurança para envio ao cliente. Vence automaticamente após 5 dias.
+              </p>
+
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <div className="flex-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-[11px] font-mono text-indigo-300 truncate">
+                  {approvalUrl}
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleCopyApprovalLink}
+                    className="flex-1 sm:flex-none px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-indigo-600/20"
+                  >
+                    {copiedTokenUrl ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedTokenUrl ? 'Copiado!' : 'Copiar Link'}</span>
+                  </button>
+
+                  {onOpenPublicApprovalLink && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenPublicApprovalLink(post)}
+                      className="px-3 py-2 bg-purple-600/30 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/40 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all"
+                      title="Simular visualização pública do cliente"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-purple-300" />
+                      <span className="hidden sm:inline">Simular Acesso</span>
+                    </button>
+                  )}
+
+                  {expired && onRenewToken && (
+                    <button
+                      type="button"
+                      onClick={() => onRenewToken(post.id)}
+                      className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1 transition-all"
+                      title="Renovar link com + 5 dias"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Renovar</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Approval Decision Buttons (Aprovar / Revisar / Rascunho) */}
@@ -375,17 +600,63 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-300">Legenda da Publicação:</label>
-                <button
-                  onClick={handleCopyCaption}
-                  className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-semibold"
-                >
-                  {copiedCaption ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCaption ? 'Copiado!' : 'Copiar Legenda'}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  {onUpdatePostFields && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditedCaption(post.caption);
+                        setIsEditingCaption(!isEditingCaption);
+                      }}
+                      className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 font-bold transition-colors bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{isEditingCaption ? 'Cancelar' : 'Editar Legenda'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleCopyCaption}
+                    className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-semibold"
+                  >
+                    {copiedCaption ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCaption ? 'Copiado!' : 'Copiar Legenda'}</span>
+                  </button>
+                </div>
               </div>
-              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-200 leading-relaxed font-normal whitespace-pre-line max-h-36 overflow-y-auto">
-                {post.caption}
-              </div>
+
+              {isEditingCaption ? (
+                <div className="space-y-2.5 bg-slate-950 p-3 rounded-2xl border border-amber-500/50 shadow-lg animate-fade-in">
+                  <textarea
+                    rows={4}
+                    value={editedCaption}
+                    onChange={(e) => setEditedCaption(e.target.value)}
+                    className="w-full bg-slate-900 text-xs text-white p-3 rounded-xl border border-slate-700 focus:outline-none focus:border-amber-500 leading-relaxed font-normal"
+                    placeholder="Escreva ou altere a legenda do post..."
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingCaption(false)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveCaption}
+                      className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-600/20 transition-all"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Salvar Legenda</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-200 leading-relaxed font-normal whitespace-pre-line max-h-36 overflow-y-auto">
+                  {post.caption}
+                </div>
+              )}
             </div>
 
             {/* Discussion Thread */}

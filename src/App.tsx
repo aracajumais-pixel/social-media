@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { 
   INITIAL_CLIENTS, INITIAL_POSTS, INITIAL_INSPIRATIONS, 
-  INITIAL_RECEIPTS, MOCK_METRICS, MOCK_CHANNELS, INITIAL_SOCIAL_MEDIAS, INITIAL_SAAS_PROOF_PAYMENTS
+  INITIAL_RECEIPTS, MOCK_METRICS, MOCK_CHANNELS, INITIAL_SOCIAL_MEDIAS, INITIAL_SAAS_PROOF_PAYMENTS,
+  DEMO_CLIENTS, DEMO_SOCIAL_MEDIAS
 } from './data/mockData';
 import { 
   ClientProject, PostItem, InspirationFile, BillingReceipt, 
@@ -22,22 +23,141 @@ import { ClientSettings } from './components/ClientSettings';
 import { AdminSaaSDashboard } from './components/AdminSaaSDashboard';
 import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
+import { ApprovalPublicModal } from './components/ApprovalPublicModal';
+import { generateApprovalToken, calculateTokenExpirationDays } from './utils/token';
+import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured } from './lib/supabase';
 
-import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers } from 'lucide-react';
+import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2 } from 'lucide-react';
+
+const defaultEmptyClient: ClientProject = {
+  id: 'novo-cliente',
+  name: 'Empresa Exemplo (Cadastre seu Cliente)',
+  companyName: 'Sua Empresa LTDA',
+  cnpj: '00.000.000/0001-00',
+  address: 'Cadastre o endereço nas configurações do cliente',
+  contactName: 'Contato Principal',
+  whatsappNumber: '5511999998888',
+  email: 'contato@cliente.com.br',
+  pricePerPost: 150.00,
+  metricsAccess: 'ambos',
+  googleDriveFolderUrl: '',
+  activeSocialNetworks: ['instagram', 'facebook'],
+  driveStorageUsedGB: 0,
+  driveStorageLimitGB: 15.0
+};
 
 export default function App() {
-  // Global State
-  const [clients, setClients] = useState<ClientProject[]>(INITIAL_CLIENTS);
-  const [socialMedias, setSocialMedias] = useState<SocialMediaUser[]>(INITIAL_SOCIAL_MEDIAS);
-  const [selectedClientId, setSelectedClientId] = useState<string>('client-1');
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('gestor');
+  // Global State with LocalStorage Persistence (Opção B - Funciona 100% Grátis sem Cartão)
+  const [clients, setClients] = useState<ClientProject[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_clients');
+      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+    } catch {
+      return INITIAL_CLIENTS;
+    }
+  });
+  const [socialMedias, setSocialMedias] = useState<SocialMediaUser[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_social_medias');
+      return saved ? JSON.parse(saved) : INITIAL_SOCIAL_MEDIAS;
+    } catch {
+      return INITIAL_SOCIAL_MEDIAS;
+    }
+  });
+  const [selectedClientId, setSelectedClientId] = useState<string>(() => {
+    return localStorage.getItem('social_saas_selected_client_id') || 'client-1';
+  });
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
+    return (localStorage.getItem('social_saas_user_role') as UserRole) || 'gestor';
+  });
   const [activeTab, setActiveTab] = useState<TabType>('posts');
 
-  const [posts, setPosts] = useState<PostItem[]>(INITIAL_POSTS);
-  const [inspirations, setInspirations] = useState<InspirationFile[]>(INITIAL_INSPIRATIONS);
-  const [receipts, setReceipts] = useState<BillingReceipt[]>(INITIAL_RECEIPTS);
-  const [feePerPost, setFeePerPost] = useState<number>(0.50);
-  const [saasProofs, setSaasProofs] = useState<SaaSPaymentProof[]>(INITIAL_SAAS_PROOF_PAYMENTS);
+  const [posts, setPosts] = useState<PostItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_posts');
+      return saved ? JSON.parse(saved) : INITIAL_POSTS;
+    } catch {
+      return INITIAL_POSTS;
+    }
+  });
+  const [inspirations, setInspirations] = useState<InspirationFile[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_inspirations');
+      return saved ? JSON.parse(saved) : INITIAL_INSPIRATIONS;
+    } catch {
+      return INITIAL_INSPIRATIONS;
+    }
+  });
+  const [receipts, setReceipts] = useState<BillingReceipt[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_receipts');
+      return saved ? JSON.parse(saved) : INITIAL_RECEIPTS;
+    } catch {
+      return INITIAL_RECEIPTS;
+    }
+  });
+  const [feePerPost, setFeePerPost] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_fee_per_post');
+      return saved ? Number(saved) : 0.50;
+    } catch {
+      return 0.50;
+    }
+  });
+  const [saasProofs, setSaasProofs] = useState<SaaSPaymentProof[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_saas_proofs');
+      return saved ? JSON.parse(saved) : INITIAL_SAAS_PROOF_PAYMENTS;
+    } catch {
+      return INITIAL_SAAS_PROOF_PAYMENTS;
+    }
+  });
+
+  // Auto-save state to localStorage and sync to Supabase
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_clients', JSON.stringify(clients)); } catch {}
+    if (isSupabaseConfigured) {
+      syncAllClientsToSupabase(clients);
+    }
+  }, [clients]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_social_medias', JSON.stringify(socialMedias)); } catch {}
+  }, [socialMedias]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_selected_client_id', selectedClientId); } catch {}
+  }, [selectedClientId]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_user_role', currentUserRole); } catch {}
+    if (currentUserRole !== 'gestor' && (activeTab === 'book' || activeTab === 'market' || activeTab === 'admin')) {
+      setActiveTab('posts');
+    }
+  }, [currentUserRole, activeTab]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_posts', JSON.stringify(posts)); } catch {}
+    if (isSupabaseConfigured) {
+      syncAllPostsToSupabase(posts);
+    }
+  }, [posts]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_inspirations', JSON.stringify(inspirations)); } catch {}
+  }, [inspirations]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_receipts', JSON.stringify(receipts)); } catch {}
+  }, [receipts]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_fee_per_post', String(feePerPost)); } catch {}
+  }, [feePerPost]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_saas_proofs', JSON.stringify(saasProofs)); } catch {}
+  }, [saasProofs]);
 
   const handleAddSaasProof = (newProof: Omit<SaaSPaymentProof, 'id' | 'submittedAt' | 'status'>) => {
     const proofItem: SaaSPaymentProof = {
@@ -59,13 +179,47 @@ export default function App() {
 
   // Modals
   const [selectedPostForDetails, setSelectedPostForDetails] = useState<PostItem | null>(null);
+  const [publicApprovalPost, setPublicApprovalPost] = useState<PostItem | null>(null);
   const [isNewPostModalOpen, setIsNewPostModalOpen] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<WhatsAppNotificationPayload[]>([]);
 
+  // Detect ?token=... in URL for direct public token link approval
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token && posts.length > 0) {
+      const matched = posts.find(p => p.approvalToken === token);
+      if (matched) {
+        setPublicApprovalPost(matched);
+      }
+    }
+  }, [posts]);
+
+  // Handler para renovar token de 5 dias
+  const handleRenewToken = (postId: string) => {
+    const newTok = generateApprovalToken();
+    const newExp = calculateTokenExpirationDays(5);
+    setPosts(prev => prev.map(p => {
+      if (p.id === postId) {
+        const updated = {
+          ...p,
+          approvalToken: newTok,
+          tokenExpiresAt: newExp,
+          updatedAt: new Date().toISOString()
+        };
+        if (selectedPostForDetails?.id === postId) setSelectedPostForDetails(updated);
+        if (publicApprovalPost?.id === postId) setPublicApprovalPost(updated);
+        return updated;
+      }
+      return p;
+    }));
+  };
+
   // Active Client
-  const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
+  const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0] || defaultEmptyClient;
 
   // Filtered Posts for Active Client
   const clientPosts = posts.filter(p => p.clientProjectId === selectedClientId);
@@ -155,7 +309,7 @@ export default function App() {
   const handleAddComment = (postId: string, commentText: string) => {
     const authorName = 
       currentUserRole === 'cliente' ? `${selectedClient.contactName} (Cliente)` :
-      currentUserRole === 'social_media' ? 'Ana (Social Media)' : 'Lucas (Gestor)';
+      currentUserRole === 'social_media' ? 'Social Media' : 'Gestor';
 
     const newCommentObj = {
       id: `c-${Date.now()}`,
@@ -164,6 +318,19 @@ export default function App() {
       text: commentText,
       timestamp: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
+
+    const targetPost = posts.find(p => p.id === postId);
+
+    // Auditoria de Comentários no Supabase (se configurado)
+    auditPostCommentToSupabase({
+      id: newCommentObj.id,
+      postId,
+      postTitle: targetPost?.title,
+      clientId: selectedClientId,
+      authorRole: currentUserRole,
+      authorName,
+      text: commentText
+    });
 
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
@@ -180,6 +347,22 @@ export default function App() {
     }));
   };
 
+  const handleUpdatePostFields = (postId: string, fields: Partial<PostItem>) => {
+    setPosts(prev => prev.map(p => {
+      if (p.id === postId) {
+        const updated = {
+          ...p,
+          ...fields,
+          updatedAt: new Date().toISOString()
+        };
+        if (selectedPostForDetails?.id === postId) setSelectedPostForDetails(updated);
+        if (publicApprovalPost?.id === postId) setPublicApprovalPost(updated);
+        return updated;
+      }
+      return p;
+    }));
+  };
+
   const handleCreatePost = (newPostData: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => {
     const newPost: PostItem = {
       ...newPostData,
@@ -190,7 +373,7 @@ export default function App() {
         {
           id: `c-${Date.now()}`,
           authorRole: currentUserRole,
-          authorName: currentUserRole === 'social_media' ? 'Ana (Social Media)' : 'Lucas (Gestor)',
+          authorName: currentUserRole === 'social_media' ? 'Social Media' : 'Gestor',
           text: 'Rascunho criado para aprovação do cliente.',
           timestamp: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         }
@@ -269,7 +452,18 @@ export default function App() {
   };
 
   const handleUpdateClient = (updatedClient: ClientProject) => {
-    setClients(clients.map(c => c.id === updatedClient.id ? updatedClient : c));
+    setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+    syncClientToSupabase(updatedClient);
+  };
+
+  const handleAddClient = (newClient: ClientProject) => {
+    setClients(prev => {
+      const exists = prev.some(c => c.id === newClient.id);
+      if (exists) return prev.map(c => c.id === newClient.id ? newClient : c);
+      return [...prev, newClient];
+    });
+    setSelectedClientId(newClient.id);
+    syncClientToSupabase(newClient);
   };
 
   const handleChangeMetricsAccess = (clientId: string, access: ClientProject['metricsAccess']) => {
@@ -281,7 +475,8 @@ export default function App() {
       ...newSM,
       id: `sm-${Date.now()}`
     };
-    setSocialMedias([...socialMedias, created]);
+    setSocialMedias(prev => [...prev, created]);
+    syncSocialMediaToSupabase(created);
   };
 
   const handleDeleteSocialMedia = (smId: string) => {
@@ -292,7 +487,20 @@ export default function App() {
     setSocialMedias(prev => prev.map(sm => {
       if (sm.id === smId) {
         const nextStatus = sm.status === 'bloqueado' ? 'ativo' : 'bloqueado';
-        return { ...sm, status: nextStatus };
+        const updated = { ...sm, status: nextStatus };
+        syncSocialMediaToSupabase(updated);
+        return updated;
+      }
+      return sm;
+    }));
+  };
+
+  const handleUpdateSocialMediaFee = (smId: string, customFeePerPost?: number) => {
+    setSocialMedias(prev => prev.map(sm => {
+      if (sm.id === smId) {
+        const updated = { ...sm, customFeePerPost };
+        syncSocialMediaToSupabase(updated);
+        return updated;
       }
       return sm;
     }));
@@ -320,6 +528,7 @@ export default function App() {
         onChangeUserRole={setCurrentUserRole}
         onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
         onOpenDriveModal={() => setIsDriveModalOpen(true)}
+        onOpenAddClientModal={() => setActiveTab('admin')}
         unreadNotificationsCount={draftsCount + changesRequestedCount}
       />
 
@@ -336,6 +545,64 @@ export default function App() {
 
       {/* Main Container Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+
+        {/* Banner de Boas-Vindas sem Exemplos Hardcoded */}
+        {clients.length === 0 && (
+          <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-purple-950 border border-indigo-500/40 rounded-3xl p-6 sm:p-8 space-y-4 shadow-2xl mb-8 animate-fade-in">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-indigo-600/30 text-indigo-300 rounded-2xl border border-indigo-500/40 shrink-0">
+                  <Sparkles className="w-6 h-6 text-indigo-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black text-white">Social Media 5.0 - Ambiente Limpo e Pronto para Uso</h2>
+                  <p className="text-xs text-slate-300">Nenhum dado fictício pré-carregado. Cadastre o seu primeiro cliente com o apoio de Placeholders explicativos em cada campo.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setActiveTab('admin')}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Cadastrar Primeiro Cliente</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setClients(DEMO_CLIENTS);
+                    setSocialMedias(DEMO_SOCIAL_MEDIAS);
+                    setSelectedClientId('client-1');
+                  }}
+                  className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-amber-500/30 flex items-center gap-1.5 transition-all"
+                >
+                  <Layers className="w-4 h-4 text-amber-400" />
+                  <span>Carregar Testes (Opcional)</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-slate-950/80 rounded-2xl p-4 border border-slate-800/80 text-xs text-slate-300 space-y-2">
+              <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                💡 Guia de Orientação para Uso do Sistema (Placeholders em Todos os Formulários):
+              </span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-[11px] text-slate-400">
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <strong className="text-indigo-300 block mb-1">1. Painel Admin / Clientes</strong>
+                  Preencha Razão Social, CNPJ, WhatsApp e preço por post no cadastro com orientações em cada campo.
+                </div>
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <strong className="text-purple-300 block mb-1">2. Rascunhos de Posts</strong>
+                  Adicione títulos, legendas e links de imagem/vídeo. Os rascunhos ficam organizados para aprovação.
+                </div>
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <strong className="text-emerald-300 block mb-1">3. Fechamento e PDF</strong>
+                  Gere recibos de prestação de serviço com cálculo de taxa de R$0,50 por post e exportação imediata.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* TAB 1: POSTS & APROVAÇÕES */}
         {activeTab === 'posts' && (
@@ -425,6 +692,7 @@ export default function App() {
                     onOpenDetails={(p) => setSelectedPostForDetails(p)}
                     onQuickApprove={(id) => handleUpdatePostStatus(id, 'aprovado')}
                     onQuickRequestChange={(id) => handleUpdatePostStatus(id, 'alterar')}
+                    onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
                   />
                 ))}
               </div>
@@ -488,7 +756,9 @@ export default function App() {
             onAddSocialMedia={handleAddSocialMedia}
             onDeleteSocialMedia={handleDeleteSocialMedia}
             onToggleBlockSocialMedia={handleToggleBlockSocialMedia}
+            onUpdateSocialMediaFee={handleUpdateSocialMediaFee}
             onToggleBlockClient={handleToggleBlockClient}
+            onAddClient={handleAddClient}
             feePerPost={feePerPost}
             onUpdateFeePerPost={(newFee) => setFeePerPost(newFee)}
             onAddSaasProof={handleAddSaasProof}
@@ -497,13 +767,13 @@ export default function App() {
           />
         )}
 
-        {/* TAB 7: LIVRO DO PROJETO & HISTÓRICO VIVO DO CHAT */}
-        {activeTab === 'book' && (
+        {/* TAB 7: LIVRO DO PROJETO & HISTÓRICO VIVO DO CHAT (EXCLUSIVO GESTOR) */}
+        {activeTab === 'book' && currentUserRole === 'gestor' && (
           <ProjectBookView />
         )}
 
-        {/* TAB 8: ANÁLISE DE MERCADO & EXCEL */}
-        {activeTab === 'market' && (
+        {/* TAB 8: ANÁLISE DE MERCADO & EXCEL (EXCLUSIVO GESTOR) */}
+        {activeTab === 'market' && currentUserRole === 'gestor' && (
           <MarketAnalysisView />
         )}
 
@@ -522,6 +792,18 @@ export default function App() {
         onConfirmPreviewCleanup={handleConfirmPreviewCleanup}
         onAddComment={handleAddComment}
         onSendWhatsAppAlert={handleSendWhatsAppAlert}
+        onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
+        onRenewToken={handleRenewToken}
+        onUpdatePostFields={handleUpdatePostFields}
+      />
+
+      <ApprovalPublicModal
+        post={publicApprovalPost}
+        isOpen={!!publicApprovalPost}
+        onClose={() => setPublicApprovalPost(null)}
+        onUpdateStatus={handleUpdatePostStatus}
+        onAddComment={handleAddComment}
+        onRenewToken={handleRenewToken}
       />
 
       <NewPostModal

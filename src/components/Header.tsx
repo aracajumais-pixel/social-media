@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject, UserRole } from '../types';
-import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive } from 'lucide-react';
+import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Plus } from 'lucide-react';
 
 interface HeaderProps {
   clients: ClientProject[];
@@ -10,6 +10,7 @@ interface HeaderProps {
   onChangeUserRole: (role: UserRole) => void;
   onOpenWhatsAppModal: () => void;
   onOpenDriveModal: () => void;
+  onOpenAddClientModal?: () => void;
   unreadNotificationsCount: number;
 }
 
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeUserRole,
   onOpenWhatsAppModal,
   onOpenDriveModal,
+  onOpenAddClientModal,
   unreadNotificationsCount
 }) => {
   const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
@@ -37,9 +39,9 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <div>
               <h1 className="text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent leading-tight">
-                SocialApprove
+                Social Media 5.0
               </h1>
-              <p className="text-xs text-slate-400 font-medium">Fluxo Direto de Aprovação</p>
+              <p className="text-xs text-slate-400 font-medium">Gestão & Aprovação Inteligente</p>
             </div>
           </div>
 
@@ -58,6 +60,16 @@ export const Header: React.FC<HeaderProps> = ({
                 </option>
               ))}
             </select>
+            {onOpenAddClientModal && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
+              <button
+                onClick={onOpenAddClientModal}
+                className="ml-1 p-1 hover:bg-indigo-600/30 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-indigo-500/30 px-2 py-0.5"
+                title="Cadastrar Novo Cliente"
+              >
+                <Plus className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="text-[11px]">+ Novo</span>
+              </button>
+            )}
           </div>
 
           {/* User Role Switcher & Action Buttons */}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { UserRole, MetricsVisibility } from '../types';
 import { CheckCircle2, Lightbulb, FileText, BarChart3, Settings, Lock, Sparkles, BookOpen, FileSpreadsheet } from 'lucide-react';
 
@@ -23,6 +23,35 @@ export const Navigation: React.FC<NavigationProps> = ({
   changesRequestedCount,
   inspirationsCount
 }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isMouseDown, setIsMouseDown] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeftState, setScrollLeftState] = useState(0);
+
+  // Mouse Drag Handlers for Desktop + Touch Natural Swipe for Mobile
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!scrollRef.current) return;
+    setIsMouseDown(true);
+    setStartX(e.pageX - scrollRef.current.offsetLeft);
+    setScrollLeftState(scrollRef.current.scrollLeft);
+  };
+
+  const handleMouseLeave = () => {
+    setIsMouseDown(false);
+  };
+
+  const handleMouseUp = () => {
+    setIsMouseDown(false);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isMouseDown || !scrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - scrollRef.current.offsetLeft;
+    const walk = (x - startX) * 1.5; // Drag scroll multiplier
+    scrollRef.current.scrollLeft = scrollLeftState - walk;
+  };
+
   // Regra de quem pode visualizar as Métricas
   const canViewMetrics =
     currentUserRole === 'gestor' ||
@@ -31,14 +60,26 @@ export const Navigation: React.FC<NavigationProps> = ({
     (metricsAccess === 'social_media' && currentUserRole === 'social_media');
 
   return (
-    <nav className="bg-slate-900/90 border-b border-slate-800 backdrop-blur-md sticky top-16 z-20">
+    <nav className="bg-slate-900/90 border-b border-slate-800 backdrop-blur-md sticky top-16 z-20 select-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center space-x-1 sm:space-x-3 overflow-x-auto no-scrollbar py-2">
+        <div
+          ref={scrollRef}
+          onMouseDown={handleMouseDown}
+          onMouseLeave={handleMouseLeave}
+          onMouseUp={handleMouseUp}
+          onMouseMove={handleMouseMove}
+          className="flex items-center space-x-1 sm:space-x-3 overflow-x-auto no-scrollbar py-2 touch-pan-x cursor-grab active:cursor-grabbing scroll-smooth"
+          style={{
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+            WebkitOverflowScrolling: 'touch'
+          }}
+        >
           
           {/* Tab 1: Posts & Aprovações */}
           <button
             onClick={() => onTabChange('posts')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
               activeTab === 'posts'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -65,7 +106,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           {/* Tab 2: Inspirações & Referências do Cliente */}
           <button
             onClick={() => onTabChange('inspirations')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
               activeTab === 'inspirations'
                 ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -84,7 +125,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
             <button
               onClick={() => onTabChange('billing')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                 activeTab === 'billing'
                   ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -103,7 +144,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               }
             }}
             disabled={!canViewMetrics}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
               !canViewMetrics
                 ? 'opacity-40 cursor-not-allowed text-slate-500'
                 : activeTab === 'metrics'
@@ -121,7 +162,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
             <button
               onClick={() => onTabChange('settings')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                 activeTab === 'settings'
                   ? 'bg-slate-700 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -136,7 +177,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           {currentUserRole === 'gestor' && (
             <button
               onClick={() => onTabChange('admin')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition-all whitespace-nowrap border ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition-all whitespace-nowrap shrink-0 border ${
                 activeTab === 'admin'
                   ? 'bg-gradient-to-r from-amber-500 to-indigo-600 text-slate-950 border-amber-300 shadow-lg shadow-amber-500/20'
                   : 'text-amber-300 border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/40'
@@ -147,34 +188,39 @@ export const Navigation: React.FC<NavigationProps> = ({
             </button>
           )}
 
-          {/* Tab 7: Livro do Projeto / Manual Vivo */}
-          <button
-            onClick={() => onTabChange('book')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
-              activeTab === 'book'
-                ? 'bg-amber-600 text-slate-950 font-extrabold shadow-md shadow-amber-600/20'
-                : 'text-amber-400 hover:text-amber-300 hover:bg-amber-950/30'
-            }`}
-          >
-            <BookOpen className="w-4 h-4 text-amber-400" />
-            <span>Livro do Projeto</span>
-          </button>
+          {/* Tab 7: Livro do Projeto / Manual Vivo (Exclusivo do Gestor) */}
+          {currentUserRole === 'gestor' && (
+            <button
+              onClick={() => onTabChange('book')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
+                activeTab === 'book'
+                  ? 'bg-amber-600 text-slate-950 font-extrabold shadow-md shadow-amber-600/20'
+                  : 'text-amber-400 hover:text-amber-300 hover:bg-amber-950/30'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 text-amber-400" />
+              <span>Livro do Projeto</span>
+            </button>
+          )}
 
-          {/* Tab 8: Análise de Mercado Excel */}
-          <button
-            onClick={() => onTabChange('market')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
-              activeTab === 'market'
-                ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20'
-                : 'text-teal-400 hover:text-teal-300 hover:bg-teal-950/30'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4 text-teal-400" />
-            <span>Análise de Mercado (.xlsx)</span>
-          </button>
+          {/* Tab 8: Análise de Mercado Excel (Exclusivo do Gestor) */}
+          {currentUserRole === 'gestor' && (
+            <button
+              onClick={() => onTabChange('market')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
+                activeTab === 'market'
+                  ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20'
+                  : 'text-teal-400 hover:text-teal-300 hover:bg-teal-950/30'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4 text-teal-400" />
+              <span>Análise de Mercado (.xlsx)</span>
+            </button>
+          )}
 
         </div>
       </div>
     </nav>
   );
 };
+

@@ -46,17 +46,10 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     existingReceipt?.items || [
       {
         id: 'item-1',
-        description: 'Serviços de Criação e Postagens de Stories',
-        quantity: 15,
-        unitPrice: selectedClient.pricePerPost || 20.00,
-        total: 300.00
-      },
-      {
-        id: 'item-2',
-        description: 'Artes Estáticas / Carrossel para o Feed',
-        quantity: 10,
-        unitPrice: 50.00,
-        total: 500.00
+        description: '',
+        quantity: 1,
+        unitPrice: selectedClient?.pricePerPost || 150.00,
+        total: selectedClient?.pricePerPost || 150.00
       }
     ]
   );

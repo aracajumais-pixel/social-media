@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ClientProject, UserRole, SocialNetwork } from '../types';
 import { Building, ShieldCheck, DollarSign, Save, Phone, Mail, HardDrive, Image as ImageIcon, Share2 } from 'lucide-react';
+import { DriveImage } from './DriveImage';
+import { getEmbeddableMediaUrl, isGoogleDriveUrl } from '../utils/driveHelper';
 
 interface ClientSettingsProps {
   client: ClientProject;
@@ -71,13 +73,15 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
           </label>
           <div className="flex flex-col sm:flex-row items-center gap-4">
             {formData.logoUrl ? (
-              <img
-                src={formData.logoUrl}
-                alt="Logo preview"
-                className="w-20 h-20 rounded-xl object-contain bg-slate-900 p-2 border border-slate-800 shrink-0"
-              />
+              <div className="w-20 h-20 rounded-xl bg-slate-900 border border-slate-800 shrink-0 overflow-hidden relative">
+                <DriveImage
+                  src={formData.logoUrl}
+                  alt="Logo preview"
+                  className="w-full h-full object-contain p-1"
+                />
+              </div>
             ) : (
-              <div className="w-20 h-20 rounded-xl bg-slate-900 border border-dashed border-slate-800 flex items-center justify-center text-slate-600 shrink-0">
+              <div className="w-20 h-20 rounded-xl bg-slate-900 border border-dashed border-slate-800 flex items-center justify-center text-slate-600 shrink-0 text-[10px] font-bold">
                 Sem Logo
               </div>
             )}
@@ -85,12 +89,16 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               <input
                 type="url"
                 value={formData.logoUrl || ''}
-                onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
-                className="w-full bg-slate-900 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 text-xs"
-                placeholder="https://exemplo.com/logo-empresa.png"
+                onChange={(e) => {
+                  const rawUrl = e.target.value;
+                  const converted = rawUrl.trim() ? getEmbeddableMediaUrl(rawUrl) : rawUrl;
+                  setFormData({ ...formData, logoUrl: converted });
+                }}
+                className="w-full bg-slate-900 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 text-xs font-mono"
+                placeholder="https://drive.google.com/file/d/... ou https://lh3.googleusercontent.com/d/..."
               />
-              <p className="text-[10px] text-slate-400">
-                A imagem da logomarca será estampará o cabeçalho oficial do Recibo de Pagamento em PDF.
+              <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                <span>✨ <strong>Tratamento Automático:</strong> Qualquer link do Google Drive inserido aqui é convertido instantaneamente na URL direta de alta resolução (Opção 1) para o PDF e prévias.</span>
               </p>
             </div>
           </div>

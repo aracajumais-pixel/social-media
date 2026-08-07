@@ -179,31 +179,81 @@ Como o custo do SaaS é de apenas R$ 0,50 por post, as mídias hospedadas para a
 - **Pedido 8**: Comprovantes de repasse Pix SaaS (R$0,50/post) e medidor de capacidade do Google Drive por cliente.
 - **Pedido 9**: Estatística de Linhas de Código por capítulo do livro + Gráfico de linha do tempo de evolução de código + Métricas de conversão WhatsApp x Conversa enviada.
 - **Pedido 10**: Confirmação visual no gerador de recibo ao salvar/registrar; remoção de textos explicativos entre parênteses no recibo; substituição do termo "alterar" por "revisar" no botão e chat com caixa de entrada de informações para revisão; seleção de canais de publicação em redes sociais; criação dos capítulos dedicados de Métricas e Painel do Gestor no Livro do Projeto.
+- **Pedido 11**: Atualização do nome oficial da plataforma para **Social Media 5.0**; navegação por arraste com toque no menu horizontal sem exibição de barra de rolagem (sem scrollbar visível); verificação e garantia de modularização total das partes (menu isolado em /src/components/Navigation.tsx).
+- **Pedido 12**: Link de Aprovação com Token Hash Único (\`approval_token\`) e Expiração Automática em 5 Dias (\`token_expires_at\`), integrando estrutura de tabela Supabase (\`id\`, \`approval_token\`, \`token_expires_at\`, \`status\`).
 `
   },
   {
     id: 'chap-8',
     number: 'Capítulo 08',
+    title: 'Estrutura Supabase & Mapeamento da Tabela de Posts',
+    date: '2026-08-02',
+    summary: 'Mapeamento de banco de dados relacional no Supabase com Hash Único de Token e regra de expiração de 5 dias.',
+    codeLines: 6850,
+    growthStat: '+570 LOC (Supabase & Token Module)',
+    moduleScope: 'src/utils/token.ts, src/components/ApprovalPublicModal.tsx, Supabase DDL',
+    content: `
+### 8.1 Estrutura da Tabela \`posts\` no Supabase
+Para suportar o Link Público Seguro com Token Hash e Expiração de 5 Dias, a tabela \`posts\` no PostgreSQL / Supabase está configurada com os seguintes campos:
+
+\`\`\`sql
+-- Tabela de Posts no Supabase
+CREATE TABLE IF NOT EXISTS public.posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_project_id UUID NOT NULL REFERENCES public.client_projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  caption TEXT NOT NULL,
+  media_url TEXT NOT NULL,
+  media_type TEXT CHECK (media_type IN ('image', 'video', 'carousel')) DEFAULT 'image',
+  social_networks TEXT[] DEFAULT ARRAY['instagram'],
+  scheduled_date TIMESTAMP WITH TIME ZONE NOT NULL,
+  
+  -- Campos de Controle do Link Público com Expiração de 5 Dias:
+  approval_token UUID DEFAULT gen_random_uuid() NOT NULL,
+  token_expires_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '5 days') NOT NULL,
+  status TEXT CHECK (status IN ('pending', 'approved', 'rejected', 'rascunho', 'aprovado', 'alterar')) DEFAULT 'pending',
+  
+  is_published BOOLEAN DEFAULT FALSE,
+  preview_cleaned_up BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Índice para busca ultra-rápida por token de aprovação
+CREATE INDEX IF NOT EXISTS idx_posts_approval_token ON public.posts(approval_token);
+\`\`\`
+
+### 8.2 Regra de Negócio: Link com Hash + Expiração em 5 Dias
+1. **Privacidade e Segurança**: Cada post gera um \`approval_token\` (UUID único e imprevisível).
+2. **Urgência & Agilidade**: O link público possui data limite de 5 dias (\`token_expires_at\`).
+3. **Bloqueio de Tokens Antigos**: Links com mais de 5 dias exibem automaticamente uma tela de aviso solicitando que o cliente peça a renovação à equipe de Social Media.
+4. **Renovação com 1 Clique**: A equipe de Social Media ou Gestor pode renovar o token e gerar + 5 dias de validade a qualquer momento.
+`
+  },
+  {
+    id: 'chap-9',
+    number: 'Capítulo 09',
     title: 'Linha do Tempo de Evolução de Código & Gráfico de Crescimento',
-    date: '2026-07-29',
+    date: '2026-08-02',
     summary: 'Métricas consolidadas de linhas de código (LOC) por módulo e gráfico da linha do tempo de atualizações.',
-    codeLines: 6280,
-    growthStat: '+402% Crescimento Total',
-    moduleScope: 'Todo o Repositório (14 arquivos principais)',
+    codeLines: 6850,
+    growthStat: '+448% Crescimento Total',
+    moduleScope: 'Todo o Repositório (16 arquivos principais)',
     isTimelineChapter: true,
     content: `
-### 8.1 Evolução Histórica das Linhas de Código (LOC)
-Acompanhamento gráfico em tempo real do crescimento da base de código fonte TypeScript/React do SocialApprove SaaS a cada ciclo de atualização e funcionalidade entregue.
+### 9.1 Evolução Histórica das Linhas de Código (LOC)
+Acompanhamento gráfico em tempo real do crescimento da base de código fonte TypeScript/React do **Social Media 5.0** a cada ciclo de atualização e funcionalidade entregue.
 
-### 8.2 Distribuição de Código por Módulo
+### 9.2 Distribuição de Código por Módulo
 O repositório está estruturado de forma modular e limpa para facilitar manutenção e performance:
 - **AdminSaaSDashboard.tsx**: Painel Sigiloso do Gestor, Controle Finanças, Repasse Pix e Conversão WhatsApp (~1.353 linhas).
 - **MetricsDashboard.tsx**: Painel de Métricas, Tráfego Pago ROAS 4.8x, Benchmarking e Simulador (~846 linhas).
-- **App.tsx**: Gerenciador de Estado Principal e Rroteador de Telas (~540 linhas).
+- **ApprovalPublicModal.tsx & token.ts**: Sistema de Link Público com Token UUID e Expiração de 5 Dias (~380 linhas).
+- **App.tsx**: Gerenciador de Estado Principal e Rroteador de Telas (~570 linhas).
 - **ReceiptGenerator.tsx**: Gerador do Recibo Oficial em PDF com Valor por Extenso e Assinatura (~526 linhas).
-- **ProjectBookView.tsx**: Livro do Projeto Vivo com Controle de Linhas de Código e Recharts (~520 linhas).
+- **ProjectBookView.tsx**: Livro do Projeto Vivo com Controle de Linhas de Código e Recharts (~540 linhas).
 - **MarketAnalysisView.tsx**: Análise de Mercado e Exportador XLSX (~380 linhas).
-- **Outros Componentes (Header, PostCard, Modais, Types, MockData)**: ~2.115 linhas restantes.
+- **Outros Componentes (Header, PostCard, Modais, Types, MockData)**: ~2.250 linhas restantes.
 `
   }
 ];
