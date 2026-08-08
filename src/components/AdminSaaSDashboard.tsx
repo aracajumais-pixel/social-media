@@ -1853,23 +1853,28 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                   driveStorageUsedGB: 0.5,
                   driveStorageLimitGB: 15.0
                 };
-                if (onAddClient) {
-                  onAddClient(created);
+                try {
+                  if (onAddClient) {
+                    onAddClient(created);
+                  }
+                } catch (err) {
+                  console.error('Erro ao adicionar cliente:', err);
+                } finally {
+                  setIsAddingClientModal(false);
+                  setNewClientForm({
+                    name: '',
+                    companyName: '',
+                    cnpj: '',
+                    address: '',
+                    contactName: '',
+                    whatsappNumber: '',
+                    email: '',
+                    pricePerPost: 150,
+                    googleDriveFolderUrl: '',
+                    logoUrl: '',
+                    assignedSocialMediaId: socialMedias[0]?.id || ''
+                  });
                 }
-                setIsAddingClientModal(false);
-                setNewClientForm({
-                  name: '',
-                  companyName: '',
-                  cnpj: '',
-                  address: '',
-                  contactName: '',
-                  whatsappNumber: '',
-                  email: '',
-                  pricePerPost: 150,
-                  googleDriveFolderUrl: '',
-                  logoUrl: '',
-                  assignedSocialMediaId: socialMedias[0]?.id || ''
-                });
               }}
               className="space-y-4 text-xs"
             >
