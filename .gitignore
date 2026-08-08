@@ -1,3 +1,4 @@
+# Ignorar arquivos de ambiente com chaves reais
 node_modules/
 build/
 dist/
@@ -6,3 +7,8 @@ coverage/
 *.log
 .env*
 !.env.example
+.env.local
+.env
+.env.development.local
+.env.test.local
+.env.production.local

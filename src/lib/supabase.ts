@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ClientProject, PostItem } from '../types';
+import { ClientProject, PostItem, UserRole, SupabaseUserRole, UserProfile } from '../types';
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env || {};
 
@@ -345,4 +345,139 @@ export async function syncSocialMediaToSupabase(sm: {
     return null;
   }
 }
+
+/**
+ * Mapeia a função do Supabase ('DEVWEBAPP' | 'social_media' | 'client') para a função da aplicação ('gestor' | 'social_media' | 'cliente').
+ */
+export function mapSupabaseRoleToAppRole(role?: string): UserRole {
+  if (role === 'DEVWEBAPP') return 'gestor';
+  if (role === 'social_media') return 'social_media';
+  return 'cliente';
+}
+
+/**
+ * Mapeia a função da aplicação ('gestor' | 'social_media' | 'cliente') para a função do Supabase ('DEVWEBAPP' | 'social_media' | 'client').
+ */
+export function mapAppRoleToSupabaseRole(role?: UserRole): SupabaseUserRole {
+  if (role === 'gestor') return 'DEVWEBAPP';
+  if (role === 'social_media') return 'social_media';
+  return 'client';
+}
+
+/**
+ * Busca o perfil do usuário na tabela `profiles` do Supabase pelo ID de autenticação.
+ */
+export async function fetchUserProfileFromSupabase(userId: string): Promise<UserProfile | null> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !userId) return null;
+  try {
+    const { data, error } = await clientDb
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.warn('Erro ao buscar perfil do usuário no Supabase:', error.message);
+      return null;
+    }
+
+    if (data) {
+      return {
+        id: data.id,
+        email: data.email,
+        fullName: data.full_name || '',
+        role: mapSupabaseRoleToAppRole(data.role),
+        supabaseRole: data.role as SupabaseUserRole,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn('Falha ao consultar perfil no Supabase:', err);
+    return null;
+  }
+}
+
+/**
+ * Sincroniza ou atualiza um perfil de usuário na tabela `profiles` do Supabase.
+ */
+export async function syncUserProfileToSupabase(profile: {
+  id: string;
+  email: string;
+  fullName?: string;
+  role: UserRole | SupabaseUserRole;
+}) {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !profile.id) return null;
+  try {
+    const dbRole: SupabaseUserRole = (profile.role === 'DEVWEBAPP' || profile.role === 'client')
+      ? (profile.role as SupabaseUserRole)
+      : mapAppRoleToSupabaseRole(profile.role as UserRole);
+
+    const payload = {
+      id: profile.id,
+      email: profile.email,
+      full_name: profile.fullName || '',
+      role: dbRole,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data, error } = await clientDb
+      .from('profiles')
+      .upsert([payload]);
+
+    if (error) {
+      console.warn('Erro ao sincronizar perfil no Supabase:', error.message);
+    } else {
+      console.log('✓ Perfil sincronizado no Supabase com sucesso!', profile.id);
+    }
+    return data;
+  } catch (err) {
+    console.warn('Falha ao conectar com Supabase ao salvar perfil:', err);
+    return null;
+  }
+}
+
+export interface SignUpParams {
+  email: string;
+  password: string;
+  fullName: string;
+  role: SupabaseUserRole | UserRole;
+}
+
+/**
+ * Cadastra um novo usuário no Supabase Auth enviando os metadados (full_name e role)
+ * para disparar a trigger `on_auth_user_created` no banco de dados e alimentar a tabela `profiles`.
+ */
+export async function registerUser({ email, password, fullName, role }: SignUpParams) {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) {
+    throw new Error('Cliente do Supabase não configurado. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
+  }
+
+  const dbRole: SupabaseUserRole = (role === 'DEVWEBAPP' || role === 'client')
+    ? (role as SupabaseUserRole)
+    : mapAppRoleToSupabaseRole(role as UserRole);
+
+  const { data, error } = await clientDb.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: fullName,
+        role: dbRole
+      }
+    }
+  });
+
+  if (error) {
+    console.error('Erro ao cadastrar usuário no Supabase:', error.message);
+    throw error;
+  }
+
+  return data;
+}
+
 

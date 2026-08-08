@@ -2,6 +2,18 @@ export type PostStatus = 'rascunho' | 'aprovado' | 'alterar';
 
 export type UserRole = 'gestor' | 'social_media' | 'cliente';
 
+export type SupabaseUserRole = 'DEVWEBAPP' | 'social_media' | 'client';
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  fullName?: string;
+  role: UserRole;
+  supabaseRole: SupabaseUserRole;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export type SocialNetwork = 'instagram' | 'facebook' | 'tiktok' | 'linkedin' | 'youtube';
 
 export type MetricsVisibility = 'cliente' | 'social_media' | 'ambos' | 'gestor_apenas';

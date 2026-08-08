@@ -46,7 +46,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     contactName: '',
     whatsappNumber: '',
     email: '',
-    pricePerPost: 150,
+    pricePerPost: '' as string | number,
     googleDriveFolderUrl: '',
     logoUrl: '',
     assignedSocialMediaId: socialMedias[0]?.id || ''
@@ -116,7 +116,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       contactName: '',
       whatsappNumber: '',
       email: '',
-      pricePerPost: 150,
+      pricePerPost: '',
       googleDriveFolderUrl: '',
       logoUrl: '',
       assignedSocialMediaId: socialMedias[0]?.id || ''
@@ -302,6 +302,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="Ex: Padaria Solar"
                 className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-medium"
               />
             </div>
@@ -313,6 +314,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 required
                 value={formData.companyName}
                 onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                placeholder="Ex: Solar Alimentos LTDA"
                 className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
               />
             </div>
@@ -324,6 +326,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 required
                 value={formData.cnpj}
                 onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
+                placeholder="Ex: 00.000.000/0001-00"
                 className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-mono"
               />
             </div>
@@ -334,6 +337,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 type="text"
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                placeholder="Ex: Av. Paulista, 1000, Sala 502 - São Paulo/SP"
                 className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
               />
             </div>
@@ -376,6 +380,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 required
                 value={formData.contactName}
                 onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
+                placeholder="Ex: Carlos Silva"
                 className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
               />
             </div>
@@ -389,6 +394,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 required
                 value={formData.whatsappNumber}
                 onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
+                placeholder="Ex: 5511999998888"
                 className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
               />
             </div>
@@ -401,6 +407,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="Ex: contato@padariasolar.com.br"
                 className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
               />
             </div>
@@ -414,8 +421,9 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               </label>
               <input
                 type="number"
-                value={formData.pricePerPost}
-                onChange={(e) => setFormData({ ...formData, pricePerPost: Number(e.target.value) })}
+                value={formData.pricePerPost || ''}
+                onChange={(e) => setFormData({ ...formData, pricePerPost: e.target.value ? Number(e.target.value) : 0 })}
+                placeholder="Ex: 150.00"
                 className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
               />
             </div>
@@ -597,7 +605,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                     <input
                       type="number"
                       value={newClientForm.pricePerPost}
-                      onChange={(e) => setNewClientForm({ ...newClientForm, pricePerPost: Number(e.target.value) })}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, pricePerPost: e.target.value })}
+                      placeholder="Ex: 150.00"
                       className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                     />
                   </div>
