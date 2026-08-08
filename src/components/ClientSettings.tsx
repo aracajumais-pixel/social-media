@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ClientProject, UserRole, SocialNetwork, SocialMediaUser } from '../types';
-import { Building, ShieldCheck, DollarSign, Save, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Users } from 'lucide-react';
+import { Building, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Sparkles } from 'lucide-react';
 import { DriveImage } from './DriveImage';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
+import { searchClientsInSupabase } from '../lib/supabase';
 
 interface ClientSettingsProps {
   client: ClientProject;
@@ -31,14 +32,20 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   onAddClient,
   socialMedias = []
 }) => {
-  const [formData, setFormData] = useState<ClientProject>(client);
-  const [savedSuccess, setSavedSuccess] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [supabaseSearchResults, setSupabaseSearchResults] = useState<ClientProject[] | null>(null);
+  const [isSearchingSupabase, setIsSearchingSupabase] = useState(false);
+  const [lastEditedClientId, setLastEditedClientId] = useState<string>(() => {
+    return localStorage.getItem('last_edited_client_id') || client.id || '';
+  });
 
-  // New Client Modal State
-  const [isAddingClientModal, setIsAddingClientModal] = useState(false);
-  const [newClientSavedSuccess, setNewClientSavedSuccess] = useState(false);
-  const [newClientForm, setNewClientForm] = useState({
+  // Modal state (used for BOTH adding new client AND editing an existing client)
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<ClientProject | null>(null); // null = new mode, ClientProject = edit mode
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const [modalForm, setModalForm] = useState({
+    id: '',
     name: '',
     companyName: '',
     cnpj: '',
@@ -49,66 +56,34 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     pricePerPost: '' as string | number,
     googleDriveFolderUrl: '',
     logoUrl: '',
+    activeSocialNetworks: ['instagram', 'facebook'] as SocialNetwork[],
     assignedSocialMediaId: socialMedias[0]?.id || ''
   });
 
-  // Keep formData in sync if active client prop changes
+  // Query Supabase directly when searchQuery changes
   useEffect(() => {
-    setFormData(client);
-  }, [client]);
-
-  const handleCorrectSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onUpdateClient(formData);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 4000);
-  };
-
-  const handleToggleNetwork = (network: SocialNetwork) => {
-    const current = formData.activeSocialNetworks || [];
-    if (current.includes(network)) {
-      if (current.length === 1) return; // manter ao menos 1
-      setFormData({ ...formData, activeSocialNetworks: current.filter(n => n !== network) });
-    } else {
-      setFormData({ ...formData, activeSocialNetworks: [...current, network] });
-    }
-  };
-
-  const handleCreateClientSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newClientForm.name.trim()) return;
-
-    const created: ClientProject = {
-      id: `client-${Date.now()}`,
-      name: newClientForm.name.trim(),
-      companyName: newClientForm.companyName.trim() || newClientForm.name.trim(),
-      cnpj: newClientForm.cnpj.trim() || '00.000.000/0001-00',
-      address: newClientForm.address.trim() || 'Endereço Comercial',
-      contactName: newClientForm.contactName.trim() || 'Contato Principal',
-      whatsappNumber: newClientForm.whatsappNumber.trim() || '5511999998888',
-      email: newClientForm.email.trim() || 'contato@cliente.com',
-      pricePerPost: Number(newClientForm.pricePerPost) || 150,
-      metricsAccess: 'ambos',
-      googleDriveFolderUrl: newClientForm.googleDriveFolderUrl.trim(),
-      logoUrl: newClientForm.logoUrl.trim(),
-      activeSocialNetworks: ['instagram', 'facebook'],
-      assignedSocialMediaId: newClientForm.assignedSocialMediaId || undefined,
-      status: 'ativo',
-      driveStorageUsedGB: 0.5,
-      driveStorageLimitGB: 15.0
-    };
-
-    if (onAddClient) {
-      onAddClient(created);
+    if (!searchQuery.trim()) {
+      setSupabaseSearchResults(null);
+      setIsSearchingSupabase(false);
+      return;
     }
 
-    setNewClientSavedSuccess(true);
-  };
+    const timer = setTimeout(async () => {
+      setIsSearchingSupabase(true);
+      const results = await searchClientsInSupabase(searchQuery);
+      setSupabaseSearchResults(results);
+      setIsSearchingSupabase(false);
+    }, 300);
 
-  const handleCloseNewClientModal = () => {
-    setIsAddingClientModal(false);
-    setNewClientSavedSuccess(false);
-    setNewClientForm({
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Open modal in CREATE mode
+  const handleOpenCreateModal = () => {
+    setEditingClient(null);
+    setSavedSuccess(false);
+    setModalForm({
+      id: '',
       name: '',
       companyName: '',
       cnpj: '',
@@ -116,31 +91,132 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       contactName: '',
       whatsappNumber: '',
       email: '',
-      pricePerPost: '',
+      pricePerPost: 150,
       googleDriveFolderUrl: '',
       logoUrl: '',
+      activeSocialNetworks: ['instagram', 'facebook'],
       assignedSocialMediaId: socialMedias[0]?.id || ''
     });
+    setIsClientModalOpen(true);
   };
 
-  // Filter clients based on search query
-  const filteredClients = clients.filter(c => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(q) ||
-      (c.companyName && c.companyName.toLowerCase().includes(q)) ||
-      (c.contactName && c.contactName.toLowerCase().includes(q)) ||
-      (c.email && c.email.toLowerCase().includes(q)) ||
-      (c.cnpj && c.cnpj.toLowerCase().includes(q))
-    );
-  });
+  // Open modal in EDIT mode
+  const handleOpenEditModal = (targetClient: ClientProject) => {
+    setEditingClient(targetClient);
+    setSavedSuccess(false);
+    setModalForm({
+      id: targetClient.id,
+      name: targetClient.name || '',
+      companyName: targetClient.companyName || '',
+      cnpj: targetClient.cnpj || '',
+      address: targetClient.address || '',
+      contactName: targetClient.contactName || '',
+      whatsappNumber: targetClient.whatsappNumber || '',
+      email: targetClient.email || '',
+      pricePerPost: targetClient.pricePerPost ?? 150,
+      googleDriveFolderUrl: targetClient.googleDriveFolderUrl || '',
+      logoUrl: targetClient.logoUrl || '',
+      activeSocialNetworks: targetClient.activeSocialNetworks || ['instagram', 'facebook'],
+      assignedSocialMediaId: targetClient.assignedSocialMediaId || socialMedias[0]?.id || ''
+    });
+    setIsClientModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsClientModalOpen(false);
+    setEditingClient(null);
+    setSavedSuccess(false);
+  };
+
+  const handleSaveClientSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalForm.name.trim()) return;
+
+    if (editingClient) {
+      // Edit Existing Client
+      const updated: ClientProject = {
+        ...editingClient,
+        name: modalForm.name.trim(),
+        companyName: modalForm.companyName.trim() || modalForm.name.trim(),
+        cnpj: modalForm.cnpj.trim(),
+        address: modalForm.address.trim(),
+        contactName: modalForm.contactName.trim(),
+        whatsappNumber: modalForm.whatsappNumber.trim(),
+        email: modalForm.email.trim(),
+        pricePerPost: Number(modalForm.pricePerPost) || 150,
+        googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
+        logoUrl: modalForm.logoUrl.trim(),
+        activeSocialNetworks: modalForm.activeSocialNetworks,
+        assignedSocialMediaId: modalForm.assignedSocialMediaId || undefined
+      };
+
+      onUpdateClient(updated);
+      setLastEditedClientId(updated.id);
+      localStorage.setItem('last_edited_client_id', updated.id);
+      if (onSelectClient) onSelectClient(updated.id);
+    } else {
+      // Create New Client
+      const newId = `client-${Date.now()}`;
+      const created: ClientProject = {
+        id: newId,
+        name: modalForm.name.trim(),
+        companyName: modalForm.companyName.trim() || modalForm.name.trim(),
+        cnpj: modalForm.cnpj.trim() || '00.000.000/0001-00',
+        address: modalForm.address.trim() || 'Endereço Comercial',
+        contactName: modalForm.contactName.trim() || 'Contato Principal',
+        whatsappNumber: modalForm.whatsappNumber.trim() || '5511999998888',
+        email: modalForm.email.trim() || 'contato@cliente.com',
+        pricePerPost: Number(modalForm.pricePerPost) || 150,
+        metricsAccess: 'ambos',
+        googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
+        logoUrl: modalForm.logoUrl.trim(),
+        activeSocialNetworks: modalForm.activeSocialNetworks,
+        assignedSocialMediaId: modalForm.assignedSocialMediaId || undefined,
+        status: 'ativo',
+        driveStorageUsedGB: 0.5,
+        driveStorageLimitGB: 15.0
+      };
+
+      if (onAddClient) onAddClient(created);
+      setLastEditedClientId(newId);
+      localStorage.setItem('last_edited_client_id', newId);
+      if (onSelectClient) onSelectClient(newId);
+    }
+
+    setSavedSuccess(true);
+  };
+
+  const handleToggleNetwork = (network: SocialNetwork) => {
+    const current = modalForm.activeSocialNetworks || [];
+    if (current.includes(network)) {
+      if (current.length === 1) return;
+      setModalForm({ ...modalForm, activeSocialNetworks: current.filter(n => n !== network) });
+    } else {
+      setModalForm({ ...modalForm, activeSocialNetworks: [...current, network] });
+    }
+  };
+
+  // Determine list of displayed clients
+  const displayedClients = searchQuery.trim()
+    ? (supabaseSearchResults !== null
+        ? supabaseSearchResults
+        : clients.filter(c => {
+            const q = searchQuery.toLowerCase();
+            return (
+              c.name.toLowerCase().includes(q) ||
+              (c.companyName && c.companyName.toLowerCase().includes(q)) ||
+              (c.contactName && c.contactName.toLowerCase().includes(q)) ||
+              (c.email && c.email.toLowerCase().includes(q)) ||
+              (c.cnpj && c.cnpj.toLowerCase().includes(q))
+            );
+          }))
+    : clients;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       
-      {/* SEÇÃO SUPERIOR: TÍTULO, BARRA DE BUSCA DE CLIENTES E BOTÃO NOVO CLIENTE */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+      {/* SEÇÃO PRINCIPAL DE GERENCIAMENTO E BUSCA */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
         
         {/* Header do Módulo */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
@@ -150,30 +226,31 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
             </div>
             <div>
               <h2 className="text-xl font-black text-white tracking-tight">Clientes</h2>
-              <p className="text-xs text-slate-400">Gerenciamento, busca, cadastro e correção de informações de clientes</p>
+              <p className="text-xs text-slate-400">Busca direto no Supabase, gestão simplificada e edição de clientes</p>
             </div>
           </div>
 
           <button
-            onClick={() => {
-              setNewClientSavedSuccess(false);
-              setIsAddingClientModal(true);
-            }}
-            className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition-all shrink-0"
+            onClick={handleOpenCreateModal}
+            className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition-all shrink-0 hover:scale-[1.02]"
           >
             <Plus className="w-4 h-4" />
             <span>Cadastrar Novo Cliente</span>
           </button>
         </div>
 
-        {/* 3. CAMPO DE BUSCA DE CLIENTES NO TOPO */}
+        {/* CAMPO DE BUSCA DE CLIENTES NO SUPABASE */}
         <div className="space-y-3 pt-1">
           <label className="block text-xs font-bold text-slate-300 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Search className="w-4 h-4 text-indigo-400" /> Buscar Cliente:
+              <Search className="w-4 h-4 text-indigo-400" /> Buscar Cliente no Supabase:
             </span>
-            <span className="text-[11px] text-slate-500 font-normal">
-              Exibindo {filteredClients.length} de {clients.length} cliente(s)
+            <span className="text-[11px] text-slate-400 font-normal">
+              {isSearchingSupabase ? (
+                <span className="text-indigo-400 animate-pulse">Pesquisando no banco de dados Supabase...</span>
+              ) : (
+                <span>Exibindo {displayedClients.length} de {clients.length} cliente(s)</span>
+              )}
             </span>
           </label>
 
@@ -181,7 +258,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
             <Search className="w-4.5 h-4.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Digite o nome do cliente, razão social, e-mail, contato ou CNPJ para buscar..."
+              placeholder="Digite o nome do cliente, razão social, e-mail, contato ou CNPJ para buscar no Supabase..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-950 text-white pl-10 pr-10 py-3 rounded-2xl border border-slate-800 focus:outline-none focus:border-indigo-500 text-xs shadow-inner"
@@ -196,309 +273,127 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               </button>
             )}
           </div>
+        </div>
 
-          {/* Resultado da Busca / Lista Rápida de Clientes */}
-          {filteredClients.length > 0 ? (
-            <div className="flex flex-wrap gap-2 pt-2 max-h-40 overflow-y-auto no-scrollbar">
-              {filteredClients.map(c => {
-                const isSelected = c.id === formData.id;
+        {/* LISTA DE CLIENTES COM BOTÃO EDITAR */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+            <span>Lista de Clientes Cadastrados:</span>
+            {lastEditedClientId && (
+              <span className="text-[11px] text-amber-400 flex items-center gap-1 font-semibold">
+                <Sparkles className="w-3 h-3 text-amber-400" /> Destacado: Último Cliente Editado
+              </span>
+            )}
+          </div>
+
+          {displayedClients.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {displayedClients.map(c => {
+                const isSelected = c.id === client.id;
+                const isLastEdited = c.id === lastEditedClientId;
+
                 return (
-                  <button
+                  <div
                     key={c.id}
-                    onClick={() => {
-                      if (onSelectClient) onSelectClient(c.id);
-                      setFormData(c);
-                    }}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+                    className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
                       isSelected
-                        ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
+                        ? 'bg-slate-950/90 border-indigo-500 shadow-md shadow-indigo-500/10'
+                        : isLastEdited
+                        ? 'bg-slate-950/70 border-amber-500/50'
+                        : 'bg-slate-950/50 border-slate-800/80 hover:border-slate-700'
                     }`}
                   >
-                    <Building className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-indigo-400'}`} />
-                    <span>{c.name}</span>
-                    <Edit3 className={`w-3 h-3 ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`} />
-                  </button>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
+                        {c.logoUrl ? (
+                          <DriveImage src={c.logoUrl} alt={c.name} className="w-full h-full object-contain p-1" />
+                        ) : (
+                          <Building className="w-5 h-5 text-indigo-400" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-white truncate">{c.name}</h4>
+                          {isLastEdited && (
+                            <span className="text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded-md shrink-0">
+                              Último Editado
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-400 truncate">{c.companyName || c.email || 'Sem dados adicionais'}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onSelectClient) onSelectClient(c.id);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-slate-800 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        {isSelected ? 'Ativo' : 'Selecionar'}
+                      </button>
+
+                      {/* BOTÃO EDITAR NO FORMULÁRIO DO CLIENTE */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(c)}
+                        className="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                        title="Editar Informações deste Cliente"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Editar</span>
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
           ) : (
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 text-xs text-slate-400 text-center">
-              Nenhum cliente encontrado com "{searchQuery}".
-            </div>
-          )}
-        </div>
-
-      </div>
-
-      {/* PAINEL DE CORREÇÃO DE INFORMAÇÕES DO CLIENTE SELECIONADO */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
-        
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-indigo-400" />
-                <span>Dados do Cliente: <span className="text-indigo-300 font-extrabold">{formData.name}</span></span>
-              </h3>
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">Altere os campos abaixo e clique no botão para corrigir e salvar as informações</p>
-          </div>
-
-          {savedSuccess && (
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 bg-emerald-950/80 px-3.5 py-2 rounded-xl border border-emerald-800/60 animate-fade-in">
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span>Informações Corrigidas e Salvas!</span>
-            </div>
-          )}
-        </div>
-
-        <form onSubmit={handleCorrectSubmit} className="space-y-5 text-xs">
-          
-          {/* Logomarca */}
-          <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-            <label className="block text-slate-300 font-bold flex items-center gap-1.5">
-              <ImageIcon className="w-4 h-4 text-indigo-400" /> Logomarca da Empresa Cliente (Para Recibos PDF):
-            </label>
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              {formData.logoUrl ? (
-                <div className="w-20 h-20 rounded-xl bg-slate-900 border border-slate-800 shrink-0 overflow-hidden relative">
-                  <DriveImage
-                    src={formData.logoUrl}
-                    alt="Logo preview"
-                    className="w-full h-full object-contain p-1"
-                  />
-                </div>
-              ) : (
-                <div className="w-20 h-20 rounded-xl bg-slate-900 border border-dashed border-slate-800 flex items-center justify-center text-slate-600 shrink-0 text-[10px] font-bold">
-                  Sem Logo
-                </div>
-              )}
-              <div className="flex-1 w-full space-y-2">
-                <input
-                  type="url"
-                  value={formData.logoUrl || ''}
-                  onChange={(e) => {
-                    const rawUrl = e.target.value;
-                    const converted = rawUrl.trim() ? getEmbeddableMediaUrl(rawUrl) : rawUrl;
-                    setFormData({ ...formData, logoUrl: converted });
-                  }}
-                  className="w-full bg-slate-900 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 text-xs font-mono"
-                  placeholder="https://drive.google.com/file/d/... ou https://lh3.googleusercontent.com/d/..."
-                />
-                <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                  <span>✨ <strong>Tratamento Automático:</strong> Links do Google Drive são convertidos na URL direta de alta resolução para recibos e prévias.</span>
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Dados Principais do Cliente */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-slate-300 font-bold mb-1">Nome Fantasia do Cliente *:</label>
-              <input
-                type="text"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Ex: Padaria Solar"
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-300 font-bold mb-1">Razão Social (Para Recibo PDF) *:</label>
-              <input
-                type="text"
-                required
-                value={formData.companyName}
-                onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                placeholder="Ex: Solar Alimentos LTDA"
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-300 font-bold mb-1">CNPJ / CPF do Cliente *:</label>
-              <input
-                type="text"
-                required
-                value={formData.cnpj}
-                onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
-                placeholder="Ex: 00.000.000/0001-00"
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-300 font-bold mb-1">Endereço Comercial Completo:</label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Ex: Av. Paulista, 1000, Sala 502 - São Paulo/SP"
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-
-          {/* Seleção de Redes Sociais Ativas */}
-          <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-            <label className="block text-slate-300 font-bold flex items-center gap-1.5">
-              <Share2 className="w-4 h-4 text-purple-400" /> Redes Sociais Ativas do Cliente:
-            </label>
-            <p className="text-[11px] text-slate-400">Marque apenas as redes sociais ativas no contrato de gestão:</p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {ALL_NETWORKS.map(net => {
-                const isActive = (formData.activeSocialNetworks || []).includes(net.id);
-                return (
-                  <button
-                    key={net.id}
-                    type="button"
-                    onClick={() => handleToggleNetwork(net.id)}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-                      isActive 
-                        ? 'bg-purple-600 text-white border border-purple-400 shadow-md shadow-purple-600/20' 
-                        : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
-                    }`}
-                  >
-                    <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-                    <span>{net.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Contatos */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-slate-800 pt-4">
-            <div>
-              <label className="block text-slate-300 font-bold mb-1">Nome do Contato Principal *:</label>
-              <input
-                type="text"
-                required
-                value={formData.contactName}
-                onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
-                placeholder="Ex: Carlos Silva"
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-300 font-bold mb-1 flex items-center gap-1">
-                <Phone className="w-3.5 h-3.5 text-emerald-400" /> WhatsApp (Com DDD) *:
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.whatsappNumber}
-                onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
-                placeholder="Ex: 5511999998888"
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-300 font-bold mb-1 flex items-center gap-1">
-                <Mail className="w-3.5 h-3.5 text-blue-400" /> E-mail do Cliente:
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="Ex: contato@padariasolar.com.br"
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Valor por Post & Permissões */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-800 pt-4">
-            <div>
-              <label className="block text-slate-300 font-bold mb-1 flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5 text-emerald-400" /> Valor Base por Post (R$):
-              </label>
-              <input
-                type="number"
-                value={formData.pricePerPost || ''}
-                onChange={(e) => setFormData({ ...formData, pricePerPost: e.target.value ? Number(e.target.value) : 0 })}
-                placeholder="Ex: 150.00"
-                className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-300 font-bold mb-1 flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" /> Permissão de Acesso às Métricas:
-              </label>
-              <select
-                value={formData.metricsAccess}
-                onChange={(e) => setFormData({ ...formData, metricsAccess: e.target.value as any })}
-                className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none cursor-pointer"
+            <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800/80 text-xs text-slate-400 text-center space-y-2">
+              <p>Nenhum cliente encontrado para "{searchQuery}".</p>
+              <button
+                onClick={handleOpenCreateModal}
+                className="text-indigo-400 font-bold hover:underline"
               >
-                <option value="cliente">Somente o Cliente visualiza as métricas</option>
-                <option value="social_media">Somente o Social Media visualiza as métricas</option>
-                <option value="ambos">Ambos (Cliente & Social Media visualizam)</option>
-                <option value="gestor_apenas">Apenas o Gestor de Contas visualiza</option>
-              </select>
+                + Cadastrar "{searchQuery}" como Novo Cliente
+              </button>
             </div>
-          </div>
-
-          {/* Pasta Google Drive */}
-          <div>
-            <label className="block text-slate-300 font-bold mb-1 flex items-center gap-1">
-              <HardDrive className="w-3.5 h-3.5 text-emerald-400" /> URL da Pasta do Cliente no Google Drive:
-            </label>
-            <input
-              type="url"
-              value={formData.googleDriveFolderUrl || ''}
-              onChange={(e) => setFormData({ ...formData, googleDriveFolderUrl: e.target.value })}
-              className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-xs"
-              placeholder="https://drive.google.com/drive/folders/..."
-            />
-          </div>
-
-          {/* 1. BOTÃO PARA CORRIGIR INFORMAÇÕES DO CLIENTE */}
-          <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
-            <span className="text-[11px] text-slate-400">
-              * Atualização em tempo real para recibos e acompanhamento do projeto
-            </span>
-
-            <button
-              type="submit"
-              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <Edit3 className="w-4 h-4 text-white" />
-              <span>Corrigir Informações do Cliente</span>
-            </button>
-          </div>
-
-        </form>
+          )}
+        </div>
 
       </div>
 
-      {/* MODAL: CADASTRO DE CLIENTE (FEITO PELO SOCIAL MEDIA OU GESTOR) COM OPÇÃO DE FECHAR */}
-      {isAddingClientModal && (
+      {/* UNIFIED MODAL DE CADASTRO / EDIÇÃO DE CLIENTE COM OPÇÃO DE FECHAR */}
+      {isClientModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 space-y-5 shadow-2xl my-8 relative">
             
-            {/* Header com Botão Fechar ✕ */}
+            {/* Header do Modal com Botão Fechar ✕ */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400">
-                  <Plus className="w-5 h-5" />
+                  {editingClient ? <Edit3 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">Cadastrar Novo Cliente</h3>
-                  <p className="text-xs text-slate-400">Cadastro realizado diretamente pelo Social Media ou Gestor</p>
+                  <h3 className="text-base font-bold text-white">
+                    {editingClient ? `Editar Cliente: ${editingClient.name}` : 'Cadastrar Novo Cliente'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {editingClient ? 'Atualize as informações do cliente cadastrado' : 'Preencha os dados do novo cliente para salvar no Supabase'}
+                  </p>
                 </div>
               </div>
 
-              {/* Botão de Fechar no Canto Superior */}
               <button
                 type="button"
-                onClick={handleCloseNewClientModal}
+                onClick={handleCloseModal}
                 className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
                 title="Fechar janela"
               >
@@ -506,38 +401,40 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               </button>
             </div>
 
-            {/* 2. CONFIRMAÇÃO COM BOTÃO DE FECHAR APÓS SALVAR */}
-            {newClientSavedSuccess ? (
+            {/* Tela de Sucesso ou Formulário */}
+            {savedSuccess ? (
               <div className="bg-slate-950 border border-emerald-500/40 rounded-2xl p-6 text-center space-y-4 animate-fade-in">
                 <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/40">
                   <Check className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="text-lg font-bold text-white">Cliente Cadastrado com Sucesso!</h4>
+                  <h4 className="text-lg font-bold text-white">
+                    {editingClient ? 'Cliente Atualizado com Sucesso!' : 'Cliente Cadastrado com Sucesso!'}
+                  </h4>
                   <p className="text-xs text-slate-300 mt-1">
-                    O novo cliente <strong className="text-emerald-400">{newClientForm.name}</strong> já está disponível para criação de posts e recibos.
+                    As informações do cliente <strong className="text-emerald-400">{modalForm.name}</strong> foram salvas e sincronizadas com sucesso.
                   </p>
                 </div>
 
                 <div className="pt-2 flex justify-center gap-3">
                   <button
                     type="button"
-                    onClick={handleCloseNewClientModal}
+                    onClick={handleCloseModal}
                     className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-emerald-600/20 transition-all"
                   >
-                    Fechar Janela
+                    Concluir e Fechar
                   </button>
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleCreateClientSubmit} className="space-y-4 text-xs">
+              <form onSubmit={handleSaveClientSubmit} className="space-y-4 text-xs">
                 <div>
                   <label className="block text-slate-300 font-bold mb-1">Nome Fantasia do Cliente *:</label>
                   <input
                     type="text"
                     required
-                    value={newClientForm.name}
-                    onChange={(e) => setNewClientForm({ ...newClientForm, name: e.target.value })}
+                    value={modalForm.name}
+                    onChange={(e) => setModalForm({ ...modalForm, name: e.target.value })}
                     placeholder="Ex: Padaria Solar"
                     className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-medium"
                   />
@@ -548,8 +445,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                     <label className="block text-slate-300 font-bold mb-1">Razão Social:</label>
                     <input
                       type="text"
-                      value={newClientForm.companyName}
-                      onChange={(e) => setNewClientForm({ ...newClientForm, companyName: e.target.value })}
+                      value={modalForm.companyName}
+                      onChange={(e) => setModalForm({ ...modalForm, companyName: e.target.value })}
                       placeholder="Ex: Solar Alimentos LTDA"
                       className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
                     />
@@ -558,8 +455,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                     <label className="block text-slate-300 font-bold mb-1">CNPJ / CPF:</label>
                     <input
                       type="text"
-                      value={newClientForm.cnpj}
-                      onChange={(e) => setNewClientForm({ ...newClientForm, cnpj: e.target.value })}
+                      value={modalForm.cnpj}
+                      onChange={(e) => setModalForm({ ...modalForm, cnpj: e.target.value })}
                       placeholder="00.000.000/0001-00"
                       className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                     />
@@ -571,8 +468,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                     <label className="block text-slate-300 font-bold mb-1">Contato Principal:</label>
                     <input
                       type="text"
-                      value={newClientForm.contactName}
-                      onChange={(e) => setNewClientForm({ ...newClientForm, contactName: e.target.value })}
+                      value={modalForm.contactName}
+                      onChange={(e) => setModalForm({ ...modalForm, contactName: e.target.value })}
                       placeholder="Ex: Carlos Silva"
                       className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
                     />
@@ -581,8 +478,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                     <label className="block text-slate-300 font-bold mb-1">WhatsApp (com DDD):</label>
                     <input
                       type="text"
-                      value={newClientForm.whatsappNumber}
-                      onChange={(e) => setNewClientForm({ ...newClientForm, whatsappNumber: e.target.value })}
+                      value={modalForm.whatsappNumber}
+                      onChange={(e) => setModalForm({ ...modalForm, whatsappNumber: e.target.value })}
                       placeholder="5511999998888"
                       className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                     />
@@ -594,18 +491,18 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                     <label className="block text-slate-300 font-bold mb-1">E-mail do Cliente:</label>
                     <input
                       type="email"
-                      value={newClientForm.email}
-                      onChange={(e) => setNewClientForm({ ...newClientForm, email: e.target.value })}
+                      value={modalForm.email}
+                      onChange={(e) => setModalForm({ ...modalForm, email: e.target.value })}
                       placeholder="contato@cliente.com"
                       className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-300 font-bold mb-1">Valor/Post (R$):</label>
+                    <label className="block text-slate-300 font-bold mb-1">Valor por Post (R$):</label>
                     <input
                       type="number"
-                      value={newClientForm.pricePerPost}
-                      onChange={(e) => setNewClientForm({ ...newClientForm, pricePerPost: e.target.value })}
+                      value={modalForm.pricePerPost}
+                      onChange={(e) => setModalForm({ ...modalForm, pricePerPost: e.target.value })}
                       placeholder="Ex: 150.00"
                       className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                     />
@@ -616,8 +513,11 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   <label className="block text-slate-300 font-bold mb-1">Link da Logomarca (Drive ou URL):</label>
                   <input
                     type="url"
-                    value={newClientForm.logoUrl}
-                    onChange={(e) => setNewClientForm({ ...newClientForm, logoUrl: e.target.value })}
+                    value={modalForm.logoUrl}
+                    onChange={(e) => {
+                      const converted = e.target.value.trim() ? getEmbeddableMediaUrl(e.target.value) : e.target.value;
+                      setModalForm({ ...modalForm, logoUrl: converted });
+                    }}
                     placeholder="https://drive.google.com/file/d/... ou https://..."
                     className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
                   />
@@ -627,27 +527,51 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   <label className="block text-slate-300 font-bold mb-1">URL Pasta Google Drive:</label>
                   <input
                     type="url"
-                    value={newClientForm.googleDriveFolderUrl}
-                    onChange={(e) => setNewClientForm({ ...newClientForm, googleDriveFolderUrl: e.target.value })}
+                    value={modalForm.googleDriveFolderUrl}
+                    onChange={(e) => setModalForm({ ...modalForm, googleDriveFolderUrl: e.target.value })}
                     placeholder="https://drive.google.com/drive/folders/..."
                     className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
                   />
                 </div>
 
-                {/* BOTÕES DO FORMULÁRIO COM A OPÇÃO DE FECHAR */}
+                {/* Seleção de Redes Sociais */}
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                  <label className="block text-slate-300 font-bold">Redes Sociais Ativas:</label>
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_NETWORKS.map(net => {
+                      const isActive = (modalForm.activeSocialNetworks || []).includes(net.id);
+                      return (
+                        <button
+                          key={net.id}
+                          type="button"
+                          onClick={() => handleToggleNetwork(net.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            isActive
+                              ? 'bg-purple-600 text-white border border-purple-400'
+                              : 'bg-slate-900 text-slate-400 border border-slate-800'
+                          }`}
+                        >
+                          {net.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Botões do Formulário */}
                 <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
                   <button
                     type="button"
-                    onClick={handleCloseNewClientModal}
+                    onClick={handleCloseModal}
                     className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 font-bold text-xs transition-all"
                   >
-                    Fechar
+                    Cancelar
                   </button>
                   <button
                     type="submit"
                     className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-indigo-600/30 transition-all"
                   >
-                    Salvar Novo Cliente
+                    {editingClient ? 'Salvar Alterações' : 'Salvar Novo Cliente'}
                   </button>
                 </div>
               </form>
