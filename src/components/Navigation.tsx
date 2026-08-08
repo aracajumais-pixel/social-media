@@ -158,7 +158,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             {!canViewMetrics && <Lock className="w-3.5 h-3.5 text-slate-500" />}
           </button>
 
-          {/* Tab 5: Configurações do Cliente */}
+          {/* Tab 5: Clientes */}
           {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
             <button
               onClick={() => onTabChange('settings')}
@@ -169,7 +169,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               }`}
             >
               <Settings className="w-4 h-4 text-slate-400" />
-              <span>Configurações do Cliente</span>
+              <span>Clientes</span>
             </button>
           )}
 

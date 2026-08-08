@@ -736,12 +736,16 @@ export default function App() {
           />
         )}
 
-        {/* TAB 5: CONFIGURAÇÕES DO CLIENTE */}
+        {/* TAB 5: CLIENTES */}
         {activeTab === 'settings' && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
           <ClientSettings
             client={selectedClient}
+            clients={clients}
+            onSelectClient={setSelectedClientId}
             currentUserRole={currentUserRole}
             onUpdateClient={handleUpdateClient}
+            onAddClient={handleAddClient}
+            socialMedias={socialMedias}
           />
         )}
 
