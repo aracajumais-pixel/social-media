@@ -8,6 +8,8 @@ interface WhatsAppNotificationModalProps {
   selectedClient: ClientProject;
   notificationHistory: WhatsAppNotificationPayload[];
   onTriggerNotification: (payload: WhatsAppNotificationPayload) => void;
+  approvalToken?: string;
+  defaultPostTitle?: string;
 }
 
 export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps> = ({
@@ -15,19 +17,24 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
   onClose,
   selectedClient,
   notificationHistory,
-  onTriggerNotification
+  onTriggerNotification,
+  approvalToken,
+  defaultPostTitle
 }) => {
   if (!isOpen) return null;
 
   const [notificationType, setNotificationType] = useState<WhatsAppNotificationPayload['type']>('novo_rascunho');
-  const [postTitle, setPostTitle] = useState('Novo Post do Instagram / Reels');
+  const [postTitle, setPostTitle] = useState(defaultPostTitle || 'Novo Post do Instagram / Reels');
   const [customMsg, setCustomMsg] = useState('');
   const [dispatchedSuccess, setDispatchedSuccess] = useState(false);
 
   const getTemplateMessage = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const approvalUrl = approvalToken ? `${origin}/?approvalToken=${approvalToken}` : origin;
+
     switch (notificationType) {
       case 'novo_rascunho':
-        return `Olá ${selectedClient.contactName}! 🎨 Um novo rascunho de post ("${postTitle}") está disponível no SocialApprove para sua aprovação. Acesse o link para revisar a legenda e mídia.`;
+        return `Olá ${selectedClient.contactName}! 🎨 Um novo rascunho de post ("${postTitle}") está disponível no Social Media 5.0 para sua aprovação.\n\nAcesse o link para revisar a legenda e mídia:\n${approvalUrl}`;
       case 'pedido_alteracao':
         return `Atenção Equipe Social Media! ⚠️ O cliente ${selectedClient.name} solicitou ajustes na publicação "${postTitle}". Por favor verifique o comentário no app.`;
       case 'aprovacao':

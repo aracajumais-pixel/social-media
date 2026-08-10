@@ -850,6 +850,8 @@ export default function App() {
         selectedClient={selectedClient}
         notificationHistory={notificationHistory}
         onTriggerNotification={(payload) => setNotificationHistory([payload, ...notificationHistory])}
+        approvalToken={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.approvalToken}
+        defaultPostTitle={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.title}
       />
 
       <StorageDriveModal
