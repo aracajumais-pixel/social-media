@@ -1,26 +1,55 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <linearGradient id="socialGlowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#FFDD00"/>
-      <stop offset="25%" stop-color="#FF3E00"/>
-      <stop offset="60%" stop-color="#D6008D"/>
-      <stop offset="100%" stop-color="#6B00D7"/>
+    <!-- Background Outer Glow Gradient -->
+    <radialGradient id="bgGlow" cx="30%" cy="80%" r="90%">
+      <stop offset="0%" stop-color="#FF6B00" />
+      <stop offset="35%" stop-color="#FF007A" />
+      <stop offset="70%" stop-color="#7B00FF" />
+      <stop offset="100%" stop-color="#14002B" />
+    </radialGradient>
+
+    <!-- Border Linear Gradient -->
+    <linearGradient id="borderGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFA800" />
+      <stop offset="40%" stop-color="#FF007A" />
+      <stop offset="80%" stop-color="#A100FF" />
+      <stop offset="100%" stop-color="#410099" />
     </linearGradient>
-    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="1.5" result="blur" />
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
-  <!-- Main Outer Rounded Rectangle -->
-  <rect x="0" y="0" width="100" height="100" rx="24" fill="url(#socialGlowGrad)" />
-  <!-- Inner White Border Line -->
-  <rect x="15" y="15" width="70" height="70" rx="20" fill="none" stroke="#FFFFFF" stroke-width="5.5" opacity="0.95" />
-  <!-- Top Right Small White Dot -->
-  <circle cx="70" cy="27" r="4.5" fill="#FFFFFF" />
-  <!-- Center Glowing 4-Point Sparkle Star -->
-  <path d="M 50 28 C 50 40, 40 50, 28 50 C 40 50, 50 60, 50 72 C 50 60, 60 50, 72 50 C 60 50, 50 40, 50 28 Z" fill="#FFFFFF" filter="url(#softGlow)" />
-  <!-- Small Ambient Sparkle Dots -->
-  <circle cx="36" cy="38" r="1.8" fill="#FFFFFF" opacity="0.9" />
-  <circle cx="63" cy="36" r="1.5" fill="#FFFFFF" opacity="0.9" />
-  <circle cx="37" cy="62" r="1.8" fill="#FFFFFF" opacity="0.9" />
+
+  <!-- Dark Base -->
+  <rect width="512" height="512" rx="128" fill="#090314" />
+
+  <!-- Outer Neon Glow Card -->
+  <rect x="24" y="24" width="464" height="464" rx="110" fill="url(#bgGlow)" filter="url(#softGlow)" opacity="0.85" />
+  <rect x="24" y="24" width="464" height="464" rx="110" fill="url(#bgGlow)" />
+
+  <!-- Inner Dark Screen Layer -->
+  <rect x="64" y="64" width="384" height="384" rx="80" fill="#120024" opacity="0.6" />
+
+  <!-- Inner White Neon Frame -->
+  <rect x="76" y="76" width="360" height="360" rx="70" fill="none" stroke="#FFFFFF" stroke-width="18" filter="url(#glow)" opacity="0.9" />
+
+  <!-- Main Sparkle Star (Center) -->
+  <path d="M256 160 C256 220 200 256 140 256 C200 256 256 292 256 352 C256 292 312 256 372 256 C312 256 256 220 256 160 Z" fill="#FFFFFF" filter="url(#glow)" />
+
+  <!-- Upper Left Sparkle Star -->
+  <path d="M190 170 C190 190 175 200 155 200 C175 200 190 210 190 230 C190 210 205 200 225 200 C205 200 190 190 190 170 Z" fill="#FFFFFF" opacity="0.9" />
+
+  <!-- Upper Right Sparkle Star -->
+  <path d="M320 185 C320 200 310 208 295 208 C310 208 320 216 320 231 C320 216 330 208 345 208 C330 208 320 200 320 185 Z" fill="#FFFFFF" opacity="0.9" />
+
+  <!-- Lower Small Sparkle Star -->
+  <path d="M200 295 C200 308 190 315 177 315 C190 315 200 322 200 335 C200 322 210 315 223 315 C210 315 200 308 200 295 Z" fill="#FFFFFF" opacity="0.85" />
 </svg>

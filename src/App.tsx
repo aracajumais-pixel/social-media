@@ -24,8 +24,9 @@ import { AdminSaaSDashboard } from './components/AdminSaaSDashboard';
 import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
+import { Footer } from './components/Footer';
 import { generateApprovalToken, calculateTokenExpirationDays } from './utils/token';
-import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured } from './lib/supabase';
+import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase } from './lib/supabase';
 
 import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2 } from 'lucide-react';
 
@@ -112,6 +113,28 @@ export default function App() {
       return INITIAL_SAAS_PROOF_PAYMENTS;
     }
   });
+
+  // Initial data fetch from Supabase (with fallback to LocalStorage/Mock)
+  React.useEffect(() => {
+    async function loadDataFromSupabase() {
+      if (!isSupabaseConfigured) return;
+      try {
+        const [fetchedClients, fetchedPosts] = await Promise.all([
+          fetchClientsFromSupabase(),
+          fetchPostsFromSupabase()
+        ]);
+        if (fetchedClients && fetchedClients.length > 0) {
+          setClients(fetchedClients);
+        }
+        if (fetchedPosts && fetchedPosts.length > 0) {
+          setPosts(fetchedPosts);
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar dados do Supabase na inicialização:', err);
+      }
+    }
+    loadDataFromSupabase();
+  }, []);
 
   // Auto-save state to localStorage and sync to Supabase
   React.useEffect(() => {
@@ -517,7 +540,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white pb-20">
+    <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
       
       {/* Header with Role & Client Selector */}
       <Header
@@ -544,7 +567,7 @@ export default function App() {
       />
 
       {/* Main Container Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
 
         {/* Banner de Boas-Vindas sem Exemplos Hardcoded */}
         {clients.length === 0 && (
@@ -782,6 +805,9 @@ export default function App() {
         )}
 
       </main>
+
+      {/* FOOTER */}
+      <Footer />
 
       {/* MODALS */}
       <PostDetailModal

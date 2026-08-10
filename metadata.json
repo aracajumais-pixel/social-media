@@ -1,5 +1,5 @@
 {
-  "name": "social-media",
+  "name": "Social Media 5.0",
   "description": "Plataforma centralizada Social Media 5.0 para aprovação de posts, fluxo de comentários em debate, anexos de inspiração, recibos em PDF, notificações via WhatsApp e métricas Meta/Google Analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

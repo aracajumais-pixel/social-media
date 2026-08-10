@@ -35,7 +35,7 @@ const CHAPTERS: BookChapter[] = [
 ### 1.1 O Problema Original
 Clientes de agências e social medias freelancers frequentemente enfrentam dificuldades com plataformas complexas que exigem criação de senhas e logins. 
 
-### 1.2 A Solução SocialApprove
+### 1.2 A Solução Social Media 5.0
 Desenvolvemos uma esteira visual e responsiva onde o cliente final pode:
 - Visualizar a arte em alta definição e legendas formatadas.
 - Aprovar com 1 clique ("Aprovar Post").
