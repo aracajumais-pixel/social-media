@@ -20,7 +20,7 @@ import { MetricsDashboard } from './components/MetricsDashboard';
 import { WhatsAppNotificationModal } from './components/WhatsAppNotificationModal';
 import { StorageDriveModal } from './components/StorageDriveModal';
 import { ClientSettings } from './components/ClientSettings';
-import { AdminSaaSDashboard } from './components/AdminSaaSDashboard';
+import { AdminSaaSDashboard } from './Admin';
 import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
