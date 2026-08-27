@@ -22,6 +22,7 @@ interface PostDetailModalProps {
   onAddComment: (postId: string, commentText: string) => void;
   onSendWhatsAppAlert: (postId: string, message: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
+  onOpenWhatsApp?: (post: PostItem) => void;
   onRenewToken?: (postId: string) => void;
   onUpdatePostFields?: (postId: string, fields: Partial<PostItem>) => void;
 }
@@ -39,6 +40,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onAddComment,
   onSendWhatsAppAlert,
   onOpenPublicApprovalLink,
+  onOpenWhatsApp,
   onRenewToken,
   onUpdatePostFields
 }) => {
@@ -475,6 +477,18 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     >
                       <ExternalLink className="w-3.5 h-3.5 text-purple-300" />
                       <span className="hidden sm:inline">Simular Acesso</span>
+                    </button>
+                  )}
+
+                  {onOpenWhatsApp && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenWhatsApp(post)}
+                      className="px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all"
+                      title="Enviar este rascunho pelo WhatsApp"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
+                      <span className="hidden sm:inline">Enviar WhatsApp</span>
                     </button>
                   )}
 

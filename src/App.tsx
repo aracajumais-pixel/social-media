@@ -20,7 +20,7 @@ import { MetricsDashboard } from './components/MetricsDashboard';
 import { WhatsAppNotificationModal } from './components/WhatsAppNotificationModal';
 import { StorageDriveModal } from './components/StorageDriveModal';
 import { ClientSettings } from './components/ClientSettings';
-import { AdminSaaSDashboard } from './Admin';
+import { AdminSaaSDashboard } from './admin';
 import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
@@ -205,6 +205,7 @@ export default function App() {
   const [publicApprovalPost, setPublicApprovalPost] = useState<PostItem | null>(null);
   const [isNewPostModalOpen, setIsNewPostModalOpen] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [whatsAppModalPost, setWhatsAppModalPost] = useState<PostItem | null>(null);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<WhatsAppNotificationPayload[]>([]);
 
@@ -458,6 +459,7 @@ export default function App() {
       },
       ...prev
     ]);
+    setWhatsAppModalPost(targetPost || null);
     setIsWhatsAppModalOpen(true);
   };
 
@@ -549,7 +551,6 @@ export default function App() {
         onSelectClient={setSelectedClientId}
         currentUserRole={currentUserRole}
         onChangeUserRole={setCurrentUserRole}
-        onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
         onOpenDriveModal={() => setIsDriveModalOpen(true)}
         onOpenAddClientModal={() => setActiveTab('admin')}
         unreadNotificationsCount={draftsCount + changesRequestedCount}
@@ -823,6 +824,7 @@ export default function App() {
         onAddComment={handleAddComment}
         onSendWhatsAppAlert={handleSendWhatsAppAlert}
         onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
+        onOpenWhatsApp={(p) => { setWhatsAppModalPost(p); setIsWhatsAppModalOpen(true); }}
         onRenewToken={handleRenewToken}
         onUpdatePostFields={handleUpdatePostFields}
       />
@@ -850,8 +852,8 @@ export default function App() {
         selectedClient={selectedClient}
         notificationHistory={notificationHistory}
         onTriggerNotification={(payload) => setNotificationHistory([payload, ...notificationHistory])}
-        approvalToken={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.approvalToken}
-        defaultPostTitle={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.title}
+        approvalToken={whatsAppModalPost?.approvalToken}
+        defaultPostTitle={whatsAppModalPost?.title}
       />
 
       <StorageDriveModal

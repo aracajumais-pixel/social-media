@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject, UserRole } from '../types';
-import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Plus } from 'lucide-react';
+import { UserCheck, Shield, Sparkles, Building, HardDrive, Plus } from 'lucide-react';
 
 interface HeaderProps {
   clients: ClientProject[];
@@ -8,7 +8,6 @@ interface HeaderProps {
   onSelectClient: (clientId: string) => void;
   currentUserRole: UserRole;
   onChangeUserRole: (role: UserRole) => void;
-  onOpenWhatsAppModal: () => void;
   onOpenDriveModal: () => void;
   onOpenAddClientModal?: () => void;
   unreadNotificationsCount: number;
@@ -20,7 +19,6 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectClient,
   currentUserRole,
   onChangeUserRole,
-  onOpenWhatsAppModal,
   onOpenDriveModal,
   onOpenAddClientModal,
   unreadNotificationsCount
@@ -85,19 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Drive do Cliente</span>
             </button>
 
-            {/* WhatsApp Notification Trigger */}
-            <button
-              onClick={onOpenWhatsAppModal}
-              className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors"
-            >
-              <MessageSquare className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">Notificações WhatsApp</span>
-              {unreadNotificationsCount > 0 && (
-                <span className="bg-emerald-500 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
-                  {unreadNotificationsCount}
-                </span>
-              )}
-            </button>
+            {/* WhatsApp button removido daqui — agora fica dentro do PostDetailModal, já contextualizado com o post */}
 
             {/* Role Switcher */}
             <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">

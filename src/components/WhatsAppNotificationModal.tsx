@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ClientProject, WhatsAppNotificationPayload } from '../types';
-import { X, MessageSquare, Send, CheckCircle2, Phone, ExternalLink, Sparkles } from 'lucide-react';
+import { X, MessageSquare, ExternalLink, Phone, Sparkles } from 'lucide-react';
+import { buildApprovalUrl } from '../utils/token';
 
 interface WhatsAppNotificationModalProps {
   isOpen: boolean;
@@ -26,11 +27,9 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
   const [notificationType, setNotificationType] = useState<WhatsAppNotificationPayload['type']>('novo_rascunho');
   const [postTitle, setPostTitle] = useState(defaultPostTitle || 'Novo Post do Instagram / Reels');
   const [customMsg, setCustomMsg] = useState('');
-  const [dispatchedSuccess, setDispatchedSuccess] = useState(false);
 
   const getTemplateMessage = () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const approvalUrl = approvalToken ? `${origin}/?approvalToken=${approvalToken}` : origin;
+    const approvalUrl = approvalToken ? buildApprovalUrl(approvalToken) : (typeof window !== 'undefined' ? window.location.origin : '');
 
     switch (notificationType) {
       case 'novo_rascunho':
@@ -44,7 +43,8 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
     }
   };
 
-  const formattedWhatsAppUrl = `https://wa.me/${selectedClient.whatsappNumber}?text=${encodeURIComponent(
+  const cleanPhoneNumber = selectedClient.whatsappNumber.replace(/\D/g, '');
+  const formattedWhatsAppUrl = `https://wa.me/${cleanPhoneNumber}?text=${encodeURIComponent(
     customMsg || getTemplateMessage()
   )}`;
 
@@ -57,11 +57,6 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
       postTitle,
       customMessage: customMsg || getTemplateMessage()
     });
-
-    setDispatchedSuccess(true);
-    setTimeout(() => {
-      setDispatchedSuccess(false);
-    }, 3000);
   };
 
   return (
@@ -133,31 +128,17 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-            
+
             <a
               href={formattedWhatsAppUrl}
               target="_blank"
               rel="noreferrer"
+              onClick={handleSend}
               className="w-full sm:w-auto px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 transition-colors"
             >
               <ExternalLink className="w-4 h-4" />
               <span>Abrir no WhatsApp Web Diretamente</span>
             </a>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              {dispatchedSuccess && (
-                <span className="text-emerald-400 font-bold text-xs flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4" /> Disparado com Sucesso!
-                </span>
-              )}
-              <button
-                type="submit"
-                className="w-full sm:w-auto px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/20"
-              >
-                <Send className="w-4 h-4" />
-                <span>Simular Envio Automático</span>
-              </button>
-            </div>
 
           </div>
 
