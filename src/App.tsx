@@ -842,6 +842,7 @@ export default function App() {
         isOpen={isNewPostModalOpen}
         onClose={() => setIsNewPostModalOpen(false)}
         clientProjectId={selectedClientId}
+        driveFolderUrl={selectedClient.googleDriveFolderUrl}
         inspirations={clientInspirations}
         onCreatePost={handleCreatePost}
       />

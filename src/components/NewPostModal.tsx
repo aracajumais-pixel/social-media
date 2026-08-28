@@ -8,6 +8,7 @@ interface NewPostModalProps {
   isOpen: boolean;
   onClose: () => void;
   clientProjectId: string;
+  driveFolderUrl?: string;
   inspirations: InspirationFile[];
   onCreatePost: (newPostData: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => void;
 }
@@ -16,6 +17,7 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
   isOpen,
   onClose,
   clientProjectId,
+  driveFolderUrl,
   inspirations,
   onCreatePost
 }) => {
@@ -149,6 +151,22 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
                 <HardDrive className="w-3 h-3 text-indigo-400" />
                 Cole o link de compartilhamento do Google Drive (seja /file/d/..., view?usp=sharing ou com /view) - conversão automática!
               </p>
+              {driveFolderUrl && (
+                <>
+                  <a
+                    href={driveFolderUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold transition-colors"
+                  >
+                    <HardDrive className="w-3.5 h-3.5" />
+                    Faça o upload pelo Drive
+                  </a>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Envie o arquivo lá e cole o link de compartilhamento aqui depois.
+                  </p>
+                </>
+              )}
             </div>
 
             <div>
