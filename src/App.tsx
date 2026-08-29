@@ -717,6 +717,20 @@ export default function App() {
                     onQuickApprove={(id) => handleUpdatePostStatus(id, 'aprovado')}
                     onQuickRequestChange={(id) => handleUpdatePostStatus(id, 'alterar')}
                     onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
+                    onOpenWhatsApp={(p) => {
+                      setNotificationHistory(prev => [
+                        {
+                          recipientPhone: selectedClient.whatsappNumber,
+                          recipientName: selectedClient.contactName,
+                          type: 'novo_rascunho',
+                          postTitle: p.title,
+                          customMessage: undefined
+                        },
+                        ...prev
+                      ]);
+                    }}
+                    clientWhatsappNumber={selectedClient.whatsappNumber}
+                    clientContactName={selectedClient.contactName}
                   />
                 ))}
               </div>
@@ -824,7 +838,20 @@ export default function App() {
         onAddComment={handleAddComment}
         onSendWhatsAppAlert={handleSendWhatsAppAlert}
         onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
-        onOpenWhatsApp={(p) => { setWhatsAppModalPost(p); setIsWhatsAppModalOpen(true); }}
+        onOpenWhatsApp={(p) => {
+          setNotificationHistory(prev => [
+            {
+              recipientPhone: selectedClient.whatsappNumber,
+              recipientName: selectedClient.contactName,
+              type: 'novo_rascunho',
+              postTitle: p.title,
+              customMessage: undefined
+            },
+            ...prev
+          ]);
+        }}
+        clientWhatsappNumber={selectedClient.whatsappNumber}
+        clientContactName={selectedClient.contactName}
         onRenewToken={handleRenewToken}
         onUpdatePostFields={handleUpdatePostFields}
       />
@@ -843,6 +870,8 @@ export default function App() {
         onClose={() => setIsNewPostModalOpen(false)}
         clientProjectId={selectedClientId}
         driveFolderUrl={selectedClient.googleDriveFolderUrl}
+        clientWhatsappNumber={selectedClient.whatsappNumber}
+        clientContactName={selectedClient.contactName}
         inspirations={clientInspirations}
         onCreatePost={handleCreatePost}
       />

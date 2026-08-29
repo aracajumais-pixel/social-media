@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PostItem, SocialNetwork, InspirationFile } from '../types';
-import { X, Image, Video, Layers, Plus, Lightbulb, HardDrive } from 'lucide-react';
-import { generateApprovalToken, calculateTokenExpirationDays } from '../utils/token';
+import { X, Image, Video, Layers, Plus, Lightbulb, HardDrive, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl } from '../utils/token';
 import { getEmbeddableMediaUrl, isGoogleDriveUrl } from '../utils/driveHelper';
 
 interface NewPostModalProps {
@@ -9,6 +9,8 @@ interface NewPostModalProps {
   onClose: () => void;
   clientProjectId: string;
   driveFolderUrl?: string;
+  clientWhatsappNumber?: string;
+  clientContactName?: string;
   inspirations: InspirationFile[];
   onCreatePost: (newPostData: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => void;
 }
@@ -18,6 +20,8 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
   onClose,
   clientProjectId,
   driveFolderUrl,
+  clientWhatsappNumber,
+  clientContactName,
   inspirations,
   onCreatePost
 }) => {
@@ -34,6 +38,12 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
     return d.toISOString().slice(0, 16);
   });
   const [selectedInspirations, setSelectedInspirations] = useState<string[]>([]);
+
+  // Token gerado uma única vez, assim que o modal abre — usado tanto ao salvar
+  // quanto para já montar o link de WhatsApp na tela de confirmação, sem duplicar token.
+  const [generatedToken] = useState(() => generateApprovalToken());
+  const [tokenExpiresAt] = useState(() => calculateTokenExpirationDays(5));
+  const [justCreated, setJustCreated] = useState(false);
 
   const toggleNetwork = (network: SocialNetwork) => {
     if (socialNetworks.includes(network)) {
@@ -68,13 +78,56 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
       socialNetworks: socialNetworks.length > 0 ? socialNetworks : ['instagram'],
       scheduledDate,
       status: 'rascunho', // Sempre inicia como Rascunho
-      approvalToken: generateApprovalToken(),
-      tokenExpiresAt: calculateTokenExpirationDays(5),
+      approvalToken: generatedToken,
+      tokenExpiresAt,
       inspirationReferenceIds: selectedInspirations
     });
 
-    onClose();
+    setJustCreated(true);
   };
+
+  const approvalUrl = buildApprovalUrl(generatedToken);
+  const cleanClientPhone = (clientWhatsappNumber || '').replace(/\D/g, '');
+  const whatsappMessage = `Olá${clientContactName ? ' ' + clientContactName : ''}! Temos um novo rascunho pronto para sua aprovação: "${title}".\n\nAcesse o link para revisar e aprovar:\n${approvalUrl}`;
+  const directWhatsAppUrl = `https://wa.me/${cleanClientPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+
+  if (justCreated) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 space-y-5 shadow-2xl text-center">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">Rascunho criado com sucesso!</h3>
+            <p className="text-xs text-slate-400 mt-1">Quer avisar o cliente agora pelo WhatsApp?</p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {clientWhatsappNumber && (
+              <a
+                href={directWhatsAppUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={onClose}
+                className="w-full px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Enviar WhatsApp Agora</span>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">

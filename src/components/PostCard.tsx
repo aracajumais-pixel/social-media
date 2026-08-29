@@ -4,7 +4,7 @@ import {
   CheckCircle, AlertCircle, Clock, MessageSquare, 
   Instagram, Facebook, Linkedin, Video, Layers, Calendar, ExternalLink, Key, ShieldCheck 
 } from 'lucide-react';
-import { getTimeRemainingText, isTokenExpired } from '../utils/token';
+import { getTimeRemainingText, isTokenExpired, buildApprovalUrl } from '../utils/token';
 import { DriveImage } from './DriveImage';
 
 interface PostCardProps {
@@ -14,6 +14,9 @@ interface PostCardProps {
   onQuickApprove?: (postId: string) => void;
   onQuickRequestChange?: (postId: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
+  onOpenWhatsApp?: (post: PostItem) => void;
+  clientWhatsappNumber?: string;
+  clientContactName?: string;
 }
 
 export const PostCard: React.FC<PostCardProps> = ({
@@ -22,10 +25,16 @@ export const PostCard: React.FC<PostCardProps> = ({
   onOpenDetails,
   onQuickApprove,
   onQuickRequestChange,
-  onOpenPublicApprovalLink
+  onOpenPublicApprovalLink,
+  onOpenWhatsApp,
+  clientWhatsappNumber,
+  clientContactName
 }) => {
   const expired = isTokenExpired(post.tokenExpiresAt);
   const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
+  const cleanClientPhone = (clientWhatsappNumber || '').replace(/\D/g, '');
+  const cardWhatsAppMessage = `Olá${clientContactName ? ' ' + clientContactName : ''}! Temos um novo rascunho pronto para sua aprovação: "${post.title}".\n\nAcesse o link para revisar e aprovar:\n${buildApprovalUrl(post.approvalToken || 'sem-token')}`;
+  const cardWhatsAppUrl = `https://wa.me/${cleanClientPhone}?text=${encodeURIComponent(cardWhatsAppMessage)}`;
   // Configurações visuais dos 3 únicos status permitidos
   const getStatusBadge = () => {
     switch (post.status) {
@@ -151,6 +160,23 @@ export const PostCard: React.FC<PostCardProps> = ({
               <ShieldCheck className="w-3 h-3" />
               <span>{timeInfo.text}</span>
             </button>
+
+            {clientWhatsappNumber && (
+              <a
+                href={cardWhatsAppUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onOpenWhatsApp) onOpenWhatsApp(post);
+                }}
+                className="font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                title="Enviar este rascunho pelo WhatsApp"
+              >
+                <MessageSquare className="w-3 h-3" />
+                <span>WhatsApp</span>
+              </a>
+            )}
           </div>
 
           {/* Caption Snippet */}
