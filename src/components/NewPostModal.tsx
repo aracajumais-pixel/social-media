@@ -95,20 +95,17 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim() || !caption.trim()) return;
-
-    const processedMediaUrl = mediaUrl.trim() 
-      ? getEmbeddableMediaUrl(mediaUrl.trim())
+  const createPost = (finalTitle: string, finalCaption: string, finalMediaUrl: string, finalMediaType: 'image' | 'video' | 'carousel') => {
+    const processedMediaUrl = finalMediaUrl.trim()
+      ? getEmbeddableMediaUrl(finalMediaUrl.trim())
       : 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=1200&q=80';
 
     onCreatePost({
       clientProjectId,
-      title,
-      caption,
+      title: finalTitle,
+      caption: finalCaption,
       mediaUrl: processedMediaUrl,
-      mediaType,
+      mediaType: finalMediaType,
       socialNetworks: socialNetworks.length > 0 ? socialNetworks : ['instagram'],
       scheduledDate,
       status: 'rascunho', // Sempre inicia como Rascunho
@@ -118,6 +115,24 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
     });
 
     setJustCreated(true);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !caption.trim()) return;
+    createPost(title, caption, mediaUrl, mediaType);
+  };
+
+  // Atalho de 2 cliques: selecionar o arquivo no Drive já cria o rascunho direto,
+  // sem passar pelo formulário. Título vem do nome do arquivo (sem extensão);
+  // legenda fica em branco, pronta pra ser preenchida no debate depois.
+  const handleQuickCreateFromDrive = (file: DriveFileInfo) => {
+    const quickTitle = file.name.replace(/\.[^/.]+$/, '');
+    const quickMediaType: 'image' | 'video' | 'carousel' = file.mimeType.startsWith('video') ? 'video' : 'image';
+    setTitle(quickTitle);
+    setMediaUrl(file.webViewLink);
+    setMediaType(quickMediaType);
+    createPost(quickTitle, '(legenda a definir)', file.webViewLink, quickMediaType);
   };
 
   const approvalUrl = buildApprovalUrl(generatedToken);
@@ -285,21 +300,37 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
                   {!isLoadingDriveFiles && availableDriveFiles.length > 0 && (
                     <div className="max-h-40 overflow-y-auto divide-y divide-slate-800">
                       {availableDriveFiles.map(file => (
-                        <button
+                        <div
                           key={file.id}
-                          type="button"
-                          onClick={() => handleSelectDriveFile(file)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-indigo-600/10 transition-colors"
+                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-indigo-600/10 transition-colors"
                         >
-                          {file.mimeType.startsWith('video')
-                            ? <Video className="w-4 h-4 text-purple-400 flex-shrink-0" />
-                            : <FileImage className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                          }
-                          <span className="text-[11px] text-slate-300 truncate">{file.name}</span>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickCreateFromDrive(file)}
+                            className="flex items-center gap-2 flex-1 text-left min-w-0"
+                            title="2 cliques: seleciona e já cria o rascunho pra debate"
+                          >
+                            {file.mimeType.startsWith('video')
+                              ? <Video className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                              : <FileImage className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                            }
+                            <span className="text-[11px] text-slate-300 truncate">{file.name}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectDriveFile(file)}
+                            className="text-[10px] text-slate-500 hover:text-indigo-300 flex-shrink-0"
+                            title="Só preencher o campo, sem criar ainda"
+                          >
+                            usar no formulário
+                          </button>
+                        </div>
                       ))}
                     </div>
                   )}
+                  <p className="text-[10px] text-slate-500 px-3 py-2 border-t border-slate-800">
+                    Clique no nome do arquivo para já criar o rascunho pronto pra debate.
+                  </p>
                 </div>
               )}
             </div>
