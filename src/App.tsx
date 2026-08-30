@@ -871,6 +871,7 @@ export default function App() {
         clientProjectId={selectedClientId}
         driveFolderUrl={selectedClient.googleDriveFolderUrl}
         driveRascunhosFolderId={selectedClient.driveRascunhosFolderId}
+        driveRascunhosFolderUrl={selectedClient.driveRascunhosFolderUrl}
         usedMediaUrls={clientPosts.map(p => p.mediaUrl).filter(Boolean)}
         clientWhatsappNumber={selectedClient.whatsappNumber}
         clientContactName={selectedClient.contactName}

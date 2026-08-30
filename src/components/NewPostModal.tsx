@@ -11,6 +11,7 @@ interface NewPostModalProps {
   clientProjectId: string;
   driveFolderUrl?: string;
   driveRascunhosFolderId?: string;
+  driveRascunhosFolderUrl?: string;
   usedMediaUrls?: string[];
   clientWhatsappNumber?: string;
   clientContactName?: string;
@@ -24,6 +25,7 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
   clientProjectId,
   driveFolderUrl,
   driveRascunhosFolderId,
+  driveRascunhosFolderUrl,
   usedMediaUrls = [],
   clientWhatsappNumber,
   clientContactName,
@@ -236,10 +238,10 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
                 <HardDrive className="w-3 h-3 text-indigo-400" />
                 Cole o link de compartilhamento do Google Drive (seja /file/d/..., view?usp=sharing ou com /view) - conversão automática!
               </p>
-              {driveFolderUrl && (
+              {(driveRascunhosFolderUrl || driveFolderUrl) && (
                 <>
                   <a
-                    href={driveFolderUrl}
+                    href={driveRascunhosFolderUrl || driveFolderUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold transition-colors"
@@ -248,7 +250,9 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
                     Faça o upload pelo Drive
                   </a>
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Envie o arquivo lá e cole o link de compartilhamento aqui depois, ou selecione na lista abaixo.
+                    {driveRascunhosFolderUrl
+                      ? 'Abre direto na pasta de Rascunhos. Envie o arquivo lá e selecione na lista abaixo.'
+                      : 'Envie o arquivo lá e cole o link de compartilhamento aqui depois, ou selecione na lista abaixo.'}
                   </p>
                 </>
               )}
