@@ -92,6 +92,8 @@ export interface ClientProject {
   pricePerPost: number;
   metricsAccess: MetricsVisibility; // Quem pode ver o painel de métricas
   googleDriveFolderUrl?: string;
+  driveRascunhosFolderId?: string;
+  driveRascunhosFolderUrl?: string;
   logoUrl?: string; // Logomarca para recibo PDF e perfil
   activeSocialNetworks: SocialNetwork[]; // Redes sociais que o cliente utiliza
   assignedSocialMediaId?: string;

@@ -16,7 +16,7 @@ import { PostDetailModal } from './components/PostDetailModal';
 import { NewPostModal } from './components/NewPostModal';
 import { InspirationSection } from './components/InspirationSection';
 import { ReceiptGenerator } from './components/ReceiptGenerator';
-import { MetricsDashboard } from './components/MetricsDashboard';
+import { MetricsDashboard } from './metrics';
 import { WhatsAppNotificationModal } from './components/WhatsAppNotificationModal';
 import { StorageDriveModal } from './components/StorageDriveModal';
 import { ClientSettings } from './components/ClientSettings';
@@ -870,6 +870,8 @@ export default function App() {
         onClose={() => setIsNewPostModalOpen(false)}
         clientProjectId={selectedClientId}
         driveFolderUrl={selectedClient.googleDriveFolderUrl}
+        driveRascunhosFolderId={selectedClient.driveRascunhosFolderId}
+        usedMediaUrls={clientPosts.map(p => p.mediaUrl).filter(Boolean)}
         clientWhatsappNumber={selectedClient.whatsappNumber}
         clientContactName={selectedClient.contactName}
         inspirations={clientInspirations}

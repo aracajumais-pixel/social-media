@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PostItem, SocialNetwork, InspirationFile } from '../types';
-import { X, Image, Video, Layers, Plus, Lightbulb, HardDrive, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { X, Image, Video, Layers, Plus, Lightbulb, HardDrive, MessageSquare, CheckCircle2, RefreshCw, FileImage } from 'lucide-react';
 import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl } from '../utils/token';
 import { getEmbeddableMediaUrl, isGoogleDriveUrl } from '../utils/driveHelper';
+import { listDriveFiles, DriveFileInfo } from '../lib/supabase';
 
 interface NewPostModalProps {
   isOpen: boolean;
   onClose: () => void;
   clientProjectId: string;
   driveFolderUrl?: string;
+  driveRascunhosFolderId?: string;
+  usedMediaUrls?: string[];
   clientWhatsappNumber?: string;
   clientContactName?: string;
   inspirations: InspirationFile[];
@@ -20,6 +23,8 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
   onClose,
   clientProjectId,
   driveFolderUrl,
+  driveRascunhosFolderId,
+  usedMediaUrls = [],
   clientWhatsappNumber,
   clientContactName,
   inspirations,
@@ -38,6 +43,33 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
     return d.toISOString().slice(0, 16);
   });
   const [selectedInspirations, setSelectedInspirations] = useState<string[]>([]);
+
+  // Lista de arquivos já presentes na pasta 01_Rascunhos do cliente no Drive
+  const [driveFiles, setDriveFiles] = useState<DriveFileInfo[]>([]);
+  const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
+
+  const loadDriveFiles = async () => {
+    if (!driveRascunhosFolderId) return;
+    setIsLoadingDriveFiles(true);
+    const files = await listDriveFiles(driveRascunhosFolderId);
+    setDriveFiles(files);
+    setIsLoadingDriveFiles(false);
+  };
+
+  useEffect(() => {
+    loadDriveFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveRascunhosFolderId]);
+
+  // Esconde arquivos que já viraram rascunho de outro post
+  const availableDriveFiles = driveFiles.filter(
+    f => !usedMediaUrls.some(used => used.includes(f.id))
+  );
+
+  const handleSelectDriveFile = (file: DriveFileInfo) => {
+    setMediaUrl(file.webViewLink);
+    setMediaType(file.mimeType.startsWith('video') ? 'video' : 'image');
+  };
 
   // Token gerado uma única vez, assim que o modal abre — usado tanto ao salvar
   // quanto para já montar o link de WhatsApp na tela de confirmação, sem duplicar token.
@@ -216,9 +248,55 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
                     Faça o upload pelo Drive
                   </a>
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Envie o arquivo lá e cole o link de compartilhamento aqui depois.
+                    Envie o arquivo lá e cole o link de compartilhamento aqui depois, ou selecione na lista abaixo.
                   </p>
                 </>
+              )}
+
+              {driveRascunhosFolderId && (
+                <div className="mt-3 border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-slate-800/60">
+                    <span className="text-[11px] font-bold text-slate-300">Arquivos em 01_Rascunhos</span>
+                    <button
+                      type="button"
+                      onClick={loadDriveFiles}
+                      disabled={isLoadingDriveFiles}
+                      className="text-indigo-300 hover:text-indigo-200 disabled:opacity-50"
+                      title="Verificar pasta novamente"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDriveFiles ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+
+                  {isLoadingDriveFiles && (
+                    <p className="text-[11px] text-slate-500 px-3 py-3">Carregando arquivos...</p>
+                  )}
+
+                  {!isLoadingDriveFiles && availableDriveFiles.length === 0 && (
+                    <p className="text-[11px] text-slate-500 px-3 py-3">
+                      Nenhum arquivo novo encontrado. Suba o arquivo pelo Drive e clique em 🔄 para atualizar.
+                    </p>
+                  )}
+
+                  {!isLoadingDriveFiles && availableDriveFiles.length > 0 && (
+                    <div className="max-h-40 overflow-y-auto divide-y divide-slate-800">
+                      {availableDriveFiles.map(file => (
+                        <button
+                          key={file.id}
+                          type="button"
+                          onClick={() => handleSelectDriveFile(file)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-indigo-600/10 transition-colors"
+                        >
+                          {file.mimeType.startsWith('video')
+                            ? <Video className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                            : <FileImage className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                          }
+                          <span className="text-[11px] text-slate-300 truncate">{file.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

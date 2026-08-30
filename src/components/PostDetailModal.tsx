@@ -23,6 +23,8 @@ interface PostDetailModalProps {
   onSendWhatsAppAlert: (postId: string, message: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
   onOpenWhatsApp?: (post: PostItem) => void;
+  clientWhatsappNumber?: string;
+  clientContactName?: string;
   onRenewToken?: (postId: string) => void;
   onUpdatePostFields?: (postId: string, fields: Partial<PostItem>) => void;
 }
@@ -41,6 +43,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onSendWhatsAppAlert,
   onOpenPublicApprovalLink,
   onOpenWhatsApp,
+  clientWhatsappNumber,
+  clientContactName,
   onRenewToken,
   onUpdatePostFields
 }) => {
@@ -95,6 +99,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const approvalUrl = buildApprovalUrl(activeToken);
   const expired = isTokenExpired(post.tokenExpiresAt);
   const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
+
+  const whatsappMessage = `Olá${clientContactName ? ' ' + clientContactName : ''}! Temos um novo rascunho pronto para sua aprovação: "${post.title}".\n\nAcesse o link para revisar e aprovar:\n${approvalUrl}`;
+  const cleanClientPhone = (clientWhatsappNumber || '').replace(/\D/g, '');
+  const directWhatsAppUrl = `https://wa.me/${cleanClientPhone}?text=${encodeURIComponent(whatsappMessage)}`;
 
   const handleCopyApprovalLink = () => {
     navigator.clipboard.writeText(approvalUrl);
@@ -480,16 +488,18 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     </button>
                   )}
 
-                  {onOpenWhatsApp && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenWhatsApp(post)}
+                  {clientWhatsappNumber && (
+                    <a
+                      href={directWhatsAppUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => onOpenWhatsApp && onOpenWhatsApp(post)}
                       className="px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all"
-                      title="Enviar este rascunho pelo WhatsApp"
+                      title="Abrir WhatsApp e enviar este rascunho"
                     >
                       <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
                       <span className="hidden sm:inline">Enviar WhatsApp</span>
-                    </button>
+                    </a>
                   )}
 
                   {expired && onRenewToken && (

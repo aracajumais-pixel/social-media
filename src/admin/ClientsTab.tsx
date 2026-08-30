@@ -14,6 +14,7 @@ import {
   syncAllClientsToSupabase, syncAllPostsToSupabase, syncSocialMediaToSupabase
 } from '../lib/supabase';
 import { AdminTabSharedProps } from './types';
+import { createClientDriveFolder } from '../lib/supabase';
 
 export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
   const {
@@ -22,6 +23,7 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
 
   // Estado local desta aba (antes vivia centralizado no index.tsx)
   const [isAddingClientModal, setIsAddingClientModal] = useState(false);
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
   const [newClientForm, setNewClientForm] = useState({
     name: '',
     companyName: '',
@@ -180,9 +182,26 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
             </div>
 
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 if (!newClientForm.name.trim()) return;
+                setIsCreatingClient(true);
+
+                let googleDriveFolderUrl = newClientForm.googleDriveFolderUrl.trim();
+                let driveRascunhosFolderId: string | undefined;
+                let driveRascunhosFolderUrl: string | undefined;
+
+                // Só cria a estrutura de pastas automaticamente se o usuário não colou
+                // manualmente o link de uma pasta já existente.
+                if (!googleDriveFolderUrl) {
+                  const driveResult = await createClientDriveFolder(newClientForm.name.trim());
+                  if (driveResult) {
+                    googleDriveFolderUrl = driveResult.folderUrl;
+                    driveRascunhosFolderId = driveResult.subfolders?.rascunhos?.id;
+                    driveRascunhosFolderUrl = driveResult.subfolders?.rascunhos?.url;
+                  }
+                }
+
                 const created: ClientProject = {
                   id: `client-${Date.now()}`,
                   name: newClientForm.name.trim(),
@@ -194,7 +213,9 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
                   email: newClientForm.email.trim() || 'contato@cliente.com',
                   pricePerPost: Number(newClientForm.pricePerPost) || 150,
                   metricsAccess: 'ambos',
-                  googleDriveFolderUrl: newClientForm.googleDriveFolderUrl.trim(),
+                  googleDriveFolderUrl,
+                  driveRascunhosFolderId,
+                  driveRascunhosFolderUrl,
                   logoUrl: newClientForm.logoUrl.trim(),
                   activeSocialNetworks: ['instagram', 'facebook'],
                   assignedSocialMediaId: newClientForm.assignedSocialMediaId || undefined,
@@ -209,6 +230,7 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
                 } catch (err) {
                   console.error('Erro ao adicionar cliente:', err);
                 } finally {
+                  setIsCreatingClient(false);
                   setIsAddingClientModal(false);
                   setNewClientForm({
                     name: '',
@@ -353,9 +375,10 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-cyan-600/20"
+                  disabled={isCreatingClient}
+                  className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-cyan-600/20 disabled:opacity-50"
                 >
-                  Salvar Cliente e Sincronizar Supabase
+                  {isCreatingClient ? 'Criando pasta no Drive...' : 'Salvar Cliente e Sincronizar Supabase'}
                 </button>
               </div>
             </form>

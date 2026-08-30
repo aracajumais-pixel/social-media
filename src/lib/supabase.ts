@@ -120,6 +120,8 @@ export async function syncClientToSupabase(client: ClientProject) {
       price_per_post: client.pricePerPost ?? 0,
       metrics_access: client.metricsAccess || 'ambos',
       drive_folder_url: client.googleDriveFolderUrl || '',
+      drive_rascunhos_folder_id: client.driveRascunhosFolderId || '',
+      drive_rascunhos_folder_url: client.driveRascunhosFolderUrl || '',
       logo_url: client.logoUrl || '',
       assigned_social_media_id: assignedSocialMediaId,
       status: client.status || 'ativo'
@@ -175,6 +177,8 @@ export async function fetchClientsFromSupabase(): Promise<ClientProject[] | null
         pricePerPost: Number(row.price_per_post || 150),
         metricsAccess: row.metrics_access || 'ambos',
         googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
+        driveRascunhosFolderId: row.drive_rascunhos_folder_id || undefined,
+        driveRascunhosFolderUrl: row.drive_rascunhos_folder_url || undefined,
         logoUrl: row.logo_url || '',
         activeSocialNetworks: ['instagram', 'facebook'],
         assignedSocialMediaId: row.assigned_social_media_id || undefined,
@@ -221,6 +225,8 @@ export async function searchClientsInSupabase(searchQuery: string): Promise<Clie
         pricePerPost: Number(row.price_per_post || 150),
         metricsAccess: row.metrics_access || 'ambos',
         googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
+        driveRascunhosFolderId: row.drive_rascunhos_folder_id || undefined,
+        driveRascunhosFolderUrl: row.drive_rascunhos_folder_url || undefined,
         logoUrl: row.logo_url || '',
         activeSocialNetworks: ['instagram', 'facebook'],
         assignedSocialMediaId: row.assigned_social_media_id || undefined,
@@ -535,3 +541,52 @@ export async function registerUser({ email, password, fullName, role }: SignUpPa
 }
 
 
+// ===== Google Drive: criação de pastas e listagem de arquivos (via Edge Functions) =====
+
+export async function createClientDriveFolder(clientName: string): Promise<{
+  folderId: string;
+  folderUrl: string;
+  subfolders: Record<string, { id: string; url: string }>;
+} | null> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) return null;
+  try {
+    const { data, error } = await clientDb.functions.invoke('create-client-drive-folder', {
+      body: { clientName }
+    });
+    if (error) {
+      console.warn('Erro ao criar pasta do cliente no Drive:', error.message);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.warn('Erro ao chamar create-client-drive-folder:', err);
+    return null;
+  }
+}
+
+export interface DriveFileInfo {
+  id: string;
+  name: string;
+  webViewLink: string;
+  thumbnailLink?: string;
+  mimeType: string;
+}
+
+export async function listDriveFiles(folderId: string): Promise<DriveFileInfo[]> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) return [];
+  try {
+    const { data, error } = await clientDb.functions.invoke('list-drive-files', {
+      body: { folderId }
+    });
+    if (error) {
+      console.warn('Erro ao listar arquivos do Drive:', error.message);
+      return [];
+    }
+    return data?.files || [];
+  } catch (err) {
+    console.warn('Erro ao chamar list-drive-files:', err);
+    return [];
+  }
+}
