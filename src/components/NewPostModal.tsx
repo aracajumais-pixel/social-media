@@ -38,7 +38,7 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
   const [caption, setCaption] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'video' | 'carousel'>('image');
-  const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>(['instagram', 'facebook']);
+  const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>(['instagram']);
   const [scheduledDate, setScheduledDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 2);

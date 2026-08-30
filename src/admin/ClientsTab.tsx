@@ -32,7 +32,7 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
     contactName: '',
     whatsappNumber: '',
     email: '',
-    pricePerPost: 150,
+    pricePerPost: 0.50,
     googleDriveFolderUrl: '',
     logoUrl: '',
     assignedSocialMediaId: socialMedias[0]?.id || ''
@@ -211,7 +211,7 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
                   contactName: newClientForm.contactName.trim() || 'Contato Principal',
                   whatsappNumber: newClientForm.whatsappNumber.trim() || '5511999998888',
                   email: newClientForm.email.trim() || 'contato@cliente.com',
-                  pricePerPost: Number(newClientForm.pricePerPost) || 150,
+                  pricePerPost: Number(newClientForm.pricePerPost) || 0.50,
                   metricsAccess: 'ambos',
                   googleDriveFolderUrl,
                   driveRascunhosFolderId,
@@ -240,7 +240,7 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
                     contactName: '',
                     whatsappNumber: '',
                     email: '',
-                    pricePerPost: 150,
+                    pricePerPost: 0.50,
                     googleDriveFolderUrl: '',
                     logoUrl: '',
                     assignedSocialMediaId: socialMedias[0]?.id || ''
