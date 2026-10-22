@@ -8,6 +8,7 @@ import {
 import { getTimeRemainingText, isTokenExpired, buildApprovalUrl, generateApprovalToken, calculateTokenExpirationDays } from '../utils/token';
 import { DriveImage } from './DriveImage';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
+import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 
 interface PostDetailModalProps {
   post: PostItem | null;
@@ -22,9 +23,6 @@ interface PostDetailModalProps {
   onAddComment: (postId: string, commentText: string) => void;
   onSendWhatsAppAlert: (postId: string, message: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
-  onOpenWhatsApp?: (post: PostItem) => void;
-  clientWhatsappNumber?: string;
-  clientContactName?: string;
   onRenewToken?: (postId: string) => void;
   onUpdatePostFields?: (postId: string, fields: Partial<PostItem>) => void;
 }
@@ -42,9 +40,6 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onAddComment,
   onSendWhatsAppAlert,
   onOpenPublicApprovalLink,
-  onOpenWhatsApp,
-  clientWhatsappNumber,
-  clientContactName,
   onRenewToken,
   onUpdatePostFields
 }) => {
@@ -99,10 +94,6 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const approvalUrl = buildApprovalUrl(activeToken);
   const expired = isTokenExpired(post.tokenExpiresAt);
   const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
-
-  const whatsappMessage = `Olá${clientContactName ? ' ' + clientContactName : ''}! Temos um novo rascunho pronto para sua aprovação: "${post.title}".\n\nAcesse o link para revisar e aprovar:\n${approvalUrl}`;
-  const cleanClientPhone = (clientWhatsappNumber || '').replace(/\D/g, '');
-  const directWhatsAppUrl = `https://wa.me/${cleanClientPhone}?text=${encodeURIComponent(whatsappMessage)}`;
 
   const handleCopyApprovalLink = () => {
     navigator.clipboard.writeText(approvalUrl);
@@ -212,12 +203,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               )}
             </div>
 
-            {/* Editable Media URL */}
+            {/* Editable Media URL & Supabase Direct Upload */}
             {onUpdatePostFields && (
-              <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 space-y-2 text-xs">
+              <div className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 space-y-3 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-300 font-bold flex items-center gap-1.5">
-                    <HardDrive className="w-3.5 h-3.5 text-indigo-400" /> URL da Mídia / Drive:
+                    <HardDrive className="w-3.5 h-3.5 text-indigo-400" /> Mídia do Post (Upload ou Drive):
                   </span>
                   {!isEditingMediaUrl ? (
                     <button
@@ -225,30 +216,49 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                       onClick={() => setIsEditingMediaUrl(true)}
                       className="text-indigo-400 hover:text-indigo-300 font-bold text-[11px] flex items-center gap-1"
                     >
-                      <Pencil className="w-3 h-3" /> Alterar URL
+                      <Pencil className="w-3 h-3" /> Substituir Mídia
                     </button>
                   ) : (
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
                         onClick={handleSaveMediaUrl}
-                        className="px-2 py-1 bg-indigo-600 text-white font-bold text-[10px] rounded-lg"
+                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg shadow-sm"
                       >
-                        Salvar
+                        Salvar URL
                       </button>
                       <button
                         type="button"
                         onClick={() => setIsEditingMediaUrl(false)}
-                        className="px-2 py-1 bg-slate-800 text-slate-400 text-[10px] rounded-lg"
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] rounded-lg"
                       >
-                        Cancelar
+                        Fechar
                       </button>
                     </div>
                   )}
                 </div>
 
+                {/* Direct Upload to Supabase */}
+                <SupabaseMediaUploader
+                  currentUrl={post.mediaUrl}
+                  compact={true}
+                  onUploadSuccess={(url, detectedType) => {
+                    setEditedMediaUrl(url);
+                    if (onUpdatePostFields && post) {
+                      onUpdatePostFields(post.id, {
+                        mediaUrl: url,
+                        mediaType: detectedType
+                      });
+                    }
+                  }}
+                  folder="posts"
+                />
+
                 {isEditingMediaUrl ? (
                   <div className="space-y-1.5 pt-1">
+                    <label className="text-[10px] font-bold text-slate-400 block">
+                      Ou informe o link manual (Supabase ou Google Drive):
+                    </label>
                     <input
                       type="url"
                       value={editedMediaUrl}
@@ -257,17 +267,24 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                         const converted = raw.trim() ? getEmbeddableMediaUrl(raw) : raw;
                         setEditedMediaUrl(converted);
                       }}
-                      placeholder="Cole novo link do Drive..."
+                      placeholder="Cole novo link do Drive ou URL..."
                       className="w-full bg-slate-950 text-white p-2.5 rounded-xl border border-indigo-500/50 text-[11px] font-mono focus:outline-none"
                     />
                     <p className="text-[10px] text-slate-400">
-                      ✨ Links do Google Drive são convertidos instantaneamente para a CDN de alta resolução (<code className="text-emerald-400">https://lh3.googleusercontent.com/d/ID</code>).
+                      ✨ Links do Google Drive são convertidos instantaneamente para a CDN (<code className="text-emerald-400">https://lh3.googleusercontent.com/d/ID</code>).
                     </p>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-slate-400 font-mono truncate bg-slate-950 p-2 rounded-xl border border-slate-800/80">
-                    {post.mediaUrl}
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-slate-400 font-mono truncate bg-slate-950 p-2 rounded-xl border border-slate-800/80">
+                      {post.mediaUrl}
+                    </p>
+                    {post.mediaUrl?.includes('supabase.co/storage') && (
+                      <span className="inline-block text-[10px] font-bold text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded-md border border-indigo-800/50">
+                        ⚡ Supabase Storage Ativo
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -486,20 +503,6 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                       <ExternalLink className="w-3.5 h-3.5 text-purple-300" />
                       <span className="hidden sm:inline">Simular Acesso</span>
                     </button>
-                  )}
-
-                  {clientWhatsappNumber && (
-                    <a
-                      href={directWhatsAppUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => onOpenWhatsApp && onOpenWhatsApp(post)}
-                      className="px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all"
-                      title="Abrir WhatsApp e enviar este rascunho"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
-                      <span className="hidden sm:inline">Enviar WhatsApp</span>
-                    </a>
                   )}
 
                   {expired && onRenewToken && (

@@ -16,17 +16,17 @@ import { PostDetailModal } from './components/PostDetailModal';
 import { NewPostModal } from './components/NewPostModal';
 import { InspirationSection } from './components/InspirationSection';
 import { ReceiptGenerator } from './components/ReceiptGenerator';
-import { MetricsDashboard } from './metrics';
+import { MetricsDashboard } from './components/MetricsDashboard';
 import { WhatsAppNotificationModal } from './components/WhatsAppNotificationModal';
 import { StorageDriveModal } from './components/StorageDriveModal';
 import { ClientSettings } from './components/ClientSettings';
-import { AdminSaaSDashboard } from './admin';
+import { AdminSaaSDashboard } from './components/AdminSaaSDashboard';
 import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
 import { Footer } from './components/Footer';
 import { generateApprovalToken, calculateTokenExpirationDays } from './utils/token';
-import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase } from './lib/supabase';
+import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase } from './lib/supabase';
 
 import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2 } from 'lucide-react';
 
@@ -39,7 +39,7 @@ const defaultEmptyClient: ClientProject = {
   contactName: 'Contato Principal',
   whatsappNumber: '5511999998888',
   email: 'contato@cliente.com.br',
-  pricePerPost: 0.50,
+  pricePerPost: 150.00,
   metricsAccess: 'ambos',
   googleDriveFolderUrl: '',
   activeSocialNetworks: ['instagram', 'facebook'],
@@ -205,7 +205,6 @@ export default function App() {
   const [publicApprovalPost, setPublicApprovalPost] = useState<PostItem | null>(null);
   const [isNewPostModalOpen, setIsNewPostModalOpen] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
-  const [whatsAppModalPost, setWhatsAppModalPost] = useState<PostItem | null>(null);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<WhatsAppNotificationPayload[]>([]);
 
@@ -459,7 +458,6 @@ export default function App() {
       },
       ...prev
     ]);
-    setWhatsAppModalPost(targetPost || null);
     setIsWhatsAppModalOpen(true);
   };
 
@@ -551,6 +549,7 @@ export default function App() {
         onSelectClient={setSelectedClientId}
         currentUserRole={currentUserRole}
         onChangeUserRole={setCurrentUserRole}
+        onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
         onOpenDriveModal={() => setIsDriveModalOpen(true)}
         onOpenAddClientModal={() => setActiveTab('admin')}
         unreadNotificationsCount={draftsCount + changesRequestedCount}
@@ -717,20 +716,6 @@ export default function App() {
                     onQuickApprove={(id) => handleUpdatePostStatus(id, 'aprovado')}
                     onQuickRequestChange={(id) => handleUpdatePostStatus(id, 'alterar')}
                     onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
-                    onOpenWhatsApp={(p) => {
-                      setNotificationHistory(prev => [
-                        {
-                          recipientPhone: selectedClient.whatsappNumber,
-                          recipientName: selectedClient.contactName,
-                          type: 'novo_rascunho',
-                          postTitle: p.title,
-                          customMessage: undefined
-                        },
-                        ...prev
-                      ]);
-                    }}
-                    clientWhatsappNumber={selectedClient.whatsappNumber}
-                    clientContactName={selectedClient.contactName}
                   />
                 ))}
               </div>
@@ -838,20 +823,6 @@ export default function App() {
         onAddComment={handleAddComment}
         onSendWhatsAppAlert={handleSendWhatsAppAlert}
         onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
-        onOpenWhatsApp={(p) => {
-          setNotificationHistory(prev => [
-            {
-              recipientPhone: selectedClient.whatsappNumber,
-              recipientName: selectedClient.contactName,
-              type: 'novo_rascunho',
-              postTitle: p.title,
-              customMessage: undefined
-            },
-            ...prev
-          ]);
-        }}
-        clientWhatsappNumber={selectedClient.whatsappNumber}
-        clientContactName={selectedClient.contactName}
         onRenewToken={handleRenewToken}
         onUpdatePostFields={handleUpdatePostFields}
       />
@@ -869,12 +840,6 @@ export default function App() {
         isOpen={isNewPostModalOpen}
         onClose={() => setIsNewPostModalOpen(false)}
         clientProjectId={selectedClientId}
-        driveFolderUrl={selectedClient.googleDriveFolderUrl}
-        driveRascunhosFolderId={selectedClient.driveRascunhosFolderId}
-        driveRascunhosFolderUrl={selectedClient.driveRascunhosFolderUrl}
-        usedMediaUrls={clientPosts.map(p => p.mediaUrl).filter(Boolean)}
-        clientWhatsappNumber={selectedClient.whatsappNumber}
-        clientContactName={selectedClient.contactName}
         inspirations={clientInspirations}
         onCreatePost={handleCreatePost}
       />
@@ -885,14 +850,15 @@ export default function App() {
         selectedClient={selectedClient}
         notificationHistory={notificationHistory}
         onTriggerNotification={(payload) => setNotificationHistory([payload, ...notificationHistory])}
-        approvalToken={whatsAppModalPost?.approvalToken}
-        defaultPostTitle={whatsAppModalPost?.title}
+        approvalToken={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.approvalToken}
+        defaultPostTitle={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.title}
       />
 
       <StorageDriveModal
         isOpen={isDriveModalOpen}
         onClose={() => setIsDriveModalOpen(false)}
         client={selectedClient}
+        onUpdateClient={handleUpdateClient}
       />
 
     </div>

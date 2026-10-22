@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { ClientProject, UserRole, SocialNetwork, SocialMediaUser } from '../types';
-import { Building, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Sparkles } from 'lucide-react';
+import { Building, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { DriveImage } from './DriveImage';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 import { searchClientsInSupabase } from '../lib/supabase';
+import { createDriveFolderForClient, getSavedDriveWebhookUrl } from '../utils/driveAutomation';
+import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 
 interface ClientSettingsProps {
   client: ClientProject;
@@ -43,6 +45,9 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientProject | null>(null); // null = new mode, ClientProject = edit mode
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [isGeneratingDriveFolder, setIsGeneratingDriveFolder] = useState(false);
+  const [driveGenError, setDriveGenError] = useState<string | null>(null);
+  const [driveGenSuccess, setDriveGenSuccess] = useState(false);
 
   const [modalForm, setModalForm] = useState({
     id: '',
@@ -82,6 +87,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   const handleOpenCreateModal = () => {
     setEditingClient(null);
     setSavedSuccess(false);
+    setDriveGenError(null);
+    setDriveGenSuccess(false);
     setModalForm({
       id: '',
       name: '',
@@ -91,7 +98,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       contactName: '',
       whatsappNumber: '',
       email: '',
-      pricePerPost: 0.50,
+      pricePerPost: 150,
       googleDriveFolderUrl: '',
       logoUrl: '',
       activeSocialNetworks: ['instagram', 'facebook'],
@@ -104,6 +111,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   const handleOpenEditModal = (targetClient: ClientProject) => {
     setEditingClient(targetClient);
     setSavedSuccess(false);
+    setDriveGenError(null);
+    setDriveGenSuccess(false);
     setModalForm({
       id: targetClient.id,
       name: targetClient.name || '',
@@ -113,7 +122,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       contactName: targetClient.contactName || '',
       whatsappNumber: targetClient.whatsappNumber || '',
       email: targetClient.email || '',
-      pricePerPost: targetClient.pricePerPost ?? 0.50,
+      pricePerPost: targetClient.pricePerPost ?? 150,
       googleDriveFolderUrl: targetClient.googleDriveFolderUrl || '',
       logoUrl: targetClient.logoUrl || '',
       activeSocialNetworks: targetClient.activeSocialNetworks || ['instagram', 'facebook'],
@@ -126,6 +135,38 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     setIsClientModalOpen(false);
     setEditingClient(null);
     setSavedSuccess(false);
+    setDriveGenError(null);
+    setDriveGenSuccess(false);
+  };
+
+  const handleQuickGenerateDriveFolder = async () => {
+    if (!modalForm.name.trim()) {
+      setDriveGenError('Digite o nome do cliente antes de gerar a pasta.');
+      return;
+    }
+    const webhook = getSavedDriveWebhookUrl();
+    if (!webhook) {
+      setDriveGenError('URL do Webhook não configurada. Configure na Central do Drive.');
+      return;
+    }
+
+    setIsGeneratingDriveFolder(true);
+    setDriveGenError(null);
+    setDriveGenSuccess(false);
+
+    try {
+      const result = await createDriveFolderForClient(modalForm.name.trim(), webhook);
+      if (result.status === 'success' && result.folderUrl) {
+        setModalForm(prev => ({ ...prev, googleDriveFolderUrl: result.folderUrl || '' }));
+        setDriveGenSuccess(true);
+      } else {
+        setDriveGenError(result.message || 'Erro ao gerar pastas no Drive.');
+      }
+    } catch (err: any) {
+      setDriveGenError(err.message || 'Falha ao conectar com o Google Apps Script.');
+    } finally {
+      setIsGeneratingDriveFolder(false);
+    }
   };
 
   const handleSaveClientSubmit = (e: React.FormEvent) => {
@@ -143,7 +184,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         contactName: modalForm.contactName.trim(),
         whatsappNumber: modalForm.whatsappNumber.trim(),
         email: modalForm.email.trim(),
-        pricePerPost: Number(modalForm.pricePerPost) || 0.50,
+        pricePerPost: Number(modalForm.pricePerPost) || 150,
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
@@ -166,7 +207,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         contactName: modalForm.contactName.trim() || 'Contato Principal',
         whatsappNumber: modalForm.whatsappNumber.trim() || '5511999998888',
         email: modalForm.email.trim() || 'contato@cliente.com',
-        pricePerPost: Number(modalForm.pricePerPost) || 0.50,
+        pricePerPost: Number(modalForm.pricePerPost) || 150,
         metricsAccess: 'ambos',
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
@@ -503,28 +544,67 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                       type="number"
                       value={modalForm.pricePerPost}
                       onChange={(e) => setModalForm({ ...modalForm, pricePerPost: e.target.value })}
-                      placeholder="Ex: 0.50"
+                      placeholder="Ex: 150.00"
                       className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-bold mb-1">Link da Logomarca (Drive ou URL):</label>
-                  <input
-                    type="url"
-                    value={modalForm.logoUrl}
-                    onChange={(e) => {
-                      const converted = e.target.value.trim() ? getEmbeddableMediaUrl(e.target.value) : e.target.value;
-                      setModalForm({ ...modalForm, logoUrl: converted });
+                {/* Logomarca do Cliente: Upload ou Link */}
+                <div className="space-y-2 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-bold text-xs">Logomarca do Cliente:</label>
+                    <span className="text-[10px] text-indigo-400 font-medium">Upload no Supabase</span>
+                  </div>
+
+                  <SupabaseMediaUploader
+                    compact={true}
+                    currentUrl={modalForm.logoUrl}
+                    folder="logos"
+                    onUploadSuccess={(url) => {
+                      setModalForm(prev => ({ ...prev, logoUrl: url }));
                     }}
-                    placeholder="https://drive.google.com/file/d/... ou https://..."
-                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
                   />
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] font-bold mb-1">Ou informe o link da imagem (Drive ou URL externa):</label>
+                    <input
+                      type="url"
+                      value={modalForm.logoUrl}
+                      onChange={(e) => {
+                        const converted = e.target.value.trim() ? getEmbeddableMediaUrl(e.target.value) : e.target.value;
+                        setModalForm({ ...modalForm, logoUrl: converted });
+                      }}
+                      placeholder="https://... ou link do Supabase / Drive"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 font-bold mb-1">URL Pasta Google Drive:</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-bold">URL Pasta Google Drive:</label>
+                    <button
+                      type="button"
+                      onClick={handleQuickGenerateDriveFolder}
+                      disabled={isGeneratingDriveFolder}
+                      className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors disabled:opacity-50"
+                      title="Criar pastas no Google Drive automaticamente usando o Webhook"
+                    >
+                      {isGeneratingDriveFolder ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Gerando pastas...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <span>⚡ Gerar Pastas no Drive</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
                   <input
                     type="url"
                     value={modalForm.googleDriveFolderUrl}
@@ -532,6 +612,20 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                     placeholder="https://drive.google.com/drive/folders/..."
                     className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
                   />
+
+                  {driveGenError && (
+                    <div className="mt-1.5 p-2 bg-red-950/60 border border-red-800/60 rounded-lg text-red-300 flex items-start gap-1.5 text-[11px]">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400 mt-0.5" />
+                      <span>{driveGenError}</span>
+                    </div>
+                  )}
+
+                  {driveGenSuccess && (
+                    <div className="mt-1.5 p-2 bg-emerald-950/60 border border-emerald-800/60 rounded-lg text-emerald-300 flex items-center gap-1.5 text-[11px]">
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Pastas criadas e vinculadas com sucesso no Google Drive!</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Seleção de Redes Sociais */}

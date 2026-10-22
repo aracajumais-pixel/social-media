@@ -4,6 +4,7 @@ import {
   Lightbulb, Plus, ExternalLink, Image as ImageIcon, Link as LinkIcon, FileText, 
   Trash2, User, CheckCircle2, Clock, AlertTriangle, Filter, Calendar 
 } from 'lucide-react';
+import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 
 interface InspirationSectionProps {
   inspirations: InspirationFile[];
@@ -214,15 +215,31 @@ export const InspirationSection: React.FC<InspirationSectionProps> = ({
             </div>
           </div>
 
+          {/* Supabase Media Uploader para Inspiração */}
+          <div className="space-y-2">
+            <label className="block font-bold text-slate-300 text-xs">
+              Upload Direto da Imagem/Mídia (Supabase Storage):
+            </label>
+            <SupabaseMediaUploader
+              compact={true}
+              currentUrl={url}
+              folder="inspirations"
+              onUploadSuccess={(uploadedUrl) => {
+                setUrl(uploadedUrl);
+                setType('image');
+              }}
+            />
+          </div>
+
           <div className="text-xs">
-            <label className="block font-bold text-slate-300 mb-1">URL da Imagem ou Link do Exemplo:</label>
+            <label className="block font-bold text-slate-300 mb-1">Ou informe a URL / Link do Exemplo:</label>
             <input
               type="url"
               required
-              placeholder="https://..."
+              placeholder="https://... ou link direto"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-purple-500"
+              className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-purple-500 font-mono text-xs"
             />
           </div>
 

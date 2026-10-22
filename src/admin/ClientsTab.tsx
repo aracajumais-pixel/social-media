@@ -14,7 +14,7 @@ import {
   syncAllClientsToSupabase, syncAllPostsToSupabase, syncSocialMediaToSupabase
 } from '../lib/supabase';
 import { AdminTabSharedProps } from './types';
-import { createClientDriveFolder } from '../lib/supabase';
+import { createClientDriveFolder } from '../lib/drive';
 import type { ClientProject } from '../types';
 
 export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {

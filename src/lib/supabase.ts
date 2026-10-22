@@ -120,8 +120,6 @@ export async function syncClientToSupabase(client: ClientProject) {
       price_per_post: client.pricePerPost ?? 0,
       metrics_access: client.metricsAccess || 'ambos',
       drive_folder_url: client.googleDriveFolderUrl || '',
-      drive_rascunhos_folder_id: client.driveRascunhosFolderId || '',
-      drive_rascunhos_folder_url: client.driveRascunhosFolderUrl || '',
       logo_url: client.logoUrl || '',
       assigned_social_media_id: assignedSocialMediaId,
       status: client.status || 'ativo'
@@ -174,11 +172,9 @@ export async function fetchClientsFromSupabase(): Promise<ClientProject[] | null
         contactName: row.contact_name || '',
         whatsappNumber: row.whatsapp_number || '',
         email: row.email || '',
-        pricePerPost: Number(row.price_per_post || 0.50),
+        pricePerPost: Number(row.price_per_post || 150),
         metricsAccess: row.metrics_access || 'ambos',
         googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
-        driveRascunhosFolderId: row.drive_rascunhos_folder_id || undefined,
-        driveRascunhosFolderUrl: row.drive_rascunhos_folder_url || undefined,
         logoUrl: row.logo_url || '',
         activeSocialNetworks: ['instagram', 'facebook'],
         assignedSocialMediaId: row.assigned_social_media_id || undefined,
@@ -189,6 +185,30 @@ export async function fetchClientsFromSupabase(): Promise<ClientProject[] | null
   } catch (err) {
     console.warn('Falha ao consultar clientes do Supabase:', err);
     return null;
+  }
+}
+
+/**
+ * Remove um cliente do Supabase pelo ID.
+ */
+export async function deleteClientFromSupabase(clientId: string): Promise<boolean> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !clientId) return false;
+  try {
+    const { error } = await clientDb
+      .from('clients')
+      .delete()
+      .eq('id', clientId);
+
+    if (error) {
+      console.warn('Erro ao deletar cliente no Supabase:', error.message);
+      return false;
+    }
+    console.log('✓ Cliente removido do Supabase com sucesso:', clientId);
+    return true;
+  } catch (err) {
+    console.warn('Falha ao conectar com Supabase para excluir cliente:', err);
+    return false;
   }
 }
 
@@ -222,11 +242,9 @@ export async function searchClientsInSupabase(searchQuery: string): Promise<Clie
         contactName: row.contact_name || '',
         whatsappNumber: row.whatsapp_number || '',
         email: row.email || '',
-        pricePerPost: Number(row.price_per_post || 0.50),
+        pricePerPost: Number(row.price_per_post || 150),
         metricsAccess: row.metrics_access || 'ambos',
         googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
-        driveRascunhosFolderId: row.drive_rascunhos_folder_id || undefined,
-        driveRascunhosFolderUrl: row.drive_rascunhos_folder_url || undefined,
         logoUrl: row.logo_url || '',
         activeSocialNetworks: ['instagram', 'facebook'],
         assignedSocialMediaId: row.assigned_social_media_id || undefined,
@@ -331,6 +349,30 @@ export async function fetchPostsFromSupabase(): Promise<PostItem[] | null> {
   } catch (err) {
     console.warn('Falha ao consultar posts do Supabase:', err);
     return null;
+  }
+}
+
+/**
+ * Remove um post do Supabase pelo ID.
+ */
+export async function deletePostFromSupabase(postId: string): Promise<boolean> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !postId) return false;
+  try {
+    const { error } = await clientDb
+      .from('posts')
+      .delete()
+      .eq('id', postId);
+
+    if (error) {
+      console.warn('Erro ao deletar post no Supabase:', error.message);
+      return false;
+    }
+    console.log('✓ Post removido do Supabase com sucesso:', postId);
+    return true;
+  } catch (err) {
+    console.warn('Falha ao conectar com Supabase para excluir post:', err);
+    return false;
   }
 }
 
@@ -540,53 +582,58 @@ export async function registerUser({ email, password, fullName, role }: SignUpPa
   return data;
 }
 
-
-// ===== Google Drive: criação de pastas e listagem de arquivos (via Edge Functions) =====
-
-export async function createClientDriveFolder(clientName: string): Promise<{
-  folderId: string;
-  folderUrl: string;
-  subfolders: Record<string, { id: string; url: string }>;
-} | null> {
+/**
+ * Faz upload de um arquivo para o Supabase Storage (Bucket 'media')
+ * e retorna a URL pública direta da CDN.
+ */
+export async function uploadMediaToSupabase(
+  file: File,
+  folder: string = 'posts'
+): Promise<{ success: boolean; url?: string; path?: string; error?: string }> {
   const clientDb = getSupabaseClient();
-  if (!clientDb) return null;
-  try {
-    const { data, error } = await clientDb.functions.invoke('create-client-drive-folder', {
-      body: { clientName }
-    });
-    if (error) {
-      console.warn('Erro ao criar pasta do cliente no Drive:', error.message);
-      return null;
-    }
-    return data;
-  } catch (err) {
-    console.warn('Erro ao chamar create-client-drive-folder:', err);
-    return null;
+  if (!clientDb) {
+    return {
+      success: false,
+      error: 'Cliente Supabase não configurado. Verifique as variáveis de ambiente.'
+    };
   }
-}
 
-export interface DriveFileInfo {
-  id: string;
-  name: string;
-  webViewLink: string;
-  thumbnailLink?: string;
-  mimeType: string;
-}
-
-export async function listDriveFiles(folderId: string): Promise<DriveFileInfo[]> {
-  const clientDb = getSupabaseClient();
-  if (!clientDb) return [];
   try {
-    const { data, error } = await clientDb.functions.invoke('list-drive-files', {
-      body: { folderId }
-    });
+    const timestamp = Date.now();
+    const cleanFileName = file.name
+      .toLowerCase()
+      .replace(/[^a-z0-9.]/g, '-')
+      .replace(/-+/g, '-');
+    const filePath = `${folder}/${timestamp}-${cleanFileName}`;
+
+    const { data, error } = await clientDb.storage
+      .from('media')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: file.type
+      });
+
     if (error) {
-      console.warn('Erro ao listar arquivos do Drive:', error.message);
-      return [];
+      console.error('Erro no upload para Supabase Storage:', error);
+      return { success: false, error: error.message };
     }
-    return data?.files || [];
-  } catch (err) {
-    console.warn('Erro ao chamar list-drive-files:', err);
-    return [];
+
+    const { data: publicUrlData } = clientDb.storage
+      .from('media')
+      .getPublicUrl(data.path);
+
+    if (!publicUrlData?.publicUrl) {
+      return { success: false, error: 'Não foi possível gerar a URL pública da mídia.' };
+    }
+
+    return {
+      success: true,
+      url: publicUrlData.publicUrl,
+      path: data.path
+    };
+  } catch (err: any) {
+    console.error('Falha inesperada no upload para Supabase:', err);
+    return { success: false, error: err?.message || 'Erro inesperado durante o upload.' };
   }
 }
