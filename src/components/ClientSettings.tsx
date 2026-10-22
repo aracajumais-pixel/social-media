@@ -91,7 +91,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       contactName: '',
       whatsappNumber: '',
       email: '',
-      pricePerPost: 150,
+      pricePerPost: 0.50,
       googleDriveFolderUrl: '',
       logoUrl: '',
       activeSocialNetworks: ['instagram', 'facebook'],
@@ -113,7 +113,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       contactName: targetClient.contactName || '',
       whatsappNumber: targetClient.whatsappNumber || '',
       email: targetClient.email || '',
-      pricePerPost: targetClient.pricePerPost ?? 150,
+      pricePerPost: targetClient.pricePerPost ?? 0.50,
       googleDriveFolderUrl: targetClient.googleDriveFolderUrl || '',
       logoUrl: targetClient.logoUrl || '',
       activeSocialNetworks: targetClient.activeSocialNetworks || ['instagram', 'facebook'],
@@ -143,7 +143,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         contactName: modalForm.contactName.trim(),
         whatsappNumber: modalForm.whatsappNumber.trim(),
         email: modalForm.email.trim(),
-        pricePerPost: Number(modalForm.pricePerPost) || 150,
+        pricePerPost: Number(modalForm.pricePerPost) || 0.50,
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
@@ -166,7 +166,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         contactName: modalForm.contactName.trim() || 'Contato Principal',
         whatsappNumber: modalForm.whatsappNumber.trim() || '5511999998888',
         email: modalForm.email.trim() || 'contato@cliente.com',
-        pricePerPost: Number(modalForm.pricePerPost) || 150,
+        pricePerPost: Number(modalForm.pricePerPost) || 0.50,
         metricsAccess: 'ambos',
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
@@ -503,7 +503,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                       type="number"
                       value={modalForm.pricePerPost}
                       onChange={(e) => setModalForm({ ...modalForm, pricePerPost: e.target.value })}
-                      placeholder="Ex: 150.00"
+                      placeholder="Ex: 0.50"
                       className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                     />
                   </div>

@@ -15,10 +15,11 @@ import {
 } from '../lib/supabase';
 import { AdminTabSharedProps } from './types';
 import { createClientDriveFolder } from '../lib/supabase';
+import type { ClientProject } from '../types';
 
 export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
   const {
-    clients, socialMedias, onToggleBlockClient, onAddClient
+    clients, posts, socialMedias, onToggleBlockClient, onAddClient
   } = props;
 
   // Estado local desta aba (antes vivia centralizado no index.tsx)
@@ -193,13 +194,21 @@ export const ClientsTab: React.FC<AdminTabSharedProps> = (props) => {
 
                 // Só cria a estrutura de pastas automaticamente se o usuário não colou
                 // manualmente o link de uma pasta já existente.
+                console.log('🟡 [DRIVE] Campo googleDriveFolderUrl no formulário:', JSON.stringify(googleDriveFolderUrl));
                 if (!googleDriveFolderUrl) {
+                  console.log('🟡 [DRIVE] Campo vazio — chamando createClientDriveFolder para:', newClientForm.name.trim());
                   const driveResult = await createClientDriveFolder(newClientForm.name.trim());
+                  console.log('🟡 [DRIVE] Resultado retornado pela função:', JSON.stringify(driveResult));
                   if (driveResult) {
                     googleDriveFolderUrl = driveResult.folderUrl;
                     driveRascunhosFolderId = driveResult.subfolders?.rascunhos?.id;
                     driveRascunhosFolderUrl = driveResult.subfolders?.rascunhos?.url;
+                    console.log('🟢 [DRIVE] Pasta criada com sucesso:', googleDriveFolderUrl);
+                  } else {
+                    console.log('🔴 [DRIVE] createClientDriveFolder devolveu null — a automação falhou silenciosamente. Veja o aviso de erro logo acima nesse mesmo Console.');
                   }
+                } else {
+                  console.log('🟡 [DRIVE] Campo já preenchido manualmente — automação não é chamada de propósito.');
                 }
 
                 const created: ClientProject = {

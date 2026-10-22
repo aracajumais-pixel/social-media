@@ -37,7 +37,7 @@ export const DEMO_CLIENTS: ClientProject[] = [
     contactName: 'Mariana Silva (Diretora)',
     whatsappNumber: '5511998765432',
     email: 'marianasilva@cafearoma.com.br',
-    pricePerPost: 150.00,
+    pricePerPost: 0.50,
     metricsAccess: 'cliente',
     googleDriveFolderUrl: 'https://drive.google.com/drive/folders/sample-cafe-aroma',
     logoUrl: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=300&q=80',

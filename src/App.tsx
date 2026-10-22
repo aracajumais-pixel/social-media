@@ -39,7 +39,7 @@ const defaultEmptyClient: ClientProject = {
   contactName: 'Contato Principal',
   whatsappNumber: '5511999998888',
   email: 'contato@cliente.com.br',
-  pricePerPost: 150.00,
+  pricePerPost: 0.50,
   metricsAccess: 'ambos',
   googleDriveFolderUrl: '',
   activeSocialNetworks: ['instagram', 'facebook'],

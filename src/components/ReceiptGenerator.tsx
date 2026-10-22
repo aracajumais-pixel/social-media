@@ -48,8 +48,8 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
         id: 'item-1',
         description: '',
         quantity: 1,
-        unitPrice: selectedClient?.pricePerPost || 150.00,
-        total: selectedClient?.pricePerPost || 150.00
+        unitPrice: selectedClient?.pricePerPost || 0.50,
+        total: selectedClient?.pricePerPost || 0.50
       }
     ]
   );
@@ -59,8 +59,8 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
       id: `item-${Date.now()}`,
       description: '',
       quantity: 1,
-      unitPrice: selectedClient.pricePerPost || 50.00,
-      total: selectedClient.pricePerPost || 50.00
+      unitPrice: selectedClient.pricePerPost || 0.50,
+      total: selectedClient.pricePerPost || 0.50
     };
     setItems([...items, newItem]);
   };
