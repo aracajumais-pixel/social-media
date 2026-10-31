@@ -26,7 +26,7 @@ import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
 import { Footer } from './components/Footer';
 import { generateApprovalToken, calculateTokenExpirationDays } from './utils/token';
-import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase } from './lib/supabase';
+import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase, syncReceiptToSupabase } from './lib/supabase';
 
 import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2 } from 'lucide-react';
 
@@ -444,6 +444,8 @@ export default function App() {
     } else {
       setReceipts([...receipts, savedReceipt]);
     }
+    // Sincroniza o recibo com o Supabase (incluindo URL da assinatura digitalizada)
+    syncReceiptToSupabase(savedReceipt);
   };
 
   const handleSendWhatsAppAlert = (postId: string, messageText: string) => {
@@ -487,6 +489,50 @@ export default function App() {
     });
     setSelectedClientId(newClient.id);
     syncClientToSupabase(newClient);
+  };
+
+  const handleDeleteClient = async (clientId: string) => {
+    // Remover da lista de clientes
+    setClients(prev => prev.filter(c => c.id !== clientId));
+
+    // Se o cliente deletado for o cliente selecionado atualmente, trocar para outro cliente
+    if (selectedClientId === clientId) {
+      const remaining = clients.filter(c => c.id !== clientId);
+      setSelectedClientId(remaining[0]?.id || 'novo-cliente');
+    }
+
+    // Remover posts vinculados a esse cliente
+    setPosts(prev => prev.filter(p => p.clientProjectId !== clientId));
+
+    // Deletar no Supabase se configurado
+    if (isSupabaseConfigured) {
+      try {
+        await deleteClientFromSupabase(clientId);
+      } catch (err) {
+        console.warn('Erro ao deletar cliente no Supabase:', err);
+      }
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    // Remover do estado de posts
+    setPosts(prev => prev.filter(p => p.id !== postId));
+
+    if (selectedPostForDetails?.id === postId) {
+      setSelectedPostForDetails(null);
+    }
+    if (publicApprovalPost?.id === postId) {
+      setPublicApprovalPost(null);
+    }
+
+    // Deletar no Supabase se configurado
+    if (isSupabaseConfigured) {
+      try {
+        await deletePostFromSupabase(postId);
+      } catch (err) {
+        console.warn('Erro ao deletar post no Supabase:', err);
+      }
+    }
   };
 
   const handleChangeMetricsAccess = (clientId: string, access: ClientProject['metricsAccess']) => {
@@ -716,6 +762,7 @@ export default function App() {
                     onQuickApprove={(id) => handleUpdatePostStatus(id, 'aprovado')}
                     onQuickRequestChange={(id) => handleUpdatePostStatus(id, 'alterar')}
                     onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
+                    onDeletePost={handleDeletePost}
                   />
                 ))}
               </div>
@@ -768,7 +815,9 @@ export default function App() {
             currentUserRole={currentUserRole}
             onUpdateClient={handleUpdateClient}
             onAddClient={handleAddClient}
+            onDeleteClient={handleDeleteClient}
             socialMedias={socialMedias}
+            onAddSocialMedia={handleAddSocialMedia}
           />
         )}
 
@@ -825,6 +874,7 @@ export default function App() {
         onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
         onRenewToken={handleRenewToken}
         onUpdatePostFields={handleUpdatePostFields}
+        onDeletePost={handleDeletePost}
       />
 
       <ApprovalPublicModal

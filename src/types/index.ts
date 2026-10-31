@@ -23,13 +23,22 @@ export interface SocialMediaUser {
   name: string;
   email: string;
   whatsapp: string;
-  socialProfile: string; // OBRIGATÓRIO (Ex: instagram.com/usuario ou linkedin.com/in/usuario)
+  socialProfile: string; // (Ex: instagram.com/usuario ou linkedin.com/in/usuario)
   pixKey: string;
   assignedClientIds: string[];
   totalPostsCreated: number;
   avatarUrl?: string;
   status?: 'ativo' | 'bloqueado';
   customFeePerPost?: number; // Taxa específica por post para este social media (substitui o valor global se preenchido)
+  companyName?: string;
+  cnpj?: string;
+  address?: string;
+  contactName?: string;
+  whatsappNumber?: string;
+  pricePerPost?: number;
+  googleDriveFolderUrl?: string;
+  logoUrl?: string;
+  activeSocialNetworks?: SocialNetwork[];
 }
 
 export interface Comment {
@@ -92,8 +101,6 @@ export interface ClientProject {
   pricePerPost: number;
   metricsAccess: MetricsVisibility; // Quem pode ver o painel de métricas
   googleDriveFolderUrl?: string;
-  driveRascunhosFolderId?: string;
-  driveRascunhosFolderUrl?: string;
   logoUrl?: string; // Logomarca para recibo PDF e perfil
   activeSocialNetworks: SocialNetwork[]; // Redes sociais que o cliente utiliza
   assignedSocialMediaId?: string;
@@ -144,6 +151,7 @@ export interface BillingReceipt {
   // Campos customizados do recibo conforme print oficial
   cityState?: string; // Ex: "Aracaju-SE"
   serviceSummaryText?: string; // Ex: "criação e postagens de stories, 22 artes para o feed e 3 vídeos editados"
+  customReceiptText?: string; // Texto/declaração customizada do recibo (permite edição livre do texto completo)
   socialMediaName?: string;
   socialMediaPix?: string;
   socialMediaBank?: string;

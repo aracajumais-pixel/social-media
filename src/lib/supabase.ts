@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ClientProject, PostItem, UserRole, SupabaseUserRole, UserProfile } from '../types';
+import { ClientProject, PostItem, UserRole, SupabaseUserRole, UserProfile, BillingReceipt } from '../types';
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env || {};
 
@@ -635,5 +635,55 @@ export async function uploadMediaToSupabase(
   } catch (err: any) {
     console.error('Falha inesperada no upload para Supabase:', err);
     return { success: false, error: err?.message || 'Erro inesperado durante o upload.' };
+  }
+}
+
+/**
+ * Sincroniza um recibo gerado (com a URL da assinatura digitalizada e dados bancários) no Supabase.
+ */
+export async function syncReceiptToSupabase(receipt: BillingReceipt) {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !receipt.id) return null;
+
+  try {
+    const payload = {
+      id: receipt.id,
+      receipt_number: receipt.receiptNumber,
+      client_project_id: receipt.clientProjectId,
+      period: receipt.period,
+      issue_date: receipt.issueDate,
+      due_date: receipt.dueDate,
+      items: receipt.items,
+      subtotal: receipt.subtotal,
+      discount: receipt.discount,
+      total_amount: receipt.totalAmount,
+      platform_fee_total: receipt.platformFeeTotal,
+      payment_method: receipt.paymentMethod,
+      notes: receipt.notes,
+      status: receipt.status,
+      city_state: receipt.cityState || null,
+      service_summary_text: receipt.serviceSummaryText || null,
+      custom_receipt_text: receipt.customReceiptText || null,
+      social_media_name: receipt.socialMediaName || null,
+      social_media_pix: receipt.socialMediaPix || null,
+      social_media_bank: receipt.socialMediaBank || null,
+      social_media_cpf_cnpj: receipt.socialMediaCpfCnpj || null,
+      social_media_signature_url: receipt.socialMediaSignatureUrl || null,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data, error } = await clientDb
+      .from('receipts')
+      .upsert([payload]);
+
+    if (error) {
+      console.warn('Aviso ao sincronizar Recibo no Supabase (tabela receipts):', error.message);
+    } else {
+      console.log('✓ Recibo com assinatura sincronizado no Supabase com sucesso!', receipt.id);
+    }
+    return data;
+  } catch (err) {
+    console.warn('Falha ao conectar com Supabase ao salvar recibo:', err);
+    return null;
   }
 }

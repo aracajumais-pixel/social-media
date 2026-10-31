@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PostItem, UserRole, SocialNetwork } from '../types';
 import { 
   CheckCircle, AlertCircle, Clock, MessageSquare, 
-  Instagram, Facebook, Linkedin, Video, Layers, Calendar, ExternalLink, Key, ShieldCheck 
+  Instagram, Facebook, Linkedin, Video, Layers, Calendar, ExternalLink, Key, ShieldCheck,
+  Trash2, AlertTriangle 
 } from 'lucide-react';
-import { getTimeRemainingText, isTokenExpired, buildApprovalUrl } from '../utils/token';
+import { getTimeRemainingText, isTokenExpired } from '../utils/token';
 import { DriveImage } from './DriveImage';
 
 interface PostCardProps {
@@ -14,9 +15,7 @@ interface PostCardProps {
   onQuickApprove?: (postId: string) => void;
   onQuickRequestChange?: (postId: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
-  onOpenWhatsApp?: (post: PostItem) => void;
-  clientWhatsappNumber?: string;
-  clientContactName?: string;
+  onDeletePost?: (postId: string) => void | Promise<void>;
 }
 
 export const PostCard: React.FC<PostCardProps> = ({
@@ -26,15 +25,12 @@ export const PostCard: React.FC<PostCardProps> = ({
   onQuickApprove,
   onQuickRequestChange,
   onOpenPublicApprovalLink,
-  onOpenWhatsApp,
-  clientWhatsappNumber,
-  clientContactName
+  onDeletePost
 }) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const expired = isTokenExpired(post.tokenExpiresAt);
   const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
-  const cleanClientPhone = (clientWhatsappNumber || '').replace(/\D/g, '');
-  const cardWhatsAppMessage = `Olá${clientContactName ? ' ' + clientContactName : ''}! Temos um novo rascunho pronto para sua aprovação: "${post.title}".\n\nAcesse o link para revisar e aprovar:\n${buildApprovalUrl(post.approvalToken || 'sem-token')}`;
-  const cardWhatsAppUrl = `https://wa.me/${cleanClientPhone}?text=${encodeURIComponent(cardWhatsAppMessage)}`;
   // Configurações visuais dos 3 únicos status permitidos
   const getStatusBadge = () => {
     switch (post.status) {
@@ -160,23 +156,6 @@ export const PostCard: React.FC<PostCardProps> = ({
               <ShieldCheck className="w-3 h-3" />
               <span>{timeInfo.text}</span>
             </button>
-
-            {clientWhatsappNumber && (
-              <a
-                href={cardWhatsAppUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onOpenWhatsApp) onOpenWhatsApp(post);
-                }}
-                className="font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-                title="Enviar este rascunho pelo WhatsApp"
-              >
-                <MessageSquare className="w-3 h-3" />
-                <span>WhatsApp</span>
-              </a>
-            )}
           </div>
 
           {/* Caption Snippet */}
@@ -257,8 +236,81 @@ export const PostCard: React.FC<PostCardProps> = ({
             </div>
           )}
 
+          {/* Botão de Excluir Rascunho (Gestor e Social Media) */}
+          {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && post.status === 'rascunho' && onDeletePost && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDeleteConfirm(true);
+              }}
+              className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center justify-center transition-colors shrink-0"
+              title="Excluir Rascunho"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
         </div>
       </div>
+
+      {/* Modal de Confirmação de Exclusão do Rascunho */}
+      {showDeleteConfirm && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md" 
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-slate-900 border border-rose-500/50 rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl relative text-left">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-rose-500/20 border border-rose-500/30 rounded-2xl text-rose-400">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Excluir Rascunho</h3>
+                <p className="text-[11px] text-slate-400">Ação permanente</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-1.5">
+              <p>
+                Tem certeza de que deseja apagar o rascunho <strong className="text-white">"{post.title}"</strong>?
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Esta publicação será removida permanentemente do sistema e do Supabase.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={async () => {
+                  if (!onDeletePost) return;
+                  setIsDeleting(true);
+                  try {
+                    await onDeletePost(post.id);
+                    setShowDeleteConfirm(false);
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeleting ? 'Excluindo...' : 'Sim, Excluir'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

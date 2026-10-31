@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { ClientProject, PostItem, BillingReceipt, SocialMediaUser, SaaSPaymentProof } from '../types';
+import { ClientProject, PostItem, BillingReceipt, SocialMediaUser, SaaSPaymentProof, SocialNetwork } from '../types';
 import { 
   ShieldAlert, DollarSign, TrendingUp, Users, HardDrive, 
   CheckCircle2, Plus, Sparkles, ExternalLink, Trash2, Mail, Phone, AlertTriangle, Layers,
   Lock, Unlock, Edit3, Code2, History, BookOpen, FileSpreadsheet, BarChart2, CheckSquare, Clock, Upload, Check, X,
-  MessageSquare, Send, MousePointerClick, Database
+  MessageSquare, Send, MousePointerClick, Database, UploadCloud
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ComposedChart, Line, Area 
@@ -13,6 +13,7 @@ import {
   getSupabaseCredentials, saveSupabaseCredentials, testSupabaseConnection, 
   syncAllClientsToSupabase, syncAllPostsToSupabase, syncSocialMediaToSupabase 
 } from '../lib/supabase';
+import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 
 interface AdminSaaSDashboardProps {
   clients: ClientProject[];
@@ -21,11 +22,14 @@ interface AdminSaaSDashboardProps {
   socialMedias: SocialMediaUser[];
   saasProofs?: SaaSPaymentProof[];
   onAddSocialMedia: (newSm: Omit<SocialMediaUser, 'id' | 'totalPostsCreated'>) => void;
+  onUpdateSocialMedia?: (updatedSm: SocialMediaUser) => void;
   onDeleteSocialMedia: (id: string) => void;
   onToggleBlockSocialMedia: (smId: string) => void;
   onUpdateSocialMediaFee?: (smId: string, customFeePerPost?: number) => void;
   onToggleBlockClient: (clientId: string) => void;
   onAddClient?: (newClient: ClientProject) => void;
+  onUpdateClient?: (updatedClient: ClientProject) => void;
+  onDeleteClient?: (clientId: string) => void;
   feePerPost: number;
   onUpdateFeePerPost: (newFee: number) => void;
   onAddSaasProof?: (newProof: Omit<SaaSPaymentProof, 'id' | 'submittedAt' | 'status'>) => void;
@@ -40,11 +44,14 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
   socialMedias,
   saasProofs = [],
   onAddSocialMedia,
+  onUpdateSocialMedia,
   onDeleteSocialMedia,
   onToggleBlockSocialMedia,
   onUpdateSocialMediaFee,
   onToggleBlockClient,
   onAddClient,
+  onUpdateClient,
+  onDeleteClient,
   feePerPost,
   onUpdateFeePerPost,
   onAddSaasProof,
@@ -53,6 +60,12 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
 }) => {
   const [isAddingSmModal, setIsAddingSmModal] = useState(false);
   const [isAddingClientModal, setIsAddingClientModal] = useState(false);
+  const [editingSm, setEditingSm] = useState<SocialMediaUser | null>(null);
+  const [isEditingSmModal, setIsEditingSmModal] = useState(false);
+  const [smToDelete, setSmToDelete] = useState<SocialMediaUser | null>(null);
+  const [clientToDelete, setClientToDelete] = useState<ClientProject | null>(null);
+  const [editingClient, setEditingClient] = useState<ClientProject | null>(null);
+  const [isEditingClientModal, setIsEditingClientModal] = useState(false);
   const [isEditingFeeModal, setIsEditingFeeModal] = useState(false);
   const [editingSmForFee, setEditingSmForFee] = useState<SocialMediaUser | null>(null);
   const [customSmFeeInput, setCustomSmFeeInput] = useState('');
@@ -91,15 +104,84 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
 
   const [newSmForm, setNewSmForm] = useState({
     name: '',
-    email: '',
+    companyName: '',
+    cnpj: '',
+    address: '',
+    contactName: '',
+    whatsappNumber: '',
     whatsapp: '',
+    email: '',
     socialProfile: '',
     pixKey: '',
+    pricePerPost: 150,
+    googleDriveFolderUrl: '',
+    logoUrl: '',
+    activeSocialNetworks: ['instagram', 'facebook'] as SocialNetwork[],
     assignedClientIds: [] as string[],
     avatarUrl: '',
-    customFeePerPost: ''
+    customFeePerPost: '',
+    signatureUrl: '',
+    bankInfo: ''
   });
   const [formError, setFormError] = useState('');
+
+  const [clientEditForm, setClientEditForm] = useState({
+    name: '',
+    companyName: '',
+    cnpj: '',
+    address: '',
+    contactName: '',
+    whatsappNumber: '',
+    email: '',
+    pricePerPost: 150,
+    googleDriveFolderUrl: '',
+    logoUrl: '',
+    assignedSocialMediaId: ''
+  });
+
+  const handleOpenEditSm = (sm: SocialMediaUser) => {
+    setEditingSm(sm);
+    setNewSmForm({
+      name: sm.name || '',
+      companyName: sm.companyName || '',
+      cnpj: sm.cnpj || '',
+      address: sm.address || '',
+      contactName: sm.contactName || '',
+      whatsappNumber: sm.whatsappNumber || sm.whatsapp || '',
+      whatsapp: sm.whatsappNumber || sm.whatsapp || '',
+      email: sm.email || '',
+      socialProfile: sm.socialProfile || '',
+      pixKey: sm.pixKey || '',
+      pricePerPost: sm.pricePerPost || 150,
+      googleDriveFolderUrl: sm.googleDriveFolderUrl || '',
+      logoUrl: sm.logoUrl || '',
+      activeSocialNetworks: sm.activeSocialNetworks || ['instagram', 'facebook'],
+      assignedClientIds: sm.assignedClientIds || [],
+      avatarUrl: sm.avatarUrl || '',
+      customFeePerPost: sm.customFeePerPost !== undefined ? sm.customFeePerPost.toString() : '',
+      signatureUrl: sm.signatureUrl || '',
+      bankInfo: sm.bankInfo || ''
+    });
+    setIsAddingSmModal(true);
+  };
+
+  const handleOpenEditClient = (c: ClientProject) => {
+    setEditingClient(c);
+    setClientEditForm({
+      name: c.name || '',
+      companyName: c.companyName || '',
+      cnpj: c.cnpj || '',
+      address: c.address || '',
+      contactName: c.contactName || '',
+      whatsappNumber: c.whatsappNumber || '',
+      email: c.email || '',
+      pricePerPost: c.pricePerPost ?? 150,
+      googleDriveFolderUrl: c.googleDriveFolderUrl || '',
+      logoUrl: c.logoUrl || '',
+      assignedSocialMediaId: c.assignedSocialMediaId || ''
+    });
+    setIsEditingClientModal(true);
+  };
 
   // Status breakdown for all posts
   const rascunhoCount = posts.filter(p => p.status === 'rascunho').length;
@@ -126,29 +208,55 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
 
   const handleCreateSmSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSmForm.socialProfile.trim()) {
-      setFormError('O Perfil da Rede Social (Instagram/LinkedIn) é um item OBRIGATÓRIO.');
+    if (!newSmForm.name.trim()) {
+      setFormError('O Nome Completo do Social Media é obrigatório.');
       return;
     }
 
     const customFee = newSmForm.customFeePerPost.trim() ? parseFloat(newSmForm.customFeePerPost.replace(',', '.')) : undefined;
 
-    onAddSocialMedia({
-      ...newSmForm,
-      customFeePerPost: isNaN(customFee as number) ? undefined : customFee,
-      avatarUrl: newSmForm.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'
-    });
+    if (editingSm && onUpdateSocialMedia) {
+      onUpdateSocialMedia({
+        ...editingSm,
+        ...newSmForm,
+        whatsapp: newSmForm.whatsappNumber || newSmForm.whatsapp,
+        customFeePerPost: isNaN(customFee as number) ? undefined : customFee,
+        avatarUrl: newSmForm.logoUrl || newSmForm.avatarUrl || editingSm.avatarUrl,
+        signatureUrl: newSmForm.signatureUrl.trim() || undefined
+      });
+      setIsEditingSmModal(false);
+      setEditingSm(null);
+    } else {
+      onAddSocialMedia({
+        ...newSmForm,
+        whatsapp: newSmForm.whatsappNumber || newSmForm.whatsapp,
+        customFeePerPost: isNaN(customFee as number) ? undefined : customFee,
+        avatarUrl: newSmForm.logoUrl || newSmForm.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+        signatureUrl: newSmForm.signatureUrl.trim() || undefined
+      });
+      setIsAddingSmModal(false);
+    }
 
-    setIsAddingSmModal(false);
     setNewSmForm({
       name: '',
-      email: '',
+      companyName: '',
+      cnpj: '',
+      address: '',
+      contactName: '',
+      whatsappNumber: '',
       whatsapp: '',
+      email: '',
       socialProfile: '',
       pixKey: '',
+      pricePerPost: 150,
+      googleDriveFolderUrl: '',
+      logoUrl: '',
+      activeSocialNetworks: ['instagram', 'facebook'],
       assignedClientIds: [],
       avatarUrl: '',
-      customFeePerPost: ''
+      customFeePerPost: '',
+      signatureUrl: '',
+      bankInfo: ''
     });
     setFormError('');
   };
@@ -818,24 +926,37 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
+                      {/* BOTÃO EDITAR CADASTRO DO SOCIAL MEDIA */}
                       <button
+                        type="button"
+                        onClick={() => handleOpenEditSm(sm)}
+                        className="px-2.5 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1 transition-all"
+                        title="Editar cadastro do Social Media"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Editar</span>
+                      </button>
+
+                      {/* BOTÃO DA LIXEIRINHA PARA EXCLUIR COM CONFIRMAÇÃO */}
+                      <button
+                        type="button"
+                        onClick={() => setSmToDelete(sm)}
+                        className="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1 transition-all"
+                        title="Excluir cadastro do Social Media com confirmação"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Excluir</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => onToggleBlockSocialMedia(sm.id)}
                         className={`p-2 rounded-xl text-xs font-bold transition-all ${isBlocked ? 'bg-emerald-600 text-white' : 'bg-rose-950/60 text-rose-300 hover:bg-rose-600 hover:text-white'}`}
                         title={isBlocked ? 'Desbloquear Acesso' : 'Bloquear por Informações Falsas'}
                       >
-                        {isBlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        {isBlocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                       </button>
-
-                      {socialMedias.length > 1 && (
-                        <button
-                          onClick={() => onDeleteSocialMedia(sm.id)}
-                          className="p-2 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 transition-all"
-                          title="Excluir cadastro"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
                     </div>
                   </div>
 
@@ -939,13 +1060,38 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => onToggleBlockClient(client.id)}
-                      className={`p-2 rounded-xl text-xs font-bold transition-all ${isBlocked ? 'bg-emerald-600 text-white' : 'bg-rose-950/60 text-rose-300 hover:bg-rose-600 hover:text-white'}`}
-                      title={isBlocked ? 'Desbloquear Empresa' : 'Bloquear Empresa'}
-                    >
-                      {isBlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {/* BOTÃO EDITAR CADASTRO DO CLIENTE */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditClient(client)}
+                        className="px-2.5 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1 transition-all"
+                        title="Editar cadastro do Cliente"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Editar</span>
+                      </button>
+
+                      {/* BOTÃO DA LIXEIRINHA PARA EXCLUIR CLIENTE COM CONFIRMAÇÃO */}
+                      <button
+                        type="button"
+                        onClick={() => setClientToDelete(client)}
+                        className="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1 transition-all"
+                        title="Excluir cadastro do Cliente com confirmação"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Excluir</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onToggleBlockClient(client.id)}
+                        className={`p-2 rounded-xl text-xs font-bold transition-all ${isBlocked ? 'bg-emerald-600 text-white' : 'bg-rose-950/60 text-rose-300 hover:bg-rose-600 hover:text-white'}`}
+                        title={isBlocked ? 'Desbloquear Empresa' : 'Bloquear Empresa'}
+                      >
+                        {isBlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Volume stats */}
@@ -1535,9 +1681,18 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Users className="w-5 h-5 text-indigo-400" />
-                <span>Novo Cadastro de Social Media</span>
+                <span>{editingSm ? 'Editar Cadastro de Social Media' : 'Novo Cadastro de Social Media'}</span>
               </h2>
-              <button onClick={() => setIsAddingSmModal(false)} className="text-slate-400 hover:text-white">✕</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingSmModal(false);
+                  setEditingSm(null);
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
             </div>
 
             {formError && (
@@ -1549,32 +1704,65 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
 
             <form onSubmit={handleCreateSmSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block text-slate-300 font-bold mb-1">Nome Completo do Profissional:</label>
+                <label className="block text-slate-300 font-bold mb-1">Nome Completo do Profissional *:</label>
                 <input
                   type="text"
                   required
                   value={newSmForm.name}
                   onChange={(e) => setNewSmForm({ ...newSmForm, name: e.target.value })}
                   placeholder="Ex: Camila Rocha"
-                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-medium"
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">
-                  Perfil de Rede Social (Instagram / LinkedIn) <span className="text-rose-400 font-extrabold">*ITEM OBRIGATÓRIO*</span>:
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newSmForm.socialProfile}
-                  onChange={(e) => setNewSmForm({ ...newSmForm, socialProfile: e.target.value })}
-                  placeholder="instagram.com/camila_socialmedia ou linkedin.com/in/camila"
-                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-indigo-500/50 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Razão Social / Agência:</label>
+                  <input
+                    type="text"
+                    value={newSmForm.companyName}
+                    onChange={(e) => setNewSmForm({ ...newSmForm, companyName: e.target.value })}
+                    placeholder="Ex: Rocha Mídia & Design ME"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">CNPJ / CPF:</label>
+                  <input
+                    type="text"
+                    value={newSmForm.cnpj}
+                    onChange={(e) => setNewSmForm({ ...newSmForm, cnpj: e.target.value })}
+                    placeholder="00.000.000/0001-00"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                  />
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Contato Principal / Responsável:</label>
+                  <input
+                    type="text"
+                    value={newSmForm.contactName}
+                    onChange={(e) => setNewSmForm({ ...newSmForm, contactName: e.target.value })}
+                    placeholder="Ex: Camila (Titular)"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">WhatsApp (com DDD):</label>
+                  <input
+                    type="text"
+                    required
+                    value={newSmForm.whatsappNumber || newSmForm.whatsapp}
+                    onChange={(e) => setNewSmForm({ ...newSmForm, whatsappNumber: e.target.value, whatsapp: e.target.value })}
+                    placeholder="5511999998888"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-bold mb-1">E-mail de Acesso:</label>
                   <input
@@ -1586,45 +1774,196 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                     className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-slate-300 font-bold mb-1">WhatsApp (Com DDD):</label>
+                  <label className="block text-slate-300 font-bold mb-1">Valor por Post / Taxa (R$):</label>
+                  <input
+                    type="number"
+                    value={newSmForm.pricePerPost}
+                    onChange={(e) => setNewSmForm({ ...newSmForm, pricePerPost: Number(e.target.value), customFeePerPost: e.target.value })}
+                    placeholder="Ex: 150.00"
+                    className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Chave Pix para Pagamento:</label>
                   <input
                     type="text"
                     required
-                    value={newSmForm.whatsapp}
-                    onChange={(e) => setNewSmForm({ ...newSmForm, whatsapp: e.target.value })}
-                    placeholder="5511999998888"
-                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                    value={newSmForm.pixKey}
+                    onChange={(e) => setNewSmForm({ ...newSmForm, pixKey: e.target.value })}
+                    placeholder="E-mail, CPF ou Telefone Pix"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">
+                    Perfil de Rede Social (Instagram / LinkedIn):
+                  </label>
+                  <input
+                    type="text"
+                    value={newSmForm.socialProfile}
+                    onChange={(e) => setNewSmForm({ ...newSmForm, socialProfile: e.target.value })}
+                    placeholder="instagram.com/camila_socialmedia"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-slate-300 font-bold mb-1">Chave Pix para Pagamento de Comissão:</label>
+                <label className="block text-slate-300 font-bold mb-1">Endereço Comercial / Localização:</label>
                 <input
                   type="text"
-                  required
-                  value={newSmForm.pixKey}
-                  onChange={(e) => setNewSmForm({ ...newSmForm, pixKey: e.target.value })}
-                  placeholder="E-mail, CPF ou Telefone Pix"
+                  value={newSmForm.address}
+                  onChange={(e) => setNewSmForm({ ...newSmForm, address: e.target.value })}
+                  placeholder="Ex: Av. Paulista, 1000 - São Paulo/SP"
                   className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-bold mb-1">
-                  Taxa Customizada por Post (R$) <span className="text-slate-500 font-normal">(Opcional)</span>:
-                </label>
+                <label className="block text-slate-300 font-bold mb-1">Foto de Perfil / Logomarca (URL):</label>
                 <input
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  value={newSmForm.customFeePerPost}
-                  onChange={(e) => setNewSmForm({ ...newSmForm, customFeePerPost: e.target.value })}
-                  placeholder={`Em branco = usa taxa padrão R$ ${feePerPost.toFixed(2)}`}
-                  className="w-full bg-slate-950 text-amber-300 font-mono font-bold p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-amber-500 text-xs"
+                  type="url"
+                  value={newSmForm.logoUrl}
+                  onChange={(e) => setNewSmForm({ ...newSmForm, logoUrl: e.target.value, avatarUrl: e.target.value })}
+                  placeholder="https://... link da foto de perfil ou logo"
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-xs"
                 />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">URL Pasta Google Drive:</label>
+                <input
+                  type="url"
+                  value={newSmForm.googleDriveFolderUrl}
+                  onChange={(e) => setNewSmForm({ ...newSmForm, googleDriveFolderUrl: e.target.value })}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Dados Bancários / Agência / Conta (Para Recibo):</label>
+                <input
+                  type="text"
+                  value={newSmForm.bankInfo}
+                  onChange={(e) => setNewSmForm({ ...newSmForm, bankInfo: e.target.value })}
+                  placeholder="Ex: Nubank - Ag: 0001 Conta: 1234567-8"
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                />
+              </div>
+
+              {/* UPLOAD DE ASSINATURA DIGITALIZADA DO SOCIAL MEDIA */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-indigo-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-200 font-bold flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    <span>Assinatura Digitalizada do Social Media:</span>
+                  </label>
+                  {newSmForm.signatureUrl && (
+                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                      ✓ Assinatura Pronta
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Esta assinatura será aplicada automaticamente nos recibos em PDF emitidos para os clientes.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <SupabaseMediaUploader
+                    folder="signatures"
+                    buttonLabel="Upload Storage (Supabase)"
+                    className="text-xs"
+                    onUploadSuccess={(url) => {
+                      setNewSmForm(prev => ({ ...prev, signatureUrl: url }));
+                    }}
+                  />
+
+                  <label className="cursor-pointer px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-all">
+                    <Upload className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Arquivo Local</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            if (event.target?.result) {
+                              setNewSmForm(prev => ({ ...prev, signatureUrl: event.target!.result as string }));
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+
+                  {newSmForm.signatureUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setNewSmForm(prev => ({ ...prev, signatureUrl: '' }))}
+                      className="px-2.5 py-1.5 rounded-xl bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 text-xs font-bold transition-all"
+                    >
+                      Remover
+                    </button>
+                  )}
+                </div>
+
+                <input
+                  type="url"
+                  placeholder="Ou cole a URL direta da assinatura..."
+                  value={newSmForm.signatureUrl}
+                  onChange={(e) => setNewSmForm(prev => ({ ...prev, signatureUrl: e.target.value }))}
+                  className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 text-xs focus:outline-none font-mono"
+                />
+
+                {newSmForm.signatureUrl && (
+                  <div className="p-3 bg-white rounded-xl border border-slate-300 flex items-center justify-center max-w-xs shadow-inner">
+                    <img
+                      src={newSmForm.signatureUrl}
+                      alt="Prévia da Assinatura"
+                      className="max-h-16 object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Redes Sociais Atendidas:</label>
+                <div className="flex flex-wrap gap-2">
+                  {(['instagram', 'facebook', 'tiktok', 'linkedin', 'youtube'] as SocialNetwork[]).map(net => {
+                    const isActive = (newSmForm.activeSocialNetworks || []).includes(net);
+                    return (
+                      <button
+                        key={net}
+                        type="button"
+                        onClick={() => {
+                          const current = newSmForm.activeSocialNetworks || [];
+                          if (current.includes(net)) {
+                            if (current.length === 1) return;
+                            setNewSmForm({ ...newSmForm, activeSocialNetworks: current.filter(n => n !== net) });
+                          } else {
+                            setNewSmForm({ ...newSmForm, activeSocialNetworks: [...current, net] });
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition-all ${
+                          isActive
+                            ? 'bg-indigo-600 text-white border border-indigo-400'
+                            : 'bg-slate-950 text-slate-400 border border-slate-800'
+                        }`}
+                      >
+                        {net}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
@@ -2010,6 +2349,288 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Editar Cliente Existente */}
+      {isEditingClientModal && editingClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-cyan-400" />
+                <span>Editar Cadastro do Cliente</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingClientModal(false);
+                  setEditingClient(null);
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!clientEditForm.name.trim() || !editingClient) return;
+                const updated: ClientProject = {
+                  ...editingClient,
+                  name: clientEditForm.name.trim(),
+                  companyName: clientEditForm.companyName.trim() || clientEditForm.name.trim(),
+                  cnpj: clientEditForm.cnpj.trim() || '00.000.000/0001-00',
+                  address: clientEditForm.address.trim() || 'Endereço Comercial',
+                  contactName: clientEditForm.contactName.trim() || 'Contato Principal',
+                  whatsappNumber: clientEditForm.whatsappNumber.trim() || '5511999998888',
+                  email: clientEditForm.email.trim() || 'contato@cliente.com',
+                  pricePerPost: Number(clientEditForm.pricePerPost) || 150,
+                  googleDriveFolderUrl: clientEditForm.googleDriveFolderUrl.trim(),
+                  logoUrl: clientEditForm.logoUrl.trim(),
+                  assignedSocialMediaId: clientEditForm.assignedSocialMediaId || undefined
+                };
+                if (onUpdateClient) {
+                  onUpdateClient(updated);
+                }
+                setIsEditingClientModal(false);
+                setEditingClient(null);
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Nome Fantasia do Cliente *:</label>
+                <input
+                  type="text"
+                  required
+                  value={clientEditForm.name}
+                  onChange={(e) => setClientEditForm({ ...clientEditForm, name: e.target.value })}
+                  placeholder="Ex: Padaria & Confeitaria Solar"
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Razão Social:</label>
+                  <input
+                    type="text"
+                    value={clientEditForm.companyName}
+                    onChange={(e) => setClientEditForm({ ...clientEditForm, companyName: e.target.value })}
+                    placeholder="Ex: Solar Alimentos LTDA"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">CNPJ / CPF:</label>
+                  <input
+                    type="text"
+                    value={clientEditForm.cnpj}
+                    onChange={(e) => setClientEditForm({ ...clientEditForm, cnpj: e.target.value })}
+                    placeholder="00.000.000/0001-00"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Contato Principal:</label>
+                  <input
+                    type="text"
+                    value={clientEditForm.contactName}
+                    onChange={(e) => setClientEditForm({ ...clientEditForm, contactName: e.target.value })}
+                    placeholder="Ex: Carlos Silva"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">WhatsApp (com DDD):</label>
+                  <input
+                    type="text"
+                    value={clientEditForm.whatsappNumber}
+                    onChange={(e) => setClientEditForm({ ...clientEditForm, whatsappNumber: e.target.value })}
+                    placeholder="5511999998888"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">E-mail do Cliente:</label>
+                  <input
+                    type="email"
+                    value={clientEditForm.email}
+                    onChange={(e) => setClientEditForm({ ...clientEditForm, email: e.target.value })}
+                    placeholder="contato@cliente.com"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Valor/Post (R$):</label>
+                  <input
+                    type="number"
+                    value={clientEditForm.pricePerPost}
+                    onChange={(e) => setClientEditForm({ ...clientEditForm, pricePerPost: Number(e.target.value) })}
+                    className="w-full bg-slate-950 text-emerald-400 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Link da Logomarca (Drive ou Imagem Direct):</label>
+                <input
+                  type="url"
+                  value={clientEditForm.logoUrl}
+                  onChange={(e) => setClientEditForm({ ...clientEditForm, logoUrl: e.target.value })}
+                  placeholder="https://drive.google.com/file/d/... ou https://..."
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">URL Pasta Google Drive:</label>
+                <input
+                  type="url"
+                  value={clientEditForm.googleDriveFolderUrl}
+                  onChange={(e) => setClientEditForm({ ...clientEditForm, googleDriveFolderUrl: e.target.value })}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Social Media Responsável:</label>
+                <select
+                  value={clientEditForm.assignedSocialMediaId}
+                  onChange={(e) => setClientEditForm({ ...clientEditForm, assignedSocialMediaId: e.target.value })}
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none cursor-pointer"
+                >
+                  <option value="">Nenhum Alocado</option>
+                  {socialMedias.map(sm => (
+                    <option key={sm.id} value={sm.id}>{sm.name} ({sm.email})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingClientModal(false);
+                    setEditingClient(null);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-cyan-600/20"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmação de Exclusão de Social Media */}
+      {smToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="bg-slate-900 border border-rose-500/50 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-500/20 border border-rose-500/30 rounded-2xl text-rose-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Excluir Cadastro de Social Media</h3>
+                <p className="text-xs text-slate-400">Esta ação é irreversível</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs text-slate-300">
+              <p>
+                Tem certeza de que deseja apagar o cadastro do profissional <strong className="text-white">"{smToDelete.name}"</strong>?
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                O cadastro e sua assinatura digital vinculada serão excluídos permanentemente da aplicação e do banco de dados Supabase.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setSmToDelete(null)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteSocialMedia(smToDelete.id);
+                  setSmToDelete(null);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Sim, Excluir Cadastro</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmação de Exclusão de Cliente */}
+      {clientToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="bg-slate-900 border border-rose-500/50 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-500/20 border border-rose-500/30 rounded-2xl text-rose-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Excluir Cadastro de Cliente</h3>
+                <p className="text-xs text-slate-400">Esta ação é irreversível</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs text-slate-300">
+              <p>
+                Tem certeza de que deseja apagar o cadastro do cliente <strong className="text-white">"{clientToDelete.name}"</strong>?
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                O cadastro e os dados vinculados a este cliente serão excluídos permanentemente da aplicação e do banco de dados Supabase.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setClientToDelete(null)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteClient) {
+                    onDeleteClient(clientToDelete.id);
+                  }
+                  setClientToDelete(null);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Sim, Excluir Cliente</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

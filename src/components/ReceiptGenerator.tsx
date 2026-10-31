@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BillingReceipt, ClientProject, ReceiptLineItem, UserRole } from '../types';
 import { printReceiptPDF } from '../utils/pdfGenerator';
 import { valorPorExtenso } from '../utils/numberToWords';
-import { FileText, Printer, Plus, Trash2, Shield, DollarSign, Send, CheckCircle2, Image as ImageIcon, Sparkles, EyeOff, BarChart2 } from 'lucide-react';
+import { FileText, Printer, Plus, Trash2, Shield, DollarSign, Send, CheckCircle2, Image as ImageIcon, Sparkles, EyeOff, BarChart2, UploadCloud, Clock, Edit3, RotateCcw } from 'lucide-react';
+import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 
 interface ReceiptGeneratorProps {
   receipts: BillingReceipt[];
@@ -24,12 +25,33 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
 
   const existingReceipt = receipts.find(r => r.clientProjectId === selectedClient.id) || null;
 
+  const getTodayDateString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getFormattedIssueDate = (dateStr: string) => {
+    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+    return new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
   const [period, setPeriod] = useState(existingReceipt?.period || '');
-  const [issueDate, setIssueDate] = useState(existingReceipt?.issueDate || new Date().toISOString().split('T')[0]);
+  // Regra solicitada: Manter data sempre no dia atual
+  const [issueDate, setIssueDate] = useState(getTodayDateString());
   const [dueDate, setDueDate] = useState(existingReceipt?.dueDate || '');
   const [cityState, setCityState] = useState(existingReceipt?.cityState || '');
   const [serviceSummaryText, setServiceSummaryText] = useState(
     existingReceipt?.serviceSummaryText || ''
+  );
+  // Regra solicitada: Opção de editar o texto da declaração do recibo
+  const [customReceiptText, setCustomReceiptText] = useState(
+    existingReceipt?.customReceiptText || ''
   );
 
   const [socialMediaName, setSocialMediaName] = useState(existingReceipt?.socialMediaName || '');
@@ -42,14 +64,35 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
   const [discount, setDiscount] = useState(existingReceipt?.discount || 0);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // Sincroniza e garante data no dia atual ao alternar clientes
+  useEffect(() => {
+    setIssueDate(getTodayDateString());
+    if (existingReceipt) {
+      setPeriod(existingReceipt.period || '');
+      setDueDate(existingReceipt.dueDate || '');
+      setCityState(existingReceipt.cityState || '');
+      setServiceSummaryText(existingReceipt.serviceSummaryText || '');
+      setCustomReceiptText(existingReceipt.customReceiptText || '');
+      setSocialMediaName(existingReceipt.socialMediaName || '');
+      setSocialMediaPix(existingReceipt.socialMediaPix || '');
+      setSocialMediaBank(existingReceipt.socialMediaBank || '');
+      setSocialMediaCpfCnpj(existingReceipt.socialMediaCpfCnpj || '');
+      setSocialMediaSignatureUrl(existingReceipt.socialMediaSignatureUrl || '');
+      setDiscount(existingReceipt.discount || 0);
+      if (existingReceipt.items && existingReceipt.items.length > 0) {
+        setItems(existingReceipt.items);
+      }
+    }
+  }, [selectedClient.id]);
+
   const [items, setItems] = useState<ReceiptLineItem[]>(
     existingReceipt?.items || [
       {
         id: 'item-1',
         description: '',
         quantity: 1,
-        unitPrice: selectedClient?.pricePerPost || 0.50,
-        total: selectedClient?.pricePerPost || 0.50
+        unitPrice: selectedClient?.pricePerPost || 150.00,
+        total: selectedClient?.pricePerPost || 150.00
       }
     ]
   );
@@ -59,8 +102,8 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
       id: `item-${Date.now()}`,
       description: '',
       quantity: 1,
-      unitPrice: selectedClient.pricePerPost || 0.50,
-      total: selectedClient.pricePerPost || 0.50
+      unitPrice: selectedClient.pricePerPost || 50.00,
+      total: selectedClient.pricePerPost || 50.00
     };
     setItems([...items, newItem]);
   };
@@ -87,6 +130,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
   const totalPostsCount = items.reduce((acc, curr) => acc + curr.quantity, 0);
   const platformFeeTotal = totalPostsCount * feePerPost;
   const valorExtenso = valorPorExtenso(totalAmount);
+  const defaultDeclarationText = `A quantia de R$ ${totalAmount.toFixed(2)} (${valorExtenso}), referente a serviços de ${serviceSummaryText || 'criação e postagens de stories, artes para o feed e vídeos editados'}.`;
 
   const currentReceiptObj: BillingReceipt = {
     id: existingReceipt?.id || `rec-${Date.now()}`,
@@ -105,6 +149,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     status: existingReceipt?.status || 'enviado',
     cityState,
     serviceSummaryText,
+    customReceiptText: customReceiptText.trim() ? customReceiptText : undefined,
     socialMediaName,
     socialMediaPix,
     socialMediaBank,
@@ -274,20 +319,34 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
             </div>
 
             <div>
-              <label className="block text-slate-300 font-bold mb-1">Data de Emissão:</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-slate-300 font-bold">Data de Emissão:</label>
+                <button
+                  type="button"
+                  onClick={() => setIssueDate(getTodayDateString())}
+                  className="text-[10px] text-emerald-400 hover:text-emerald-300 underline font-semibold flex items-center gap-1"
+                  title="Garantir que a data esteja no dia atual"
+                >
+                  <Clock className="w-3 h-3" />
+                  Hoje
+                </button>
+              </div>
               <input
                 type="date"
                 value={issueDate}
                 onChange={(e) => setIssueDate(e.target.value)}
                 className="w-full bg-slate-950 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500"
               />
+              <span className="text-[10px] text-emerald-400 block mt-1 font-semibold flex items-center gap-1">
+                <Clock className="w-2.5 h-2.5" /> Sempre no dia atual ({getFormattedIssueDate(issueDate)})
+              </span>
             </div>
           </div>
 
           {/* Service Description Summary */}
           <div className="space-y-1 text-xs">
             <label className="block text-slate-300 font-bold">
-              Texto Descritivo do Objeto do Recibo:
+              Texto Descritivo do Objeto do Recibo (Resumo):
             </label>
             <textarea
               rows={2}
@@ -296,6 +355,87 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
               placeholder="[Insira a descrição dos serviços: ex. criação e postagens de stories, 22 artes para o feed e 3 vídeos editados para Instagram e Meta Business]"
               className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500 text-xs"
             />
+          </div>
+
+          {/* Opção de Personalizar e Editar Texto Completo do Recibo */}
+          <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Edit3 className="w-4 h-4 text-emerald-400" />
+                  Texto / Declaração do Recibo:
+                </label>
+                <p className="text-[11px] text-slate-400">
+                  Edite livremente o parágrafo de declaração que constará no recibo e no PDF gerado.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {customReceiptText ? (
+                  <button
+                    type="button"
+                    onClick={() => setCustomReceiptText('')}
+                    className="text-[10px] text-slate-400 hover:text-rose-400 flex items-center gap-1 transition-colors px-2 py-1 rounded bg-slate-900 border border-slate-800"
+                    title="Restaurar para o texto gerado automaticamente com os valores"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Restaurar Padrão
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setCustomReceiptText(defaultDeclarationText)}
+                    className="text-[10px] bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1.5 font-bold transition-colors"
+                    title="Editar e personalizar o texto padrão do recibo"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Editar Texto do Recibo
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {customReceiptText ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[11px] text-emerald-400 bg-emerald-950/40 px-3 py-1.5 rounded-lg border border-emerald-800/40">
+                  <span className="font-semibold">✏️ Modo de edição manual ativo (visível no recibo e no PDF):</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomReceiptText(defaultDeclarationText)}
+                    className="text-[10px] text-cyan-300 hover:text-cyan-200 underline font-bold"
+                    title="Atualizar texto com o valor total e extenso atual"
+                  >
+                    Atualizar Valores no Texto
+                  </button>
+                </div>
+                <textarea
+                  rows={4}
+                  value={customReceiptText}
+                  onChange={(e) => setCustomReceiptText(e.target.value)}
+                  placeholder="Escreva ou personalize a declaração do recibo..."
+                  className="w-full bg-slate-900 text-white p-3 rounded-xl border border-emerald-500/50 focus:outline-none focus:border-emerald-400 text-xs leading-relaxed"
+                />
+              </div>
+            ) : (
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400 font-medium">Texto Padrão Atual (Automático):</span>
+                  <span className="text-[10px] text-cyan-400 bg-cyan-950/50 px-2 py-0.5 rounded font-mono border border-cyan-800/40">Dinâmico</span>
+                </div>
+                <p className="text-xs text-slate-300 italic border-l-2 border-emerald-500/50 pl-2.5 py-0.5 leading-relaxed">
+                  A quantia de <strong className="text-white">R$ {totalAmount.toFixed(2)}</strong> (<em>{valorExtenso}</em>), referente a serviços de {serviceSummaryText || 'criação e postagens de stories, artes para o feed e vídeos editados'}.
+                </p>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-slate-400">Deseja alterar a redação ou incluir termos adicionais?</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomReceiptText(defaultDeclarationText)}
+                    className="text-[10px] text-emerald-400 hover:underline font-bold"
+                  >
+                    Clique para editar o texto ✏️
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Line Items Table */}
@@ -428,17 +568,54 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-slate-300 font-bold mb-1 flex items-center gap-1.5">
-                <ImageIcon className="w-3.5 h-3.5 text-indigo-400" /> URL da Assinatura Digitalizada (Opcional):
-              </label>
-              <input
-                type="url"
-                value={socialMediaSignatureUrl}
-                onChange={(e) => setSocialMediaSignatureUrl(e.target.value)}
-                placeholder="[URL da Imagem da Assinatura PNG/JPG ou deixe vazio para fonte cursiva digital]"
-                className="w-full bg-slate-950 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500 text-xs"
+            {/* Campo de Assinatura Digitalizada com Upload no Supabase (Bucket media / pasta signatures) */}
+            <div className="space-y-2 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+              <div className="flex items-center justify-between">
+                <label className="block text-slate-300 font-bold text-xs flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-indigo-400" /> URL da Assinatura Digitalizada (Opcional):
+                </label>
+                <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                  <UploadCloud className="w-3 h-3" /> Armazenamento no Supabase
+                </span>
+              </div>
+
+              {/* Upload direto para o bucket Supabase Storage */}
+              <SupabaseMediaUploader
+                compact={true}
+                currentUrl={socialMediaSignatureUrl}
+                folder="signatures"
+                onUploadSuccess={(url) => {
+                  setSocialMediaSignatureUrl(url);
+                }}
               />
+
+              <div>
+                <label className="block text-slate-400 text-[10px] font-bold mb-1">
+                  Ou informe o link da imagem (URL externa ou Supabase):
+                </label>
+                <input
+                  type="url"
+                  value={socialMediaSignatureUrl}
+                  onChange={(e) => setSocialMediaSignatureUrl(e.target.value)}
+                  placeholder="https://... ou link gerado pelo upload no Supabase Storage"
+                  className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500 font-mono text-[11px]"
+                />
+              </div>
+
+              {socialMediaSignatureUrl && (
+                <div className="flex items-center justify-between pt-1 text-[11px] border-t border-slate-900">
+                  <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Assinatura carregada no recibo
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSocialMediaSignatureUrl('')}
+                    className="text-rose-400 hover:text-rose-300 hover:underline text-[10px] font-bold"
+                  >
+                    Remover Assinatura
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -478,12 +655,21 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
                 <div>CNPJ: {selectedClient.cnpj || '[CNPJ do Cliente]'}</div>
               </div>
 
-              <div className="text-xs leading-relaxed text-slate-800 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                A quantia de <strong>R$ {totalAmount.toFixed(2)}</strong> (<em>{valorExtenso}</em>), referente a serviços de {serviceSummaryText || '[discriminação dos serviços]'}.
+              <div className="text-xs leading-relaxed text-slate-800 bg-slate-50 p-3 rounded-lg border border-slate-200 whitespace-pre-line">
+                {customReceiptText.trim() ? (
+                  <div>{customReceiptText}</div>
+                ) : (
+                  <div>
+                    A quantia de <strong>R$ {totalAmount.toFixed(2)}</strong> (<em>{valorExtenso}</em>), referente a serviços de {serviceSummaryText || '[discriminação dos serviços]'}.
+                  </div>
+                )}
               </div>
 
-              <div className="text-[11px] text-slate-600 font-bold">
-                {cityState || '[Cidade - UF]'}, {new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}.
+              <div className="text-[11px] text-slate-600 font-bold flex items-center justify-between">
+                <span>{cityState || '[Cidade - UF]'}, {getFormattedIssueDate(issueDate)}.</span>
+                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-300">
+                  Data de Hoje
+                </span>
               </div>
 
               <div className="border-t border-slate-300 pt-3 space-y-1 text-[11px]">

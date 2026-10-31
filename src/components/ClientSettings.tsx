@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ClientProject, UserRole, SocialNetwork, SocialMediaUser } from '../types';
-import { Building, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { Building, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Sparkles, Loader2, AlertCircle, Trash2, AlertTriangle, UserPlus, UserCheck, Users, Upload, UploadCloud, CheckCircle2 } from 'lucide-react';
 import { DriveImage } from './DriveImage';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 import { searchClientsInSupabase } from '../lib/supabase';
@@ -14,7 +14,11 @@ interface ClientSettingsProps {
   currentUserRole: UserRole;
   onUpdateClient: (updated: ClientProject) => void;
   onAddClient?: (newClient: ClientProject) => void;
+  onDeleteClient?: (clientId: string) => void | Promise<void>;
   socialMedias?: SocialMediaUser[];
+  onAddSocialMedia?: (newSm: Omit<SocialMediaUser, 'id'>) => void;
+  onUpdateSocialMedia?: (updatedSm: SocialMediaUser) => void;
+  onDeleteSocialMedia?: (smId: string) => void | Promise<void>;
 }
 
 const ALL_NETWORKS: { id: SocialNetwork; label: string }[] = [
@@ -32,7 +36,11 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   currentUserRole,
   onUpdateClient,
   onAddClient,
-  socialMedias = []
+  onDeleteClient,
+  socialMedias = [],
+  onAddSocialMedia,
+  onUpdateSocialMedia,
+  onDeleteSocialMedia
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [supabaseSearchResults, setSupabaseSearchResults] = useState<ClientProject[] | null>(null);
@@ -40,6 +48,10 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   const [lastEditedClientId, setLastEditedClientId] = useState<string>(() => {
     return localStorage.getItem('last_edited_client_id') || client.id || '';
   });
+
+  // State para confirmação de exclusão de cliente (gestor e social media)
+  const [clientToDelete, setClientToDelete] = useState<ClientProject | null>(null);
+  const [isDeletingClient, setIsDeletingClient] = useState(false);
 
   // Modal state (used for BOTH adding new client AND editing an existing client)
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -63,6 +75,39 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     logoUrl: '',
     activeSocialNetworks: ['instagram', 'facebook'] as SocialNetwork[],
     assignedSocialMediaId: socialMedias[0]?.id || ''
+  });
+
+  // Sub-aba ativa na tela de configurações (Clientes vs Equipe Social Media)
+  const [activeView, setActiveView] = useState<'clients' | 'social_medias'>('clients');
+
+  // Modal e Gestão de Social Media
+  const [isSmModalOpen, setIsSmModalOpen] = useState(false);
+  const [editingSm, setEditingSm] = useState<SocialMediaUser | null>(null); // null = create mode, SocialMediaUser = edit mode
+  const [smToDelete, setSmToDelete] = useState<SocialMediaUser | null>(null);
+  const [isDeletingSm, setIsDeletingSm] = useState(false);
+  const [smSavedSuccess, setSmSavedSuccess] = useState(false);
+  const [isGeneratingSmDriveFolder, setIsGeneratingSmDriveFolder] = useState(false);
+  const [smDriveGenError, setSmDriveGenError] = useState<string | null>(null);
+  const [smDriveGenSuccess, setSmDriveGenSuccess] = useState(false);
+  const [smFormError, setSmFormError] = useState<string | null>(null);
+
+  const [smForm, setSmForm] = useState({
+    name: '',
+    companyName: '',
+    cnpj: '',
+    address: '',
+    contactName: '',
+    whatsappNumber: '',
+    email: '',
+    pricePerPost: '' as string | number,
+    googleDriveFolderUrl: '',
+    logoUrl: '',
+    activeSocialNetworks: ['instagram', 'facebook'] as SocialNetwork[],
+    pixKey: '',
+    socialProfile: '',
+    assignedClientIds: [] as string[],
+    signatureUrl: '',
+    bankInfo: ''
   });
 
   // Query Supabase directly when searchQuery changes
@@ -227,6 +272,181 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     setSavedSuccess(true);
   };
 
+  // Open modal in Social Media CREATE mode
+  const handleOpenCreateSmModal = () => {
+    setEditingSm(null);
+    setSmSavedSuccess(false);
+    setSmDriveGenError(null);
+    setSmDriveGenSuccess(false);
+    setSmFormError(null);
+    setSmForm({
+      name: '',
+      companyName: '',
+      cnpj: '',
+      address: '',
+      contactName: '',
+      whatsappNumber: '',
+      email: '',
+      pricePerPost: 150,
+      googleDriveFolderUrl: '',
+      logoUrl: '',
+      activeSocialNetworks: ['instagram', 'facebook'],
+      pixKey: '',
+      socialProfile: '',
+      assignedClientIds: [],
+      signatureUrl: '',
+      bankInfo: ''
+    });
+    setIsSmModalOpen(true);
+  };
+
+  // Open modal in Social Media EDIT mode
+  const handleOpenEditSmModal = (targetSm: SocialMediaUser) => {
+    setEditingSm(targetSm);
+    setSmSavedSuccess(false);
+    setSmDriveGenError(null);
+    setSmDriveGenSuccess(false);
+    setSmFormError(null);
+    setSmForm({
+      name: targetSm.name || '',
+      companyName: targetSm.companyName || '',
+      cnpj: targetSm.cnpj || '',
+      address: targetSm.address || '',
+      contactName: targetSm.contactName || '',
+      whatsappNumber: targetSm.whatsappNumber || targetSm.whatsapp || '',
+      email: targetSm.email || '',
+      pricePerPost: targetSm.pricePerPost ?? targetSm.customFeePerPost ?? 150,
+      googleDriveFolderUrl: targetSm.googleDriveFolderUrl || '',
+      logoUrl: targetSm.logoUrl || targetSm.avatarUrl || '',
+      activeSocialNetworks: targetSm.activeSocialNetworks || ['instagram', 'facebook'],
+      pixKey: targetSm.pixKey || '',
+      socialProfile: targetSm.socialProfile || '',
+      assignedClientIds: targetSm.assignedClientIds || [],
+      signatureUrl: targetSm.signatureUrl || '',
+      bankInfo: targetSm.bankInfo || ''
+    });
+    setIsSmModalOpen(true);
+  };
+
+  const handleCloseSmModal = () => {
+    setIsSmModalOpen(false);
+    setEditingSm(null);
+    setSmSavedSuccess(false);
+    setSmDriveGenError(null);
+    setSmDriveGenSuccess(false);
+    setSmFormError(null);
+  };
+
+  const handleToggleSmNetwork = (network: SocialNetwork) => {
+    const current = smForm.activeSocialNetworks || [];
+    if (current.includes(network)) {
+      if (current.length === 1) return;
+      setSmForm({ ...smForm, activeSocialNetworks: current.filter(n => n !== network) });
+    } else {
+      setSmForm({ ...smForm, activeSocialNetworks: [...current, network] });
+    }
+  };
+
+  const handleQuickGenerateSmDriveFolder = async () => {
+    if (!smForm.name.trim()) {
+      setSmDriveGenError('Digite o nome do social media antes de gerar a pasta.');
+      return;
+    }
+    const webhook = getSavedDriveWebhookUrl();
+    if (!webhook) {
+      setSmDriveGenError('URL do Webhook não configurada. Configure na Central do Drive.');
+      return;
+    }
+
+    setIsGeneratingSmDriveFolder(true);
+    setSmDriveGenError(null);
+    setSmDriveGenSuccess(false);
+
+    try {
+      const result = await createDriveFolderForClient(`Social Media - ${smForm.name.trim()}`, webhook);
+      if (result.status === 'success' && result.folderUrl) {
+        setSmForm(prev => ({ ...prev, googleDriveFolderUrl: result.folderUrl || '' }));
+        setSmDriveGenSuccess(true);
+      } else {
+        setSmDriveGenError(result.message || 'Erro ao gerar pastas no Drive.');
+      }
+    } catch (err: any) {
+      setSmDriveGenError(err.message || 'Falha ao conectar com o Google Apps Script.');
+    } finally {
+      setIsGeneratingSmDriveFolder(false);
+    }
+  };
+
+  const handleSaveSmSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!smForm.name.trim()) {
+      setSmFormError('O nome do profissional é obrigatório.');
+      return;
+    }
+
+    const priceNum = Number(smForm.pricePerPost) || 150;
+
+    if (editingSm) {
+      // Edit Existing Social Media
+      const updated: SocialMediaUser = {
+        ...editingSm,
+        name: smForm.name.trim(),
+        companyName: smForm.companyName.trim() || smForm.name.trim(),
+        cnpj: smForm.cnpj.trim() || '00.000.000/0001-00',
+        address: smForm.address.trim() || 'Endereço Comercial',
+        contactName: smForm.contactName.trim() || smForm.name.trim(),
+        whatsappNumber: smForm.whatsappNumber.trim() || '5511999998888',
+        whatsapp: smForm.whatsappNumber.trim() || '5511999998888',
+        email: smForm.email.trim() || 'socialmedia@agencia.com',
+        pricePerPost: priceNum,
+        customFeePerPost: priceNum,
+        googleDriveFolderUrl: smForm.googleDriveFolderUrl.trim(),
+        logoUrl: smForm.logoUrl.trim(),
+        avatarUrl: smForm.logoUrl.trim() || editingSm.avatarUrl,
+        activeSocialNetworks: smForm.activeSocialNetworks,
+        pixKey: smForm.pixKey.trim() || smForm.email.trim() || 'chave-pix-pendente',
+        socialProfile: smForm.socialProfile.trim() || 'instagram.com',
+        assignedClientIds: smForm.assignedClientIds,
+        signatureUrl: smForm.signatureUrl.trim() || undefined,
+        bankInfo: smForm.bankInfo.trim() || undefined
+      };
+
+      if (onUpdateSocialMedia) {
+        onUpdateSocialMedia(updated);
+      }
+    } else {
+      // Create New Social Media
+      const newSm: Omit<SocialMediaUser, 'id'> = {
+        name: smForm.name.trim(),
+        companyName: smForm.companyName.trim() || smForm.name.trim(),
+        cnpj: smForm.cnpj.trim() || '00.000.000/0001-00',
+        address: smForm.address.trim() || 'Endereço Comercial',
+        contactName: smForm.contactName.trim() || smForm.name.trim(),
+        whatsappNumber: smForm.whatsappNumber.trim() || '5511999998888',
+        whatsapp: smForm.whatsappNumber.trim() || '5511999998888',
+        email: smForm.email.trim() || 'socialmedia@agencia.com',
+        pricePerPost: priceNum,
+        customFeePerPost: priceNum,
+        googleDriveFolderUrl: smForm.googleDriveFolderUrl.trim(),
+        logoUrl: smForm.logoUrl.trim(),
+        avatarUrl: smForm.logoUrl.trim(),
+        activeSocialNetworks: smForm.activeSocialNetworks,
+        pixKey: smForm.pixKey.trim() || smForm.email.trim() || 'chave-pix-pendente',
+        socialProfile: smForm.socialProfile.trim() || 'instagram.com',
+        assignedClientIds: smForm.assignedClientIds,
+        totalPostsCreated: 0,
+        status: 'ativo',
+        signatureUrl: smForm.signatureUrl.trim() || undefined,
+        bankInfo: smForm.bankInfo.trim() || undefined
+      };
+
+      if (onAddSocialMedia) {
+        onAddSocialMedia(newSm);
+      }
+    }
+    setSmSavedSuccess(true);
+  };
+
   const handleToggleNetwork = (network: SocialNetwork) => {
     const current = modalForm.activeSocialNetworks || [];
     if (current.includes(network)) {
@@ -271,143 +491,331 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2.5">
+            {currentUserRole === 'gestor' && (
+              <button
+                type="button"
+                onClick={handleOpenCreateSmModal}
+                className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition-all shrink-0 hover:scale-[1.02]"
+                title="Cadastrar Social Media com os mesmos campos do cadastro de cliente"
+              >
+                <UserPlus className="w-4 h-4 text-slate-950" />
+                <span>Cadastrar Social Media</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleOpenCreateModal}
+              className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition-all shrink-0 hover:scale-[1.02]"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cadastrar Novo Cliente</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ALTERNADOR DE VISUALIZAÇÃO: CLIENTES VS EQUIPE SOCIAL MEDIA */}
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
           <button
-            onClick={handleOpenCreateModal}
-            className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition-all shrink-0 hover:scale-[1.02]"
+            type="button"
+            onClick={() => setActiveView('clients')}
+            className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 ${
+              activeView === 'clients'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+            }`}
           >
-            <Plus className="w-4 h-4" />
-            <span>Cadastrar Novo Cliente</span>
+            <Building className="w-4 h-4" />
+            <span>Clientes Cadastrados ({displayedClients.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('social_medias')}
+            className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 ${
+              activeView === 'social_medias'
+                ? 'bg-emerald-600 text-slate-950 font-black shadow-lg shadow-emerald-600/30'
+                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Equipe Social Media ({socialMedias.length})</span>
           </button>
         </div>
 
-        {/* CAMPO DE BUSCA DE CLIENTES NO SUPABASE */}
-        <div className="space-y-3 pt-1">
-          <label className="block text-xs font-bold text-slate-300 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              <Search className="w-4 h-4 text-indigo-400" /> Buscar Cliente no Supabase:
-            </span>
-            <span className="text-[11px] text-slate-400 font-normal">
-              {isSearchingSupabase ? (
-                <span className="text-indigo-400 animate-pulse">Pesquisando no banco de dados Supabase...</span>
-              ) : (
-                <span>Exibindo {displayedClients.length} de {clients.length} cliente(s)</span>
-              )}
-            </span>
-          </label>
+        {/* VISUALIZAÇÃO 1: CLIENTES */}
+        {activeView === 'clients' && (
+          <div className="space-y-4">
+            {/* CAMPO DE BUSCA DE CLIENTES NO SUPABASE */}
+            <div className="space-y-3 pt-1">
+              <label className="block text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Search className="w-4 h-4 text-indigo-400" /> Buscar Cliente no Supabase:
+                </span>
+                <span className="text-[11px] text-slate-400 font-normal">
+                  {isSearchingSupabase ? (
+                    <span className="text-indigo-400 animate-pulse">Pesquisando no banco de dados Supabase...</span>
+                  ) : (
+                    <span>Exibindo {displayedClients.length} de {clients.length} cliente(s)</span>
+                  )}
+                </span>
+              </label>
 
-          <div className="relative">
-            <Search className="w-4.5 h-4.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Digite o nome do cliente, razão social, e-mail, contato ou CNPJ para buscar no Supabase..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 text-white pl-10 pr-10 py-3 rounded-2xl border border-slate-800 focus:outline-none focus:border-indigo-500 text-xs shadow-inner"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold p-1"
-                title="Limpar busca"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* LISTA DE CLIENTES COM BOTÃO EDITAR */}
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-300">
-            <span>Lista de Clientes Cadastrados:</span>
-            {lastEditedClientId && (
-              <span className="text-[11px] text-amber-400 flex items-center gap-1 font-semibold">
-                <Sparkles className="w-3 h-3 text-amber-400" /> Destacado: Último Cliente Editado
-              </span>
-            )}
-          </div>
-
-          {displayedClients.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {displayedClients.map(c => {
-                const isSelected = c.id === client.id;
-                const isLastEdited = c.id === lastEditedClientId;
-
-                return (
-                  <div
-                    key={c.id}
-                    className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
-                      isSelected
-                        ? 'bg-slate-950/90 border-indigo-500 shadow-md shadow-indigo-500/10'
-                        : isLastEdited
-                        ? 'bg-slate-950/70 border-amber-500/50'
-                        : 'bg-slate-950/50 border-slate-800/80 hover:border-slate-700'
-                    }`}
+              <div className="relative">
+                <Search className="w-4.5 h-4.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Digite o nome do cliente, razão social, e-mail, contato ou CNPJ para buscar no Supabase..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-950 text-white pl-10 pr-10 py-3 rounded-2xl border border-slate-800 focus:outline-none focus:border-indigo-500 text-xs shadow-inner"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold p-1"
+                    title="Limpar busca"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
-                        {c.logoUrl ? (
-                          <DriveImage src={c.logoUrl} alt={c.name} className="w-full h-full object-contain p-1" />
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* LISTA DE CLIENTES COM BOTÃO EDITAR E APAGAR */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                <span>Lista de Clientes Cadastrados:</span>
+                {lastEditedClientId && (
+                  <span className="text-[11px] text-amber-400 flex items-center gap-1 font-semibold">
+                    <Sparkles className="w-3 h-3 text-amber-400" /> Destacado: Último Cliente Editado
+                  </span>
+                )}
+              </div>
+
+              {displayedClients.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {displayedClients.map(c => {
+                    const isSelected = c.id === client.id;
+                    const isLastEdited = c.id === lastEditedClientId;
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                          isSelected
+                            ? 'bg-slate-950/90 border-indigo-500 shadow-md shadow-indigo-500/10'
+                            : isLastEdited
+                            ? 'bg-slate-950/70 border-amber-500/50'
+                            : 'bg-slate-950/50 border-slate-800/80 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
+                            {c.logoUrl ? (
+                              <DriveImage src={c.logoUrl} alt={c.name} className="w-full h-full object-contain p-1" />
+                            ) : (
+                              <Building className="w-5 h-5 text-indigo-400" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-bold text-white truncate">{c.name}</h4>
+                              {isLastEdited && (
+                                <span className="text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded-md shrink-0">
+                                  Último Editado
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 truncate">{c.companyName || c.email || 'Sem dados adicionais'}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectClient) onSelectClient(c.id);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-slate-800 text-slate-300 hover:text-white'
+                            }`}
+                          >
+                            {isSelected ? 'Ativo' : 'Selecionar'}
+                          </button>
+
+                          {/* BOTÃO EDITAR NO FORMULÁRIO DO CLIENTE */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(c)}
+                            className="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                            title="Editar Informações deste Cliente"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Editar</span>
+                          </button>
+
+                          {/* BOTÃO DA LIXEIRINHA PARA APAGAR CLIENTE (COM CONFIRMAÇÃO) */}
+                          {onDeleteClient && (
+                            <button
+                              type="button"
+                              onClick={() => setClientToDelete(c)}
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/30 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-bold flex items-center gap-1 transition-all"
+                              title={`Apagar cadastro do cliente ${c.name}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                              <span>Excluir</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800/80 text-xs text-slate-400 text-center space-y-2">
+                  <p>Nenhum cliente encontrado para "{searchQuery}".</p>
+                  <button
+                    onClick={handleOpenCreateModal}
+                    className="text-indigo-400 font-bold hover:underline"
+                  >
+                    + Cadastrar "{searchQuery}" como Novo Cliente
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VISUALIZAÇÃO 2: EQUIPE SOCIAL MEDIA (COM BOTÃO EDITAR E LIXEIRINHA) */}
+        {activeView === 'social_medias' && (
+          <div className="space-y-4 pt-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs border-b border-slate-800/80 pb-3">
+              <div>
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Profissionais Social Media ({socialMedias.length})</span>
+                </h3>
+                <p className="text-slate-400 text-xs">Gestão de colaboradores, assinaturas digitalizadas aplicadas nos recibos e edição de cadastro</p>
+              </div>
+
+              {currentUserRole === 'gestor' && (
+                <button
+                  type="button"
+                  onClick={handleOpenCreateSmModal}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-all self-start sm:self-auto shadow-md shadow-emerald-600/20"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Cadastrar Social Media</span>
+                </button>
+              )}
+            </div>
+
+            {socialMedias.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {socialMedias.map(sm => (
+                  <div
+                    key={sm.id}
+                    className="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 transition-all flex flex-col justify-between gap-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
+                          {sm.avatarUrl || sm.logoUrl ? (
+                            <DriveImage src={sm.avatarUrl || sm.logoUrl || ''} alt={sm.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <Users className="w-5 h-5 text-emerald-400" />
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-bold text-white truncate">{sm.name}</h4>
+                          <p className="text-xs text-slate-400 truncate">{sm.companyName || sm.email}</p>
+                          <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                            <Phone className="w-3 h-3 text-emerald-400" /> {sm.whatsapp || sm.whatsappNumber || 'Sem telefone'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* BOTÃO EDITAR CADASTRO DO SOCIAL MEDIA */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditSmModal(sm)}
+                          className="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                          title={`Editar cadastro de ${sm.name}`}
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Editar</span>
+                        </button>
+
+                        {/* BOTÃO DA LIXEIRINHA PARA APAGAR SOCIAL MEDIA (COM CONFIRMAÇÃO) */}
+                        {onDeleteSocialMedia && (
+                          <button
+                            type="button"
+                            onClick={() => setSmToDelete(sm)}
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/30 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-bold flex items-center gap-1 transition-all"
+                            title={`Excluir cadastro de ${sm.name}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                            <span>Excluir</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* BLOCO DE ASSINATURA DIGITALIZADA DO RECIBO */}
+                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-400">Assinatura no Recibo:</span>
+                        {sm.signatureUrl ? (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Assinatura Ativa
+                          </span>
                         ) : (
-                          <Building className="w-5 h-5 text-indigo-400" />
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                            Sem assinatura (Clique em Editar)
+                          </span>
                         )}
                       </div>
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-bold text-white truncate">{c.name}</h4>
-                          {isLastEdited && (
-                            <span className="text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded-md shrink-0">
-                              Último Editado
-                            </span>
-                          )}
+                      {sm.signatureUrl && (
+                        <div className="bg-white p-2 rounded-lg border border-slate-300 flex items-center justify-center">
+                          <img src={sm.signatureUrl} alt={`Assinatura ${sm.name}`} className="h-7 object-contain max-w-[200px]" />
                         </div>
-                        <p className="text-[11px] text-slate-400 truncate">{c.companyName || c.email || 'Sem dados adicionais'}</p>
+                      )}
+
+                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800/60">
+                        <span className="text-slate-400">Chave Pix: <strong className="text-slate-200 font-mono">{sm.pixKey || 'Pendente'}</strong></span>
+                        <span className="text-emerald-400 font-bold font-mono">R$ {Number(sm.pricePerPost || sm.customFeePerPost || 150).toFixed(2)}/post</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onSelectClient) onSelectClient(c.id);
-                        }}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                          isSelected
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-slate-800 text-slate-300 hover:text-white'
-                        }`}
-                      >
-                        {isSelected ? 'Ativo' : 'Selecionar'}
-                      </button>
-
-                      {/* BOTÃO EDITAR NO FORMULÁRIO DO CLIENTE */}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditModal(c)}
-                        className="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                        title="Editar Informações deste Cliente"
-                      >
-                        <Edit3 className="w-3.5 h-3.5 text-purple-400" />
-                        <span>Editar</span>
-                      </button>
-                    </div>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800/80 text-xs text-slate-400 text-center space-y-2">
-              <p>Nenhum cliente encontrado para "{searchQuery}".</p>
-              <button
-                onClick={handleOpenCreateModal}
-                className="text-indigo-400 font-bold hover:underline"
-              >
-                + Cadastrar "{searchQuery}" como Novo Cliente
-              </button>
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 bg-slate-950 rounded-2xl border border-slate-800 text-center space-y-3">
+                <Users className="w-8 h-8 text-slate-600 mx-auto" />
+                <p className="text-slate-400 text-xs">Nenhum profissional Social Media cadastrado ainda.</p>
+                {currentUserRole === 'gestor' && (
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateSmModal}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Cadastrar Primeiro Social Media</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
 
@@ -653,24 +1061,586 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 </div>
 
                 {/* Botões do Formulário */}
-                <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={handleCloseModal}
-                    className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 font-bold text-xs transition-all"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-indigo-600/30 transition-all"
-                  >
-                    {editingClient ? 'Salvar Alterações' : 'Salvar Novo Cliente'}
-                  </button>
+                <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div>
+                    {editingClient && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && onDeleteClient && (
+                      <button
+                        type="button"
+                        onClick={() => setClientToDelete(editingClient)}
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-200 border border-rose-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-400" />
+                        <span>Excluir Cliente</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCloseModal}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 font-bold text-xs transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-indigo-600/30 transition-all"
+                    >
+                      {editingClient ? 'Salvar Alterações' : 'Salvar Novo Cliente'}
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Cadastrar Novo Social Media (Exclusivo Gestor com os mesmos campos de cliente) */}
+      {isSmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl w-full max-w-xl p-6 space-y-6 shadow-2xl relative my-8 max-h-[90vh] overflow-y-auto">
+            
+            {/* Cabeçalho do Modal */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-2xl">
+                  {editingSm ? <Edit3 className="w-6 h-6 text-emerald-400" /> : <UserPlus className="w-6 h-6 text-emerald-400" />}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>{editingSm ? `Editar Social Media: ${editingSm.name}` : 'Cadastrar Social Media'}</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">Equipe</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {editingSm
+                      ? 'Atualize os dados e a assinatura digital do colaborador para aplicação automática no recibo'
+                      : 'Cadastre o colaborador com os mesmos dados completos do formulário de cliente'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCloseSmModal}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
+                title="Fechar janela"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tela de Sucesso ou Formulário */}
+            {smSavedSuccess ? (
+              <div className="bg-slate-950 border border-emerald-500/40 rounded-2xl p-6 text-center space-y-4 animate-fade-in">
+                <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/40">
+                  <Check className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-lg font-bold text-white">
+                    {editingSm ? 'Social Media Atualizado com Sucesso!' : 'Social Media Cadastrado com Sucesso!'}
+                  </h4>
+                  <p className="text-xs text-slate-300 mt-1">
+                    As informações e assinatura do profissional <strong className="text-emerald-400">{smForm.name}</strong> foram salvas e sincronizadas com sucesso.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCloseSmModal}
+                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-emerald-600/20 transition-all"
+                  >
+                    Concluir e Fechar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveSmSubmit} className="space-y-4 text-xs">
+                {smFormError && (
+                  <div className="p-3 bg-red-950/60 border border-red-800/60 rounded-xl text-red-300 flex items-center gap-2 text-xs">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>{smFormError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Nome Completo do Social Media *:</label>
+                  <input
+                    type="text"
+                    required
+                    value={smForm.name}
+                    onChange={(e) => setSmForm({ ...smForm, name: e.target.value })}
+                    placeholder="Ex: Carlos Oliveira"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500 font-medium"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Razão Social / Agência:</label>
+                    <input
+                      type="text"
+                      value={smForm.companyName}
+                      onChange={(e) => setSmForm({ ...smForm, companyName: e.target.value })}
+                      placeholder="Ex: Oliveira Conteúdo Digital ME"
+                      className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">CNPJ / CPF:</label>
+                    <input
+                      type="text"
+                      value={smForm.cnpj}
+                      onChange={(e) => setSmForm({ ...smForm, cnpj: e.target.value })}
+                      placeholder="00.000.000/0001-00 ou CPF"
+                      className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Contato / Responsável:</label>
+                    <input
+                      type="text"
+                      value={smForm.contactName}
+                      onChange={(e) => setSmForm({ ...smForm, contactName: e.target.value })}
+                      placeholder="Ex: Carlos (Responsável)"
+                      className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">WhatsApp (com DDD):</label>
+                    <input
+                      type="text"
+                      value={smForm.whatsappNumber}
+                      onChange={(e) => setSmForm({ ...smForm, whatsappNumber: e.target.value })}
+                      placeholder="5511999998888"
+                      className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">E-mail de Acesso:</label>
+                    <input
+                      type="email"
+                      value={smForm.email}
+                      onChange={(e) => setSmForm({ ...smForm, email: e.target.value })}
+                      placeholder="carlos@agencia.com"
+                      className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Valor por Post / Taxa (R$):</label>
+                    <input
+                      type="number"
+                      value={smForm.pricePerPost}
+                      onChange={(e) => setSmForm({ ...smForm, pricePerPost: e.target.value })}
+                      placeholder="Ex: 150.00"
+                      className="w-full bg-slate-950 text-emerald-400 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Chave Pix (Para Pagamento):</label>
+                    <input
+                      type="text"
+                      value={smForm.pixKey}
+                      onChange={(e) => setSmForm({ ...smForm, pixKey: e.target.value })}
+                      placeholder="Chave Pix (CPF, CNPJ, Telefone ou E-mail)"
+                      className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Perfil de Rede Social (Instagram/LinkedIn):</label>
+                    <input
+                      type="text"
+                      value={smForm.socialProfile}
+                      onChange={(e) => setSmForm({ ...smForm, socialProfile: e.target.value })}
+                      placeholder="instagram.com/carlos_socialmedia"
+                      className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Endereço Comercial / Localização:</label>
+                  <input
+                    type="text"
+                    value={smForm.address}
+                    onChange={(e) => setSmForm({ ...smForm, address: e.target.value })}
+                    placeholder="Ex: Av. Paulista, 1000 - São Paulo/SP"
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none"
+                  />
+                </div>
+
+                {/* Foto / Logomarca do Social Media: Upload ou Link */}
+                <div className="space-y-2 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-bold text-xs">Foto de Perfil / Logomarca:</label>
+                    <span className="text-[10px] text-emerald-400 font-medium">Upload no Supabase</span>
+                  </div>
+
+                  <SupabaseMediaUploader
+                    compact={true}
+                    currentUrl={smForm.logoUrl}
+                    folder="social_medias"
+                    onUploadSuccess={(url) => {
+                      setSmForm(prev => ({ ...prev, logoUrl: url }));
+                    }}
+                  />
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] font-bold mb-1">Ou informe o link da imagem (Drive ou URL externa):</label>
+                    <input
+                      type="url"
+                      value={smForm.logoUrl}
+                      onChange={(e) => {
+                        const converted = e.target.value.trim() ? getEmbeddableMediaUrl(e.target.value) : e.target.value;
+                        setSmForm({ ...smForm, logoUrl: converted });
+                      }}
+                      placeholder="https://... ou link do Supabase / Drive"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
+                    />
+                  </div>
+                </div>
+
+                {/* Assinatura Digitalizada do Social Media para Recibos */}
+                <div className="space-y-2 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-bold text-xs flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Assinatura Digitalizada (Aplicada no Recibo):</span>
+                    </label>
+                    <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <UploadCloud className="w-3 h-3" /> Armazenamento Seguro
+                    </span>
+                  </div>
+
+                  {/* Upload direto para o bucket Supabase Storage */}
+                  <SupabaseMediaUploader
+                    compact={true}
+                    currentUrl={smForm.signatureUrl}
+                    folder="signatures"
+                    onUploadSuccess={(url) => {
+                      setSmForm(prev => ({ ...prev, signatureUrl: url }));
+                    }}
+                  />
+
+                  {/* Input de Arquivo Local com Conversão Base64 Imediata */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <label className="cursor-pointer px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-[11px] font-bold flex items-center gap-1.5 transition-colors">
+                      <Upload className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Carregar Arquivo do Computador</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              if (typeof reader.result === 'string') {
+                                setSmForm(prev => ({ ...prev, signatureUrl: reader.result as string }));
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                    <span className="text-[10px] text-slate-500">PNG transparente ou JPG</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] font-bold mb-1">
+                      Ou informe o link da imagem (URL externa ou Supabase):
+                    </label>
+                    <input
+                      type="url"
+                      value={smForm.signatureUrl}
+                      onChange={(e) => setSmForm({ ...smForm, signatureUrl: e.target.value })}
+                      placeholder="https://... ou link gerado pelo upload no Supabase Storage"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500 font-mono text-[11px]"
+                    />
+                  </div>
+
+                  {smForm.signatureUrl && (
+                    <div className="p-3 bg-white rounded-xl border border-slate-300 flex items-center justify-between gap-3 animate-fade-in">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-500 block uppercase">Pré-visualização da Assinatura:</span>
+                        <img src={smForm.signatureUrl} alt="Assinatura" className="h-8 object-contain max-w-[200px]" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSmForm(prev => ({ ...prev, signatureUrl: '' }))}
+                        className="text-rose-600 hover:text-rose-800 text-xs font-bold px-2 py-1 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-bold">URL Pasta Google Drive:</label>
+                    <button
+                      type="button"
+                      onClick={handleQuickGenerateSmDriveFolder}
+                      disabled={isGeneratingSmDriveFolder}
+                      className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors disabled:opacity-50"
+                      title="Criar pastas no Google Drive automaticamente usando o Webhook"
+                    >
+                      {isGeneratingSmDriveFolder ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Gerando pastas...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <span>⚡ Gerar Pastas no Drive</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <input
+                    type="url"
+                    value={smForm.googleDriveFolderUrl}
+                    onChange={(e) => setSmForm({ ...smForm, googleDriveFolderUrl: e.target.value })}
+                    placeholder="https://drive.google.com/drive/folders/..."
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none font-mono text-[11px]"
+                  />
+
+                  {smDriveGenError && (
+                    <div className="mt-1.5 p-2 bg-red-950/60 border border-red-800/60 rounded-lg text-red-300 flex items-start gap-1.5 text-[11px]">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400 mt-0.5" />
+                      <span>{smDriveGenError}</span>
+                    </div>
+                  )}
+
+                  {smDriveGenSuccess && (
+                    <div className="mt-1.5 p-2 bg-emerald-950/60 border border-emerald-800/60 rounded-lg text-emerald-300 flex items-center gap-1.5 text-[11px]">
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Pastas criadas e vinculadas com sucesso no Google Drive!</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Seleção de Redes Sociais */}
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                  <label className="block text-slate-300 font-bold">Redes Sociais Atendidas / Especialidades:</label>
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_NETWORKS.map(net => {
+                      const isActive = (smForm.activeSocialNetworks || []).includes(net.id);
+                      return (
+                        <button
+                          key={net.id}
+                          type="button"
+                          onClick={() => handleToggleSmNetwork(net.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            isActive
+                              ? 'bg-emerald-600 text-slate-950 font-black border border-emerald-400'
+                              : 'bg-slate-900 text-slate-400 border border-slate-800'
+                          }`}
+                        >
+                          {net.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Clientes Vinculados Inicialmente */}
+                {clients.length > 0 && (
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                    <label className="block text-slate-300 font-bold">Clientes Atribuídos Inicialmente (Opcional):</label>
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                      {clients.map(c => {
+                        const isChecked = smForm.assignedClientIds.includes(c.id);
+                        return (
+                          <label key={c.id} className="flex items-center justify-between text-xs text-slate-300 cursor-pointer p-1.5 hover:bg-slate-900 rounded-lg">
+                            <span>{c.name} ({c.companyName || 'Empresa'})</span>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSmForm({ ...smForm, assignedClientIds: [...smForm.assignedClientIds, c.id] });
+                                } else {
+                                  setSmForm({ ...smForm, assignedClientIds: smForm.assignedClientIds.filter(id => id !== c.id) });
+                                }
+                              }}
+                              className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Botões do Formulário */}
+                <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div>
+                    {editingSm && onDeleteSocialMedia && (
+                      <button
+                        type="button"
+                        onClick={() => setSmToDelete(editingSm)}
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-200 border border-rose-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-400" />
+                        <span>Excluir Cadastro</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCloseSmModal}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 font-bold text-xs transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-1.5"
+                    >
+                      {editingSm ? <Edit3 className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                      <span>{editingSm ? 'Salvar Alterações' : 'Salvar Social Media'}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão de Social Media (Gestor) */}
+      {smToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="bg-slate-900 border border-rose-500/50 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-500/20 border border-rose-500/30 rounded-2xl text-rose-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Excluir Cadastro de Social Media</h3>
+                <p className="text-xs text-slate-400">Esta ação é irreversível</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs text-slate-300">
+              <p>
+                Tem certeza de que deseja apagar o cadastro do profissional <strong className="text-white">"{smToDelete.name}"</strong>?
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                O cadastro do colaborador e sua assinatura digital vinculada serão excluídos permanentemente da aplicação e do banco Supabase.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingSm}
+                onClick={() => setSmToDelete(null)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSm}
+                onClick={async () => {
+                  if (!onDeleteSocialMedia || !smToDelete) return;
+                  setIsDeletingSm(true);
+                  try {
+                    await onDeleteSocialMedia(smToDelete.id);
+                    if (editingSm?.id === smToDelete.id) {
+                      handleCloseSmModal();
+                    }
+                    setSmToDelete(null);
+                  } finally {
+                    setIsDeletingSm(false);
+                  }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingSm ? 'Excluindo...' : 'Sim, Excluir Cadastro'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão de Cliente (Gestor & Social Media) */}
+      {clientToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="bg-slate-900 border border-rose-500/50 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-500/20 border border-rose-500/30 rounded-2xl text-rose-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Excluir Cliente</h3>
+                <p className="text-xs text-slate-400">Esta ação é irreversível</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs text-slate-300">
+              <p>
+                Tem certeza de que deseja apagar o cliente <strong className="text-white">"{clientToDelete.name}"</strong>?
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                O cadastro e os dados vinculados a este cliente serão excluídos permanentemente da aplicação e do banco Supabase.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingClient}
+                onClick={() => setClientToDelete(null)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingClient}
+                onClick={async () => {
+                  if (!onDeleteClient || !clientToDelete) return;
+                  setIsDeletingClient(true);
+                  try {
+                    await onDeleteClient(clientToDelete.id);
+                    if (editingClient?.id === clientToDelete.id) {
+                      handleCloseModal();
+                    }
+                    setClientToDelete(null);
+                  } finally {
+                    setIsDeletingClient(false);
+                  }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingClient ? 'Excluindo...' : 'Sim, Excluir Cliente'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

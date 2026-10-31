@@ -11,10 +11,14 @@ export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject) 
 
   const valorExtenso = valorPorExtenso(receipt.totalAmount);
   
-  // Format current date in Portuguese: "9 de julho de 2026"
-  const dateObj = receipt.issueDate ? new Date(receipt.issueDate) : new Date();
-  const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', year: 'numeric' };
-  const formattedDate = dateObj.toLocaleDateString('pt-BR', options);
+  // Format current/issue date accurately in Portuguese: "31 de outubro de 2026"
+  let formattedDate: string;
+  if (receipt.issueDate && /^\d{4}-\d{2}-\d{2}$/.test(receipt.issueDate)) {
+    const [y, m, d] = receipt.issueDate.split('-').map(Number);
+    formattedDate = new Date(y, m - 1, d).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+  } else {
+    formattedDate = new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
 
   const cityStateText = receipt.cityState || '[Cidade - UF]';
   const socialName = receipt.socialMediaName || '[Nome Completo do Social Media / Prestador]';
@@ -41,8 +45,11 @@ export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject) 
     </div>
   `;
 
-  // Dynamic Service Text
+  // Dynamic Service Text or Custom Edited Receipt Text
   const itemsDescription = receipt.serviceSummaryText || receipt.items.map(i => `${i.quantity}x ${i.description}`).join(', ');
+  const declarationContent = (receipt.customReceiptText && receipt.customReceiptText.trim().length > 0)
+    ? receipt.customReceiptText.replace(/\n/g, '<br/>')
+    : `A quantia de <strong>R$ ${receipt.totalAmount.toFixed(2)}</strong> (<em>${valorExtenso}</em>), referente a serviços de ${itemsDescription}.`;
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -187,7 +194,7 @@ export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject) 
 
       <!-- DECLARATION TEXT WITH EXTENSO VALUE -->
       <div class="declaration-text">
-        A quantia de <strong>R$ ${receipt.totalAmount.toFixed(2)}</strong> (<em>${valorExtenso}</em>), referente a serviços de ${itemsDescription}.
+        ${declarationContent}
       </div>
 
       <!-- DISCRIMINATED ITEMS TABLE -->
