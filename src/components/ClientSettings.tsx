@@ -19,6 +19,7 @@ interface ClientSettingsProps {
   onAddSocialMedia?: (newSm: Omit<SocialMediaUser, 'id'>) => void;
   onUpdateSocialMedia?: (updatedSm: SocialMediaUser) => void;
   onDeleteSocialMedia?: (smId: string) => void | Promise<void>;
+  activeSocialMediaId?: string;
 }
 
 const ALL_NETWORKS: { id: SocialNetwork; label: string }[] = [
@@ -40,7 +41,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   socialMedias = [],
   onAddSocialMedia,
   onUpdateSocialMedia,
-  onDeleteSocialMedia
+  onDeleteSocialMedia,
+  activeSocialMediaId
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [supabaseSearchResults, setSupabaseSearchResults] = useState<ClientProject[] | null>(null);
@@ -147,7 +149,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       googleDriveFolderUrl: '',
       logoUrl: '',
       activeSocialNetworks: ['instagram', 'facebook'],
-      assignedSocialMediaId: socialMedias[0]?.id || ''
+      assignedSocialMediaId: activeSocialMediaId || socialMedias[0]?.id || ''
     });
     setIsClientModalOpen(true);
   };
@@ -257,7 +259,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
-        assignedSocialMediaId: modalForm.assignedSocialMediaId || undefined,
+        assignedSocialMediaId: modalForm.assignedSocialMediaId || activeSocialMediaId || undefined,
+        createdBySocialMediaId: modalForm.assignedSocialMediaId || activeSocialMediaId || undefined,
         status: 'ativo',
         driveStorageUsedGB: 0.5,
         driveStorageLimitGB: 15.0
@@ -457,11 +460,22 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     }
   };
 
+  // Clientes filtrados por escopo de papel (Social Media só visualiza seus próprios clientes)
+  const roleScopedClients = currentUserRole === 'social_media' && activeSocialMediaId
+    ? clients.filter(c => c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId)
+    : currentUserRole === 'cliente'
+      ? clients.filter(c => c.id === client.id)
+      : clients;
+
   // Determine list of displayed clients
   const displayedClients = searchQuery.trim()
     ? (supabaseSearchResults !== null
-        ? supabaseSearchResults
-        : clients.filter(c => {
+        ? supabaseSearchResults.filter(c => 
+            currentUserRole === 'social_media' && activeSocialMediaId
+              ? (c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId)
+              : true
+          )
+        : roleScopedClients.filter(c => {
             const q = searchQuery.toLowerCase();
             return (
               c.name.toLowerCase().includes(q) ||
@@ -471,7 +485,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               (c.cnpj && c.cnpj.toLowerCase().includes(q))
             );
           }))
-    : clients;
+    : roleScopedClients;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -630,6 +644,16 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                               )}
                             </div>
                             <p className="text-[11px] text-slate-400 truncate">{c.companyName || c.email || 'Sem dados adicionais'}</p>
+                            {(() => {
+                              const assignedSm = socialMedias.find(sm => sm.id === (c.assignedSocialMediaId || (c as any).createdBySocialMediaId));
+                              return (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <span className="text-[10px] text-purple-300 font-bold bg-purple-950/70 border border-purple-500/30 px-2 py-0.5 rounded-md">
+                                    👤 Social Media: {assignedSm ? assignedSm.name : 'Geral'}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 

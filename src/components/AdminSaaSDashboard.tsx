@@ -338,6 +338,135 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
         </div>
       </div>
 
+      {/* SEÇÃO PRINCIPAL DE CONTROLE: QUANTIDADE DE SOCIAL MEDIAS E CLIENTES POR SOCIAL MEDIA */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        
+        {/* CARD 1: QUANTIDADE DE SOCIAL MEDIAS CADASTRADOS */}
+        <div className="bg-slate-900 border border-purple-500/30 rounded-3xl p-6 shadow-xl space-y-4 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-purple-600/10 rounded-full blur-2xl pointer-events-none" />
+          
+          <div className="flex items-start justify-between gap-3 relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-purple-600/20 text-purple-300 border border-purple-500/40 rounded-2xl">
+                <Users className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">Social Medias Cadastrados</h3>
+                <p className="text-xs text-slate-400">Total de profissionais operando na infraestrutura SaaS</p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="text-3xl font-black text-purple-400 font-mono">
+                {socialMedias.length}
+              </div>
+              <span className="text-[10px] text-slate-400 uppercase font-bold">
+                {socialMedias.filter(s => s.status !== 'bloqueado').length} ativos
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2 text-xs">
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="text-slate-400">Licenças Ativas:</span>
+              <strong className="text-emerald-400 font-mono">{socialMedias.filter(s => s.status !== 'bloqueado').length} contas</strong>
+            </div>
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="text-slate-400">Suspensos (Anti-Drible):</span>
+              <strong className="text-rose-400 font-mono">{socialMedias.filter(s => s.status === 'bloqueado').length} contas</strong>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setIsAddingSmModal(true)}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-600/25 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cadastrar Novo Social Media</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('social_medias')}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all border border-slate-700"
+            >
+              <span>Ver Lista Completa</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* CARD 2: QUANTIDADE DE CLIENTES POR SOCIAL MEDIA CADASTRADOS */}
+        <div className="bg-slate-900 border border-cyan-500/30 rounded-3xl p-6 shadow-xl space-y-4 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-600/10 rounded-full blur-2xl pointer-events-none" />
+
+          <div className="flex items-start justify-between gap-3 relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-cyan-600/20 text-cyan-300 border border-cyan-500/40 rounded-2xl">
+                <Layers className="w-6 h-6 text-cyan-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">Clientes por Social Media</h3>
+                <p className="text-xs text-slate-400">Distribuição de clientes cadastrados por profissional</p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="text-3xl font-black text-cyan-400 font-mono">
+                {clients.length}
+              </div>
+              <span className="text-[10px] text-slate-400 uppercase font-bold">Total Clientes</span>
+            </div>
+          </div>
+
+          {/* Lista com quantidade de clientes por social media */}
+          <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 max-h-32 overflow-y-auto space-y-2 text-xs">
+            {socialMedias.length === 0 ? (
+              <p className="text-slate-500 italic text-center py-2">Nenhum social media cadastrado.</p>
+            ) : (
+              socialMedias.map(sm => {
+                const smClients = clients.filter(c => c.assignedSocialMediaId === sm.id || (sm.assignedClientIds || []).includes(c.id));
+                return (
+                  <div key={sm.id} className="flex items-center justify-between py-1 border-b border-slate-800/60 last:border-0">
+                    <div className="flex items-center gap-2 truncate">
+                      <div className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
+                      <span className="text-slate-200 font-bold truncate">{sm.name}</span>
+                      {sm.companyName && <span className="text-slate-500 text-[10px] truncate">({sm.companyName})</span>}
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold text-xs shrink-0 font-mono">
+                      {smClients.length} cliente(s)
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setIsAddingClientModal(true)}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/25 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cadastrar Novo Cliente</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('clients')}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all border border-slate-700"
+            >
+              <span>Auditoria por Empresa</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+      </div>
+
       {/* Internal SaaS Sub-Tabs */}
       <div className="flex items-center space-x-2 border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar">
         <button
@@ -1057,6 +1186,11 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                         <h3 className="font-bold text-white text-sm">{client.name}</h3>
                         <p className="text-[11px] text-slate-400">{client.companyName}</p>
                         <p className="text-[10px] text-slate-500 font-mono">CNPJ: {client.cnpj}</p>
+                        <div className="mt-1">
+                          <span className="text-[10px] text-purple-300 font-bold bg-purple-950/70 border border-purple-500/30 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                            👤 Social Media: {assignedSm ? assignedSm.name : 'Geral'}
+                          </span>
+                        </div>
                       </div>
                     </div>
 

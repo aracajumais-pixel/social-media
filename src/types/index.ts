@@ -39,6 +39,8 @@ export interface SocialMediaUser {
   googleDriveFolderUrl?: string;
   logoUrl?: string;
   activeSocialNetworks?: SocialNetwork[];
+  signatureUrl?: string;
+  bankInfo?: string;
 }
 
 export interface Comment {
@@ -104,6 +106,7 @@ export interface ClientProject {
   logoUrl?: string; // Logomarca para recibo PDF e perfil
   activeSocialNetworks: SocialNetwork[]; // Redes sociais que o cliente utiliza
   assignedSocialMediaId?: string;
+  createdBySocialMediaId?: string;
   status?: 'ativo' | 'bloqueado';
   driveStorageUsedGB?: number;
   driveStorageLimitGB?: number;

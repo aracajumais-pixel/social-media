@@ -10,6 +10,7 @@ import { DriveImage } from './DriveImage';
 interface ApprovalPublicModalProps {
   post: PostItem | null;
   client?: ClientProject;
+  authorSocialMedia?: import('../types').SocialMediaUser;
   isOpen: boolean;
   onClose: () => void;
   onApprove: (postId: string) => void;
@@ -21,6 +22,7 @@ interface ApprovalPublicModalProps {
 export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
   post,
   client,
+  authorSocialMedia,
   isOpen,
   onClose,
   onApprove,
@@ -34,6 +36,7 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showRevisionForm, setShowRevisionForm] = useState(false);
   const [revisionText, setRevisionText] = useState('');
+  const [approvedFeedback, setApprovedFeedback] = useState(false);
 
   const expired = isTokenExpired(post.tokenExpiresAt);
   const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
@@ -77,8 +80,11 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
                   Privado & Seguro
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
-                {client ? `Cliente: ${client.name}` : 'Acesso com Hash Único de Segurança e Expiração de 5 Dias'}
+              <p className="text-xs text-slate-300">
+                {client ? `Cliente: ${client.name}` : 'Acesso com Hash Único de Segurança'}
+                {authorSocialMedia && (
+                  <span className="ml-1 text-purple-300 font-semibold">• Social Media: {authorSocialMedia.name}</span>
+                )}
               </p>
             </div>
           </div>
@@ -205,6 +211,22 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
                   </div>
                 </div>
 
+                {/* Feedback de Agradecimento e Programação de Postagem */}
+                {(approvedFeedback || post.status === 'aprovado') && (
+                  <div className="p-4 bg-emerald-950/60 border border-emerald-500/50 rounded-2xl flex items-start gap-3 text-xs text-emerald-200 animate-fade-in shadow-xl">
+                    <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <strong className="block text-white text-sm font-black">🎉 Muito obrigado pela aprovação!</strong>
+                      <p className="text-emerald-300 leading-relaxed">
+                        O post foi <strong>aprovado com sucesso</strong> e agora será <strong>programado para postagem</strong> nas redes sociais da sua empresa.
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        O registro da aprovação foi salvo automaticamente no histórico de comentários.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Decision Panel */}
                 <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
@@ -218,9 +240,11 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
 
                   <div className="grid grid-cols-2 gap-3">
                     <button
+                      type="button"
                       onClick={() => {
                         setShowRevisionForm(false);
                         onApprove(post.id);
+                        setApprovedFeedback(true);
                       }}
                       className={`py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                         post.status === 'aprovado'
@@ -286,10 +310,11 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
                     />
                     <button
                       type="submit"
-                      className="px-3 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl flex items-center gap-1"
+                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-md shadow-indigo-600/20"
+                      title="Publicar comentário"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      <span>Enviar</span>
+                      <span>Comentar</span>
                     </button>
                   </form>
 

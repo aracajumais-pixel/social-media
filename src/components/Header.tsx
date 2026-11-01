@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject, UserRole } from '../types';
-import { UserCheck, Shield, Sparkles, Building, HardDrive, Plus } from 'lucide-react';
+import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Plus } from 'lucide-react';
 
 interface HeaderProps {
   clients: ClientProject[];
@@ -8,9 +8,13 @@ interface HeaderProps {
   onSelectClient: (clientId: string) => void;
   currentUserRole: UserRole;
   onChangeUserRole: (role: UserRole) => void;
+  onOpenWhatsAppModal: () => void;
   onOpenDriveModal: () => void;
   onOpenAddClientModal?: () => void;
   unreadNotificationsCount: number;
+  socialMedias?: import('../types').SocialMediaUser[];
+  activeSocialMediaId?: string;
+  onSelectSocialMedia?: (smId: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -19,9 +23,13 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectClient,
   currentUserRole,
   onChangeUserRole,
+  onOpenWhatsAppModal,
   onOpenDriveModal,
   onOpenAddClientModal,
-  unreadNotificationsCount
+  unreadNotificationsCount,
+  socialMedias = [],
+  activeSocialMediaId,
+  onSelectSocialMedia
 }) => {
   const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
 
@@ -43,32 +51,81 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Client Selector Dropdown */}
-          <div className="hidden md:flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-1.5">
-            <Building className="w-4 h-4 text-indigo-400" />
-            <span className="text-xs text-slate-400 font-medium">Cliente:</span>
-            <select
-              value={selectedClientId}
-              onChange={(e) => onSelectClient(e.target.value)}
-              className="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer pr-2"
-            >
-              {clients.map(client => (
-                <option key={client.id} value={client.id} className="bg-slate-900 text-slate-200">
-                  {client.name}
-                </option>
-              ))}
-            </select>
-            {onOpenAddClientModal && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
-              <button
-                onClick={onOpenAddClientModal}
-                className="ml-1 p-1 hover:bg-indigo-600/30 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-indigo-500/30 px-2 py-0.5"
-                title="Cadastrar Novo Cliente"
+          {/* Social Media Active Identity Switcher (quando em perfil Social Media) */}
+          {currentUserRole === 'social_media' && socialMedias.length > 0 && (
+            <div className="hidden sm:flex items-center gap-1.5 bg-purple-950/60 border border-purple-500/40 rounded-xl px-3 py-1.5 text-xs shadow-md">
+              <UserCheck className="w-4 h-4 text-purple-400 shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[10px] text-purple-300 font-bold uppercase tracking-wider">Identidade Social Media:</span>
+                <select
+                  value={activeSocialMediaId}
+                  onChange={(e) => onSelectSocialMedia && onSelectSocialMedia(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer pr-1"
+                  title="Selecione qual perfil de Social Media está ativo no momento"
+                >
+                  {socialMedias.map(sm => (
+                    <option key={sm.id} value={sm.id} className="bg-slate-900 text-slate-200">
+                      {sm.name} {sm.companyName ? `(${sm.companyName})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Client Selector Dropdown or Locked Space Badge */}
+          {currentUserRole === 'cliente' ? (
+            <div className="hidden md:flex items-center gap-2 bg-emerald-950/60 border border-emerald-500/40 rounded-xl px-3 py-1.5 shadow-md">
+              <Building className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[10px] text-emerald-300 font-extrabold uppercase tracking-wider">Espaço Exclusivo:</span>
+                <span className="text-xs font-bold text-white max-w-[200px] truncate">{selectedClient?.name || 'Cliente'}</span>
+              </div>
+              {(() => {
+                const assignedSm = socialMedias.find(sm => sm.id === (selectedClient?.assignedSocialMediaId || (selectedClient as any)?.createdBySocialMediaId));
+                return assignedSm ? (
+                  <span className="ml-1 text-[10px] bg-emerald-900/70 text-emerald-200 border border-emerald-500/30 px-2 py-0.5 rounded-md font-semibold">
+                    SM: {assignedSm.name}
+                  </span>
+                ) : null;
+              })()}
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-1.5">
+              <Building className="w-4 h-4 text-indigo-400" />
+              <span className="text-xs text-slate-400 font-medium">Cliente:</span>
+              <select
+                value={selectedClientId}
+                onChange={(e) => onSelectClient(e.target.value)}
+                className="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer pr-2 max-w-[250px]"
               >
-                <Plus className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="text-[11px]">+ Novo</span>
-              </button>
-            )}
-          </div>
+                {clients.length === 0 ? (
+                  <option value="" disabled className="bg-slate-900 text-slate-400">
+                    Nenhum cliente cadastrado
+                  </option>
+                ) : (
+                  clients.map(client => {
+                    const assignedSm = socialMedias.find(sm => sm.id === (client.assignedSocialMediaId || (client as any).createdBySocialMediaId));
+                    return (
+                      <option key={client.id} value={client.id} className="bg-slate-900 text-slate-200">
+                        {client.name} {assignedSm ? `• (SM: ${assignedSm.name})` : ''}
+                      </option>
+                    );
+                  })
+                )}
+              </select>
+              {onOpenAddClientModal && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
+                <button
+                  onClick={onOpenAddClientModal}
+                  className="ml-1 p-1 hover:bg-indigo-600/30 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-indigo-500/30 px-2 py-0.5"
+                  title="Cadastrar Novo Cliente"
+                >
+                  <Plus className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="text-[11px]">+ Novo</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* User Role Switcher & Action Buttons */}
           <div className="flex items-center gap-3">
@@ -83,7 +140,19 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Drive do Cliente</span>
             </button>
 
-            {/* WhatsApp button removido daqui — agora fica dentro do PostDetailModal, já contextualizado com o post */}
+            {/* WhatsApp Notification Trigger */}
+            <button
+              onClick={onOpenWhatsAppModal}
+              className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors"
+            >
+              <MessageSquare className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Notificações WhatsApp</span>
+              {unreadNotificationsCount > 0 && (
+                <span className="bg-emerald-500 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                  {unreadNotificationsCount}
+                </span>
+              )}
+            </button>
 
             {/* Role Switcher */}
             <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
@@ -133,18 +202,30 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Mobile Client Select Bar */}
         <div className="md:hidden py-2 border-t border-slate-800/80 flex items-center justify-between">
-          <span className="text-xs text-slate-400">Cliente ativo:</span>
-          <select
-            value={selectedClientId}
-            onChange={(e) => onSelectClient(e.target.value)}
-            className="bg-slate-800 text-xs font-semibold text-white rounded-lg px-2 py-1 focus:outline-none"
-          >
-            {clients.map(client => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
+          {currentUserRole === 'cliente' ? (
+            <div className="flex items-center justify-between w-full text-xs">
+              <span className="text-slate-400">Espaço do Cliente:</span>
+              <span className="font-bold text-emerald-400">{selectedClient?.name}</span>
+            </div>
+          ) : (
+            <>
+              <span className="text-xs text-slate-400">Cliente ativo:</span>
+              <select
+                value={selectedClientId}
+                onChange={(e) => onSelectClient(e.target.value)}
+                className="bg-slate-800 text-xs font-semibold text-white rounded-lg px-2 py-1 focus:outline-none max-w-[200px]"
+              >
+                {clients.map(client => {
+                  const assignedSm = socialMedias.find(sm => sm.id === (client.assignedSocialMediaId || (client as any).createdBySocialMediaId));
+                  return (
+                    <option key={client.id} value={client.id}>
+                      {client.name} {assignedSm ? `• (${assignedSm.name})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </>
+          )}
         </div>
 
       </div>

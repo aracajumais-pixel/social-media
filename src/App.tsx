@@ -25,10 +25,11 @@ import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
 import { Footer } from './components/Footer';
-import { generateApprovalToken, calculateTokenExpirationDays } from './utils/token';
-import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase, syncReceiptToSupabase } from './lib/supabase';
+import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl } from './utils/token';
+import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase, syncReceiptToSupabase, getSupabaseClient } from './lib/supabase';
+import { openWhatsAppDirect } from './utils/whatsappHelper';
 
-import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2 } from 'lucide-react';
+import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle } from 'lucide-react';
 
 const defaultEmptyClient: ClientProject = {
   id: 'novo-cliente',
@@ -208,18 +209,38 @@ export default function App() {
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<WhatsAppNotificationPayload[]>([]);
 
-  // Detect ?token=... in URL for direct public token link approval
+  // Detect ?client=..., ?sm=..., ?token=... in URL for direct mural or public token link approval
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
+    const clientParam = params.get('client');
+    const smParam = params.get('sm');
     const token = params.get('token');
+
+    if (clientParam) {
+      const matched = clients.find(c => c.id === clientParam);
+      if (matched) {
+        setSelectedClientId(matched.id);
+        setCurrentUserRole('cliente');
+        if (smParam) {
+          setActiveSocialMediaId(smParam);
+        } else if (matched.assignedSocialMediaId) {
+          setActiveSocialMediaId(matched.assignedSocialMediaId);
+        }
+      }
+    }
+
     if (token && posts.length > 0) {
       const matched = posts.find(p => p.approvalToken === token);
       if (matched) {
         setPublicApprovalPost(matched);
+        if (matched.clientProjectId) {
+          setSelectedClientId(matched.clientProjectId);
+          setCurrentUserRole('cliente');
+        }
       }
     }
-  }, [posts]);
+  }, [clients, posts]);
 
   // Handler para renovar token de 5 dias
   const handleRenewToken = (postId: string) => {
@@ -241,11 +262,55 @@ export default function App() {
     }));
   };
 
-  // Active Client
-  const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0] || defaultEmptyClient;
+  // Identidade do Social Media Ativo (para separar visualização de clientes por profissional)
+  const [activeSocialMediaId, setActiveSocialMediaId] = useState<string>(() => {
+    return localStorage.getItem('social_saas_active_sm_id') || (socialMedias[0]?.id || 'sm-1');
+  });
 
-  // Filtered Posts for Active Client
-  const clientPosts = posts.filter(p => p.clientProjectId === selectedClientId);
+  const [approvalToastMessage, setApprovalToastMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (activeSocialMediaId) {
+      try { localStorage.setItem('social_saas_active_sm_id', activeSocialMediaId); } catch {}
+    }
+  }, [activeSocialMediaId]);
+
+  // Clientes acessíveis conforme o perfil atual:
+  // Se for Social Media, só visualiza a lista dos clientes que ele próprio cadastrou ou atrelou a ele!
+  // Se for Cliente, fica restrito estritamente ao seu próprio espaço de cliente!
+  // Se for Gestor, tem visão geral de todos os clientes.
+  const userAccessibleClients = currentUserRole === 'social_media'
+    ? clients.filter(c => c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId)
+    : currentUserRole === 'cliente'
+      ? clients.filter(c => c.id === selectedClientId)
+      : clients;
+
+  // Sincroniza selectedClientId caso o cliente selecionado não pertença ao social media logado
+  React.useEffect(() => {
+    if (currentUserRole === 'social_media') {
+      const isCurrentValid = userAccessibleClients.some(c => c.id === selectedClientId);
+      if (!isCurrentValid && userAccessibleClients.length > 0) {
+        setSelectedClientId(userAccessibleClients[0].id);
+      }
+    }
+  }, [currentUserRole, activeSocialMediaId, userAccessibleClients, selectedClientId]);
+
+  // Active Client
+  const selectedClient = clients.find(c => c.id === selectedClientId) || userAccessibleClients[0] || clients[0] || defaultEmptyClient;
+
+  // Social media responsável pelo cliente ativo
+  const responsibleSm = socialMedias.find(sm => sm.id === (selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId || activeSocialMediaId));
+
+  // Filtered Posts for Active Client:
+  // O cliente só vai enxergar os rascunhos do social media que enviou o link.
+  // Se houver múltiplos social medias atendendo clientes com o mesmo nome, os rascunhos ficam 100% isolados por clientProjectId e authorId.
+  const clientPosts = posts.filter(p => {
+    if (p.clientProjectId !== selectedClientId) return false;
+    if (selectedClient?.assignedSocialMediaId && p.socialMediaAuthorId && p.socialMediaAuthorId !== selectedClient.assignedSocialMediaId) {
+      return false;
+    }
+    return true;
+  });
   
   const filteredPosts = clientPosts.filter(p => {
     const matchesStatus = statusFilter === 'todos' || p.status === statusFilter;
@@ -266,20 +331,53 @@ export default function App() {
   const handleUpdatePostStatus = (postId: string, newStatus: PostStatus) => {
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
-        const updated = { ...p, status: newStatus, updatedAt: new Date().toISOString() };
-        
-        // Registrar Notificação no Histórico do WhatsApp
-        setNotificationHistory(prevNotifs => [
-          {
-            recipientPhone: selectedClient.whatsappNumber,
-            recipientName: selectedClient.contactName,
-            type: newStatus === 'aprovado' ? 'aprovacao' : newStatus === 'alterar' ? 'pedido_alteracao' : 'novo_rascunho',
+        const now = new Date();
+        const formattedTimestamp = now.toLocaleDateString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        const approverName = currentUserRole === 'cliente' 
+          ? `${selectedClient.contactName || 'Cliente'} (Cliente)` 
+          : currentUserRole === 'social_media' ? 'Social Media' : 'Gestor';
+
+        let updatedComments = p.comments;
+
+        // Se for aprovação, registra comentário oficial de aprovação com data e hora
+        if (newStatus === 'aprovado') {
+          const approvalComment = {
+            id: `c-appr-${Date.now()}`,
+            authorRole: currentUserRole,
+            authorName: approverName,
+            text: '🎉 Post aprovado com sucesso! Este conteúdo será programado para postagem.',
+            timestamp: formattedTimestamp
+          };
+          updatedComments = [...p.comments, approvalComment];
+
+          // Auditoria no Supabase se configurado
+          auditPostCommentToSupabase({
+            id: approvalComment.id,
+            postId: p.id,
             postTitle: p.title,
-            postStatus: newStatus,
-            customMessage: `Status do post "${p.title}" alterado para ${newStatus.toUpperCase()} por ${currentUserRole}.`
-          },
-          ...prevNotifs
-        ]);
+            clientId: p.clientProjectId,
+            authorRole: currentUserRole,
+            authorName: approverName,
+            text: approvalComment.text
+          });
+
+          // Mensagem de agradecimento e confirmação de agendamento
+          setApprovalToastMessage('🎉 Muito obrigado! O post foi aprovado com sucesso e será programado para postagem.');
+          setTimeout(() => setApprovalToastMessage(null), 8000);
+        }
+
+        const updated = { 
+          ...p, 
+          status: newStatus, 
+          comments: updatedComments,
+          updatedAt: now.toISOString() 
+        };
 
         if (selectedPostForDetails?.id === postId) {
           setSelectedPostForDetails(updated);
@@ -387,9 +485,15 @@ export default function App() {
   };
 
   const handleCreatePost = (newPostData: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => {
+    const authorSmId = currentUserRole === 'social_media' 
+      ? activeSocialMediaId 
+      : (selectedClient.assignedSocialMediaId || activeSocialMediaId);
+
     const newPost: PostItem = {
       ...newPostData,
       id: `post-${Date.now()}`,
+      clientProjectId: selectedClientId,
+      socialMediaAuthorId: authorSmId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       comments: [
@@ -448,32 +552,29 @@ export default function App() {
     syncReceiptToSupabase(savedReceipt);
   };
 
+  // Envio direto do alerta via WhatsApp (sem histórico desnecessário)
   const handleSendWhatsAppAlert = (postId: string, messageText: string) => {
     const targetPost = posts.find(p => p.id === postId);
-    setNotificationHistory(prev => [
-      {
-        recipientPhone: selectedClient.whatsappNumber,
-        recipientName: selectedClient.contactName,
-        type: 'pedido_alteracao',
-        postTitle: targetPost?.title,
-        customMessage: messageText
-      },
-      ...prev
-    ]);
-    setIsWhatsAppModalOpen(true);
+    const tokenUrl = targetPost ? buildApprovalUrl(targetPost.approvalToken || 'token') : '';
+    const textToSend = messageText.trim() || `Olá! Temos um rascunho de post ("${targetPost?.title || 'Novo Post'}") da ${selectedClient.name} pronto para sua aprovação:\n\n🔗 Acesse para aprovar: ${tokenUrl}`;
+    openWhatsAppDirect(selectedClient.whatsappNumber, textToSend);
   };
 
+  // Envio direto do recibo via WhatsApp
   const handleSendWhatsAppReceipt = (receipt: BillingReceipt) => {
-    setNotificationHistory(prev => [
-      {
-        recipientPhone: selectedClient.whatsappNumber,
-        recipientName: selectedClient.contactName,
-        type: 'novo_recibo',
-        customMessage: `Recibo ${receipt.receiptNumber} de ${receipt.period} no valor de R$ ${receipt.totalAmount.toFixed(2)} foi gerado!`
-      },
-      ...prev
-    ]);
-    setIsWhatsAppModalOpen(true);
+    const text = `Olá ${selectedClient.contactName || selectedClient.name}!\n\nSegue o Recibo de Prestação de Serviços ${receipt.receiptNumber} (${receipt.period}) no valor total de R$ ${receipt.totalAmount.toFixed(2)} emitido com sucesso.\n\nAgradecemos a parceria!`;
+    openWhatsAppDirect(selectedClient.whatsappNumber, text);
+  };
+
+  // Envio da tela completa do Mural de Posts e Aprovações para o WhatsApp com isolamento de rascunhos
+  const handleSendEntireMuralWhatsApp = () => {
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const authorSmId = selectedClient.assignedSocialMediaId || activeSocialMediaId;
+    const authorSm = socialMedias.find(sm => sm.id === authorSmId);
+    const muralUrl = `${currentOrigin}/?client=${selectedClient.id}&sm=${authorSmId}`;
+    const smName = authorSm?.name ? ` com ${authorSm.name}` : '';
+    const text = `Olá ${selectedClient.contactName || selectedClient.name}!\n\nSegue o link do seu Mural Exclusivo de Posts & Aprovações da ${selectedClient.name}${smName}:\n\n🔗 ${muralUrl}\n\nAcesse pelo link acima para visualizar todas as publicações, conferir legendas e realizar aprovações online com facilidade!`;
+    openWhatsAppDirect(selectedClient.whatsappNumber, text);
   };
 
   const handleUpdateClient = (updatedClient: ClientProject) => {
@@ -482,13 +583,18 @@ export default function App() {
   };
 
   const handleAddClient = (newClient: ClientProject) => {
+    const clientWithAuthor: ClientProject = {
+      ...newClient,
+      assignedSocialMediaId: currentUserRole === 'social_media' ? activeSocialMediaId : (newClient.assignedSocialMediaId || activeSocialMediaId),
+      createdBySocialMediaId: currentUserRole === 'social_media' ? activeSocialMediaId : (newClient.createdBySocialMediaId || activeSocialMediaId)
+    };
     setClients(prev => {
-      const exists = prev.some(c => c.id === newClient.id);
-      if (exists) return prev.map(c => c.id === newClient.id ? newClient : c);
-      return [...prev, newClient];
+      const exists = prev.some(c => c.id === clientWithAuthor.id);
+      if (exists) return prev.map(c => c.id === clientWithAuthor.id ? clientWithAuthor : c);
+      return [...prev, clientWithAuthor];
     });
-    setSelectedClientId(newClient.id);
-    syncClientToSupabase(newClient);
+    setSelectedClientId(clientWithAuthor.id);
+    syncClientToSupabase(clientWithAuthor);
   };
 
   const handleDeleteClient = async (clientId: string) => {
@@ -548,8 +654,23 @@ export default function App() {
     syncSocialMediaToSupabase(created);
   };
 
-  const handleDeleteSocialMedia = (smId: string) => {
+  const handleUpdateSocialMedia = (updatedSm: SocialMediaUser) => {
+    setSocialMedias(prev => prev.map(sm => sm.id === updatedSm.id ? updatedSm : sm));
+    syncSocialMediaToSupabase(updatedSm);
+  };
+
+  const handleDeleteSocialMedia = async (smId: string) => {
     setSocialMedias(prev => prev.filter(sm => sm.id !== smId));
+    if (isSupabaseConfigured) {
+      try {
+        const clientDb = getSupabaseClient();
+        if (clientDb) {
+          await clientDb.from('social_medias').delete().eq('id', smId);
+        }
+      } catch (err) {
+        console.warn('Erro ao deletar social media no Supabase:', err);
+      }
+    }
   };
 
   const handleToggleBlockSocialMedia = (smId: string) => {
@@ -590,15 +711,18 @@ export default function App() {
       
       {/* Header with Role & Client Selector */}
       <Header
-        clients={clients}
+        clients={userAccessibleClients}
         selectedClientId={selectedClientId}
         onSelectClient={setSelectedClientId}
         currentUserRole={currentUserRole}
         onChangeUserRole={setCurrentUserRole}
         onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
         onOpenDriveModal={() => setIsDriveModalOpen(true)}
-        onOpenAddClientModal={() => setActiveTab('admin')}
+        onOpenAddClientModal={() => setActiveTab('settings')}
         unreadNotificationsCount={draftsCount + changesRequestedCount}
+        socialMedias={socialMedias}
+        activeSocialMediaId={activeSocialMediaId}
+        onSelectSocialMedia={setActiveSocialMediaId}
       />
 
       {/* Navigation Tab Bar */}
@@ -615,61 +739,26 @@ export default function App() {
       {/* Main Container Content */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
 
-        {/* Banner de Boas-Vindas sem Exemplos Hardcoded */}
-        {clients.length === 0 && (
-          <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-purple-950 border border-indigo-500/40 rounded-3xl p-6 sm:p-8 space-y-4 shadow-2xl mb-8 animate-fade-in">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-indigo-600/30 text-indigo-300 rounded-2xl border border-indigo-500/40 shrink-0">
-                  <Sparkles className="w-6 h-6 text-indigo-400" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-black text-white">Social Media 5.0 - Ambiente Limpo e Pronto para Uso</h2>
-                  <p className="text-xs text-slate-300">Nenhum dado fictício pré-carregado. Cadastre o seu primeiro cliente com o apoio de Placeholders explicativos em cada campo.</p>
-                </div>
+        {/* Notificação Toast de Agradecimento e Programação de Postagem */}
+        {approvalToastMessage && (
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 border border-emerald-500/60 shadow-2xl flex items-center justify-between gap-4 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-xl shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
               </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => setActiveTab('admin')}
-                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Cadastrar Primeiro Cliente</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setClients(DEMO_CLIENTS);
-                    setSocialMedias(DEMO_SOCIAL_MEDIAS);
-                    setSelectedClientId('client-1');
-                  }}
-                  className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-amber-500/30 flex items-center gap-1.5 transition-all"
-                >
-                  <Layers className="w-4 h-4 text-amber-400" />
-                  <span>Carregar Testes (Opcional)</span>
-                </button>
+              <div className="text-xs">
+                <strong className="block text-white font-bold text-sm">Post Aprovado com Sucesso!</strong>
+                <span className="text-emerald-300">
+                  {approvalToastMessage}
+                </span>
               </div>
             </div>
-
-            <div className="bg-slate-950/80 rounded-2xl p-4 border border-slate-800/80 text-xs text-slate-300 space-y-2">
-              <span className="font-bold text-amber-400 flex items-center gap-1.5">
-                💡 Guia de Orientação para Uso do Sistema (Placeholders em Todos os Formulários):
-              </span>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-[11px] text-slate-400">
-                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                  <strong className="text-indigo-300 block mb-1">1. Painel Admin / Clientes</strong>
-                  Preencha Razão Social, CNPJ, WhatsApp e preço por post no cadastro com orientações em cada campo.
-                </div>
-                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                  <strong className="text-purple-300 block mb-1">2. Rascunhos de Posts</strong>
-                  Adicione títulos, legendas e links de imagem/vídeo. Os rascunhos ficam organizados para aprovação.
-                </div>
-                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                  <strong className="text-emerald-300 block mb-1">3. Fechamento e PDF</strong>
-                  Gere recibos de prestação de serviço com cálculo de taxa de R$0,50 por post e exportação imediata.
-                </div>
-              </div>
-            </div>
+            <button
+              onClick={() => setApprovalToastMessage(null)}
+              className="text-slate-400 hover:text-white p-1 text-xs font-bold"
+            >
+              ✕
+            </button>
           </div>
         )}
         
@@ -677,6 +766,45 @@ export default function App() {
         {activeTab === 'posts' && (
           <div className="space-y-6">
             
+            {/* Banner de Identificação Exclusiva do Espaço e Isolamento de Rascunhos */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950/70 to-purple-950/70 border border-indigo-500/30 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0">
+                  {selectedClient.logoUrl ? (
+                    <img src={selectedClient.logoUrl} alt={selectedClient.name} className="w-full h-full object-contain p-1" />
+                  ) : (
+                    <Building2 className="w-6 h-6 text-indigo-400" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">
+                      {currentUserRole === 'cliente' ? 'Mural Exclusivo do Cliente' : 'Espaço Exclusivo de Atendimento'}
+                    </span>
+                    <span className="text-xs text-slate-400">• Espaço Isolado</span>
+                  </div>
+                  <h2 className="text-base sm:text-lg font-bold text-white mt-0.5">{selectedClient.name}</h2>
+                  <p className="text-xs text-slate-300">
+                    Atendimento exclusivo por: <strong className="text-purple-300 font-bold">{responsibleSm?.name || 'Social Media Responsável'}</strong>
+                    {responsibleSm?.companyName ? ` (${responsibleSm.companyName})` : ''}
+                    {responsibleSm?.whatsapp && (
+                      <span className="ml-2 text-emerald-400 font-medium"> • WhatsApp: {responsibleSm.whatsapp}</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl px-3.5 py-2 text-xs shrink-0 flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <div className="text-[10px] text-slate-400 font-medium">Isolamento Seguro de Rascunhos</div>
+                  <div className="font-bold text-slate-200">
+                    Exibindo apenas rascunhos de <span className="text-indigo-300">{responsibleSm?.name || 'Social Media'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Top Toolbar: Search, Status Filter & Create Post */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
               
@@ -731,16 +859,29 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Create Post Button (Gestor or Social Media) */}
-              {(currentUserRole === 'social_media' || currentUserRole === 'gestor') && (
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Botão de Enviar Tela Completa do Mural via WhatsApp */}
                 <button
-                  onClick={() => setIsNewPostModalOpen(true)}
-                  className="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all shrink-0"
+                  type="button"
+                  onClick={handleSendEntireMuralWhatsApp}
+                  className="px-4 py-2.5 rounded-2xl bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md hover:scale-[1.02]"
+                  title="Enviar link completo do Mural de Posts para o WhatsApp do cliente"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Novo Rascunho</span>
+                  <MessageCircle className="w-4 h-4 text-emerald-400" />
+                  <span>Enviar Mural via WhatsApp</span>
                 </button>
-              )}
+
+                {/* Create Post Button (Gestor or Social Media) */}
+                {(currentUserRole === 'social_media' || currentUserRole === 'gestor') && (
+                  <button
+                    onClick={() => setIsNewPostModalOpen(true)}
+                    className="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all shrink-0 hover:scale-[1.02]"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Novo Rascunho</span>
+                  </button>
+                )}
+              </div>
 
             </div>
 
@@ -790,6 +931,7 @@ export default function App() {
             selectedClient={selectedClient}
             currentUserRole={currentUserRole}
             feePerPost={feePerPost}
+            socialMedias={socialMedias}
             onSaveReceipt={handleSaveReceipt}
             onSendWhatsAppReceipt={handleSendWhatsAppReceipt}
           />
@@ -803,14 +945,15 @@ export default function App() {
             channels={MOCK_CHANNELS}
             currentUserRole={currentUserRole}
             onChangeMetricsAccess={handleChangeMetricsAccess}
+            posts={posts}
           />
         )}
 
-        {/* TAB 5: CLIENTES */}
+        {/* TAB 5: CLIENTES & EQUIPE */}
         {activeTab === 'settings' && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
           <ClientSettings
             client={selectedClient}
-            clients={clients}
+            clients={userAccessibleClients}
             onSelectClient={setSelectedClientId}
             currentUserRole={currentUserRole}
             onUpdateClient={handleUpdateClient}
@@ -818,6 +961,9 @@ export default function App() {
             onDeleteClient={handleDeleteClient}
             socialMedias={socialMedias}
             onAddSocialMedia={handleAddSocialMedia}
+            onUpdateSocialMedia={handleUpdateSocialMedia}
+            onDeleteSocialMedia={handleDeleteSocialMedia}
+            activeSocialMediaId={activeSocialMediaId}
           />
         )}
 
@@ -830,11 +976,14 @@ export default function App() {
             socialMedias={socialMedias}
             saasProofs={saasProofs}
             onAddSocialMedia={handleAddSocialMedia}
+            onUpdateSocialMedia={handleUpdateSocialMedia}
             onDeleteSocialMedia={handleDeleteSocialMedia}
             onToggleBlockSocialMedia={handleToggleBlockSocialMedia}
             onUpdateSocialMediaFee={handleUpdateSocialMediaFee}
             onToggleBlockClient={handleToggleBlockClient}
             onAddClient={handleAddClient}
+            onUpdateClient={handleUpdateClient}
+            onDeleteClient={handleDeleteClient}
             feePerPost={feePerPost}
             onUpdateFeePerPost={(newFee) => setFeePerPost(newFee)}
             onAddSaasProof={handleAddSaasProof}
@@ -865,6 +1014,8 @@ export default function App() {
         onClose={() => setSelectedPostForDetails(null)}
         currentUserRole={currentUserRole}
         inspirations={clientInspirations}
+        clientWhatsapp={selectedClient.whatsappNumber}
+        clientName={selectedClient.name}
         onUpdateStatus={handleUpdatePostStatus}
         onUpdateSocialNetworks={handleUpdatePostSocialNetworks}
         onTogglePublished={handleTogglePublished}
@@ -879,9 +1030,15 @@ export default function App() {
 
       <ApprovalPublicModal
         post={publicApprovalPost}
+        client={selectedClient}
+        authorSocialMedia={socialMedias.find(sm => sm.id === (publicApprovalPost?.socialMediaAuthorId || selectedClient.assignedSocialMediaId))}
         isOpen={!!publicApprovalPost}
         onClose={() => setPublicApprovalPost(null)}
-        onUpdateStatus={handleUpdatePostStatus}
+        onApprove={(postId) => handleUpdatePostStatus(postId, 'aprovado')}
+        onRequestChange={(postId, text) => {
+          handleUpdatePostStatus(postId, 'alterar');
+          handleAddComment(postId, `[Instrução de Ajuste]: ${text}`);
+        }}
         onAddComment={handleAddComment}
         onRenewToken={handleRenewToken}
       />

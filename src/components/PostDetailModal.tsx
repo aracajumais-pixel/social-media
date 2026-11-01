@@ -9,6 +9,7 @@ import { getTimeRemainingText, isTokenExpired, buildApprovalUrl, generateApprova
 import { DriveImage } from './DriveImage';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
+import { openWhatsAppDirect } from '../utils/whatsappHelper';
 
 interface PostDetailModalProps {
   post: PostItem | null;
@@ -16,6 +17,8 @@ interface PostDetailModalProps {
   onClose: () => void;
   currentUserRole: UserRole;
   inspirations: InspirationFile[];
+  clientWhatsapp?: string;
+  clientName?: string;
   onUpdateStatus: (postId: string, newStatus: PostStatus) => void;
   onUpdateSocialNetworks?: (postId: string, networks: SocialNetwork[]) => void;
   onTogglePublished?: (postId: string, isPublished: boolean) => void;
@@ -43,12 +46,15 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onOpenPublicApprovalLink,
   onRenewToken,
   onUpdatePostFields,
-  onDeletePost
+  onDeletePost,
+  clientWhatsapp,
+  clientName
 }) => {
   if (!isOpen || !post) return null;
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [approvalThanksFeedback, setApprovalThanksFeedback] = useState(false);
 
   const [newComment, setNewComment] = useState('');
   const [copiedCaption, setCopiedCaption] = useState(false);
@@ -125,8 +131,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   };
 
   const handleSendWhatsApp = () => {
-    const textToSend = whatsappText.trim() || `Olá! Por favor veja as novidades e comentários no post "${post.title}".`;
-    onSendWhatsAppAlert(post.id, textToSend);
+    const textToSend = whatsappText.trim() || `Olá! Por favor veja as novidades e aprovação do post "${post.title}" da empresa ${clientName || ''}:\n🔗 ${approvalUrl}`;
+    openWhatsAppDirect(clientWhatsapp, textToSend);
     setWhatsappText('');
     setShowWhatsAppInput(false);
   };
@@ -538,6 +544,22 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               </div>
             </div>
 
+            {/* Feedback de Agradecimento e Programação de Postagem */}
+            {approvalThanksFeedback && (
+              <div className="p-4 bg-emerald-950/60 border border-emerald-500/50 rounded-2xl flex items-start gap-3 text-xs text-emerald-200 animate-fade-in shadow-xl shadow-emerald-950/40">
+                <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <strong className="block text-white text-sm font-black">🎉 Muito obrigado pela aprovação!</strong>
+                  <p className="text-emerald-300 leading-relaxed">
+                    O post foi <strong>aprovado com sucesso</strong> e agora será <strong>programado para postagem</strong> nas redes sociais configuradas.
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    A aprovação foi registrada como comentário com data e hora para fins de auditoria.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Approval Decision Buttons (Aprovar / Revisar / Rascunho) */}
             <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
@@ -551,9 +573,11 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
               <div className="grid grid-cols-3 gap-2">
                 <button
+                  type="button"
                   onClick={() => {
                     setShowRevisionForm(false);
                     onUpdateStatus(post.id, 'aprovado');
+                    setApprovalThanksFeedback(true);
                   }}
                   className={`py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                     post.status === 'aprovado'
@@ -762,9 +786,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   <button
                     type="submit"
                     className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-2xl transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/20"
+                    title="Publicar comentário no debate"
                   >
                     <Send className="w-4 h-4" />
-                    <span className="hidden sm:inline">Enviar</span>
+                    <span>Comentar</span>
                   </button>
                 </div>
               </form>
