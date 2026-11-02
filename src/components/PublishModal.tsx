@@ -36,6 +36,9 @@ export const PublishModal: React.FC<PublishModalProps> = ({
     setCopiedCaption(true);
     setClickedPlatformId(platformId);
     setTimeout(() => setCopiedCaption(false), 3000);
+    if (onMarkAsPublished) {
+      onMarkAsPublished(post.id);
+    }
   };
 
   return (

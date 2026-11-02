@@ -602,6 +602,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     onClick={() => {
                       copyCaptionToClipboard(post.caption);
                       setCopiedPublishCaption(true);
+                      if (onTogglePublished) onTogglePublished(post.id, true);
                       setTimeout(() => setCopiedPublishCaption(false), 3000);
                     }}
                     className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.01]"
@@ -969,6 +970,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
         post={post}
         isOpen={isPublishModalOpen}
         onClose={() => setIsPublishModalOpen(false)}
+        onMarkAsPublished={(id) => onTogglePublished && onTogglePublished(id, true)}
       />
 
     </div>

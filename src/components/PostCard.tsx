@@ -17,6 +17,7 @@ interface PostCardProps {
   onQuickRequestChange?: (postId: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
   onDeletePost?: (postId: string) => void | Promise<void>;
+  onPublishPost?: (postId: string) => void;
 }
 
 export const PostCard: React.FC<PostCardProps> = ({
@@ -26,7 +27,8 @@ export const PostCard: React.FC<PostCardProps> = ({
   onQuickApprove,
   onQuickRequestChange,
   onOpenPublicApprovalLink,
-  onDeletePost
+  onDeletePost,
+  onPublishPost
 }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -277,6 +279,7 @@ export const PostCard: React.FC<PostCardProps> = ({
         post={post}
         isOpen={isPublishModalOpen}
         onClose={() => setIsPublishModalOpen(false)}
+        onMarkAsPublished={onPublishPost}
       />
 
       {/* Modal de Confirmação de Exclusão do Rascunho */}

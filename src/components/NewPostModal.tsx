@@ -11,6 +11,9 @@ interface NewPostModalProps {
   clientProjectId: string;
   inspirations: InspirationFile[];
   onCreatePost: (newPostData: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => void;
+  initialTitle?: string;
+  initialCaption?: string;
+  initialLinkedTaskId?: string;
 }
 
 export const NewPostModal: React.FC<NewPostModalProps> = ({
@@ -18,12 +21,15 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
   onClose,
   clientProjectId,
   inspirations,
-  onCreatePost
+  onCreatePost,
+  initialTitle = '',
+  initialCaption = '',
+  initialLinkedTaskId
 }) => {
   if (!isOpen) return null;
 
-  const [title, setTitle] = useState('');
-  const [caption, setCaption] = useState('');
+  const [title, setTitle] = useState(initialTitle);
+  const [caption, setCaption] = useState(initialCaption);
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'video' | 'carousel'>('image');
   const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>(['instagram', 'facebook']);
@@ -33,6 +39,11 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
     return d.toISOString().slice(0, 16);
   });
   const [selectedInspirations, setSelectedInspirations] = useState<string[]>([]);
+
+  React.useEffect(() => {
+    if (initialTitle) setTitle(initialTitle);
+    if (initialCaption) setCaption(initialCaption);
+  }, [initialTitle, initialCaption]);
 
   const toggleNetwork = (network: SocialNetwork) => {
     if (socialNetworks.includes(network)) {
@@ -69,7 +80,8 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
       status: 'rascunho', // Sempre inicia como Rascunho
       approvalToken: generateApprovalToken(),
       tokenExpiresAt: calculateTokenExpirationDays(5),
-      inspirationReferenceIds: selectedInspirations
+      inspirationReferenceIds: selectedInspirations,
+      linkedTaskId: initialLinkedTaskId
     });
 
     onClose();

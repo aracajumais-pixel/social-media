@@ -4,7 +4,7 @@ import {
   ShieldAlert, DollarSign, TrendingUp, Users, HardDrive, 
   CheckCircle2, Plus, Sparkles, ExternalLink, Trash2, Mail, Phone, AlertTriangle, Layers,
   Lock, Unlock, Edit3, Code2, History, BookOpen, FileSpreadsheet, BarChart2, CheckSquare, Clock, Upload, Check, X,
-  MessageSquare, Send, MousePointerClick, Database, UploadCloud, MapPin, Loader2
+  MessageSquare, Send, MousePointerClick, Database, UploadCloud, MapPin, Loader2, Search, AlertCircle
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ComposedChart, Line, Area 
@@ -99,7 +99,8 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     pricePerPost: 150,
     googleDriveFolderUrl: '',
     logoUrl: '',
-    assignedSocialMediaId: socialMedias[0]?.id || ''
+    assignedSocialMediaId: socialMedias[0]?.id || '',
+    additionalInfo: ''
   });
 
   // Proof Upload Form State
@@ -151,7 +152,8 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     pricePerPost: 150,
     googleDriveFolderUrl: '',
     logoUrl: '',
-    assignedSocialMediaId: ''
+    assignedSocialMediaId: '',
+    additionalInfo: ''
   });
 
   const [isFetchingCepAdmin, setIsFetchingCepAdmin] = useState(false);
@@ -163,7 +165,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     const clean = val.replace(/\D/g, '');
     if (clean.length === 8) {
       setIsFetchingCepAdmin(true);
-      setCepAdminStatus(null);
+      setCepAdminStatus({ type: 'success', message: 'Buscando endereço automaticamente...' });
       const res = await fetchAddressByCep(clean);
       setIsFetchingCepAdmin(false);
       if (res) {
@@ -175,11 +177,12 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
           state: res.uf || prev.state,
           complement: res.complemento || prev.complement
         }));
-        setCepAdminStatus({ type: 'success', message: 'Endereço localizado com sucesso!' });
+        const summary = [res.logradouro, res.bairro, `${res.localidade}/${res.uf}`].filter(Boolean).join(' - ');
+        setCepAdminStatus({ type: 'success', message: `Endereço localizado: ${summary}` });
       } else {
-        setCepAdminStatus({ type: 'error', message: 'CEP não encontrado.' });
+        setCepAdminStatus({ type: 'error', message: 'CEP não encontrado. Preencha os campos manualmente.' });
       }
-    } else {
+    } else if (clean.length === 0) {
       setCepAdminStatus(null);
     }
   };
@@ -190,7 +193,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     const clean = val.replace(/\D/g, '');
     if (clean.length === 8) {
       setIsFetchingCepAdmin(true);
-      setCepAdminStatus(null);
+      setCepAdminStatus({ type: 'success', message: 'Buscando endereço automaticamente...' });
       const res = await fetchAddressByCep(clean);
       setIsFetchingCepAdmin(false);
       if (res) {
@@ -202,11 +205,12 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
           state: res.uf || prev.state,
           complement: res.complemento || prev.complement
         }));
-        setCepAdminStatus({ type: 'success', message: 'Endereço localizado com sucesso!' });
+        const summary = [res.logradouro, res.bairro, `${res.localidade}/${res.uf}`].filter(Boolean).join(' - ');
+        setCepAdminStatus({ type: 'success', message: `Endereço localizado: ${summary}` });
       } else {
-        setCepAdminStatus({ type: 'error', message: 'CEP não encontrado.' });
+        setCepAdminStatus({ type: 'error', message: 'CEP não encontrado. Preencha os campos manualmente.' });
       }
-    } else {
+    } else if (clean.length === 0) {
       setCepAdminStatus(null);
     }
   };
@@ -258,7 +262,8 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
       pricePerPost: c.pricePerPost ?? 150,
       googleDriveFolderUrl: c.googleDriveFolderUrl || '',
       logoUrl: c.logoUrl || '',
-      assignedSocialMediaId: c.assignedSocialMediaId || ''
+      assignedSocialMediaId: c.assignedSocialMediaId || '',
+      additionalInfo: c.additionalInfo || ''
     });
     setIsEditingClientModal(true);
   };
@@ -2421,6 +2426,7 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                   activeSocialNetworks: ['instagram', 'facebook'],
                   assignedSocialMediaId: newClientForm.assignedSocialMediaId || undefined,
                   status: 'ativo',
+                  additionalInfo: newClientForm.additionalInfo.trim() || undefined,
                   driveStorageUsedGB: 0.5,
                   driveStorageLimitGB: 15.0
                 };
@@ -2450,7 +2456,8 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                     pricePerPost: 150,
                     googleDriveFolderUrl: '',
                     logoUrl: '',
-                    assignedSocialMediaId: socialMedias[0]?.id || ''
+                    assignedSocialMediaId: socialMedias[0]?.id || '',
+                    additionalInfo: ''
                   });
                   setCepAdminStatus(null);
                 }
@@ -2551,20 +2558,38 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-1">
-                    <label className="block text-slate-300 font-bold mb-1">CEP:</label>
-                    <div className="relative">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-slate-300 font-bold">CEP:</label>
+                      <span className="text-[10px] text-cyan-400 font-medium">8 dígitos</span>
+                    </div>
+                    <div className="relative flex items-center">
                       <input
                         type="text"
                         maxLength={9}
                         value={newClientForm.cep}
                         onChange={(e) => handleCepLookupNewClient(e.target.value)}
+                        onBlur={() => {
+                          const clean = newClientForm.cep.replace(/\D/g, '');
+                          if (clean.length === 8 && !newClientForm.street) {
+                            handleCepLookupNewClient(clean);
+                          }
+                        }}
                         placeholder="00000-000"
-                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                        className="w-full bg-slate-900 text-white p-2.5 pr-8 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
                       />
-                      {isFetchingCepAdmin && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {isFetchingCepAdmin ? (
+                        <div className="absolute right-2.5">
                           <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
                         </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleCepLookupNewClient(newClientForm.cep)}
+                          title="Buscar endereço por este CEP"
+                          className="absolute right-1.5 p-1 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -2694,6 +2719,17 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                 </select>
               </div>
 
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Informações Adicionais:</label>
+                <textarea
+                  rows={3}
+                  value={newClientForm.additionalInfo}
+                  onChange={(e) => setNewClientForm({ ...newClientForm, additionalInfo: e.target.value })}
+                  placeholder="Observações especiais, preferências de marca, horários de postagem ou orientações do cliente..."
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 text-xs leading-relaxed"
+                />
+              </div>
+
               <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
                 <button
                   type="button"
@@ -2769,7 +2805,8 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                   pricePerPost: Number(clientEditForm.pricePerPost) || 150,
                   googleDriveFolderUrl: clientEditForm.googleDriveFolderUrl.trim(),
                   logoUrl: clientEditForm.logoUrl.trim(),
-                  assignedSocialMediaId: clientEditForm.assignedSocialMediaId || undefined
+                  assignedSocialMediaId: clientEditForm.assignedSocialMediaId || undefined,
+                  additionalInfo: clientEditForm.additionalInfo.trim() || undefined
                 };
                 if (onUpdateClient) {
                   onUpdateClient(updated);
@@ -2874,20 +2911,38 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-1">
-                    <label className="block text-slate-300 font-bold mb-1">CEP:</label>
-                    <div className="relative">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-slate-300 font-bold">CEP:</label>
+                      <span className="text-[10px] text-cyan-400 font-medium">8 dígitos</span>
+                    </div>
+                    <div className="relative flex items-center">
                       <input
                         type="text"
                         maxLength={9}
                         value={clientEditForm.cep}
                         onChange={(e) => handleCepLookupEditClient(e.target.value)}
+                        onBlur={() => {
+                          const clean = clientEditForm.cep.replace(/\D/g, '');
+                          if (clean.length === 8 && !clientEditForm.street) {
+                            handleCepLookupEditClient(clean);
+                          }
+                        }}
                         placeholder="00000-000"
-                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                        className="w-full bg-slate-900 text-white p-2.5 pr-8 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
                       />
-                      {isFetchingCepAdmin && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {isFetchingCepAdmin ? (
+                        <div className="absolute right-2.5">
                           <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
                         </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleCepLookupEditClient(clientEditForm.cep)}
+                          title="Buscar endereço por este CEP"
+                          className="absolute right-1.5 p-1 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -3015,6 +3070,17 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                     <option key={sm.id} value={sm.id}>{sm.name} ({sm.email})</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Informações Adicionais:</label>
+                <textarea
+                  rows={3}
+                  value={clientEditForm.additionalInfo}
+                  onChange={(e) => setClientEditForm({ ...clientEditForm, additionalInfo: e.target.value })}
+                  placeholder="Observações especiais, preferências de marca, horários de postagem ou orientações do cliente..."
+                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 text-xs leading-relaxed"
+                />
               </div>
 
               <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">

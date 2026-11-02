@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { UserRole, MetricsVisibility } from '../types';
-import { CheckCircle2, Lightbulb, FileText, BarChart3, Settings, Lock, Sparkles, BookOpen, FileSpreadsheet } from 'lucide-react';
+import { CheckCircle2, Lightbulb, FileText, BarChart3, Settings, Lock, Sparkles, BookOpen, FileSpreadsheet, ClipboardList } from 'lucide-react';
 
-export type TabType = 'posts' | 'inspirations' | 'billing' | 'metrics' | 'settings' | 'admin' | 'book' | 'market';
+export type TabType = 'posts' | 'tasks' | 'inspirations' | 'billing' | 'metrics' | 'settings' | 'admin' | 'book' | 'market';
 
 interface NavigationProps {
   activeTab: TabType;
@@ -12,6 +12,7 @@ interface NavigationProps {
   draftsCount: number;
   changesRequestedCount: number;
   inspirationsCount: number;
+  pendingTasksCount?: number;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -21,7 +22,8 @@ export const Navigation: React.FC<NavigationProps> = ({
   metricsAccess,
   draftsCount,
   changesRequestedCount,
-  inspirationsCount
+  inspirationsCount,
+  pendingTasksCount = 0
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isMouseDown, setIsMouseDown] = useState(false);
@@ -99,6 +101,28 @@ export const Navigation: React.FC<NavigationProps> = ({
                     {changesRequestedCount}
                   </span>
                 )}
+              </span>
+            )}
+          </button>
+
+          {/* Tab: Tarefas & Solicitações do Cliente */}
+          <button
+            onClick={() => onTabChange('tasks')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
+              activeTab === 'tasks'
+                ? 'bg-amber-600 text-slate-950 font-bold shadow-md shadow-amber-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <ClipboardList className={`w-4 h-4 ${activeTab === 'tasks' ? 'text-slate-950' : 'text-amber-400'}`} />
+            <span>Tarefas do Cliente</span>
+            {pendingTasksCount > 0 && (
+              <span className={`text-[11px] font-bold px-1.5 py-0.2 rounded-full border ${
+                activeTab === 'tasks'
+                  ? 'bg-slate-950 text-amber-300 border-slate-900'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+              }`} title="Tarefas pendentes / em andamento">
+                {pendingTasksCount}
               </span>
             )}
           </button>

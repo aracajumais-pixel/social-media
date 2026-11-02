@@ -41,6 +41,7 @@ export interface SocialMediaUser {
   activeSocialNetworks?: SocialNetwork[];
   signatureUrl?: string;
   bankInfo?: string;
+  additionalInfo?: string;
 }
 
 export interface Comment {
@@ -87,8 +88,25 @@ export interface PostItem {
   publishedAt?: string;
   previewCleanedUp?: boolean; // Confirmação do social media para apagar preview
   socialMediaAuthorId?: string;
+  linkedTaskId?: string; // ID da tarefa solicitada pelo cliente que originou este post
   createdAt: string;
   updatedAt: string;
+}
+
+export type TaskStatus = 'novo' | 'em_andamento' | 'atendido' | 'concluido';
+
+export interface ClientTask {
+  id: string;
+  clientProjectId: string;
+  title: string;
+  description: string;
+  deadline: string; // Data e prazo limite de entrega
+  status: TaskStatus; // 'novo', 'em_andamento', 'atendido' ou 'concluido'
+  linkedPostId?: string; // ID do rascunho de post atrelado a esta tarefa
+  createdAt: string;
+  updatedAt?: string;
+  createdByRole: UserRole;
+  createdByName?: string;
 }
 
 export interface ClientProject {
@@ -115,6 +133,7 @@ export interface ClientProject {
   assignedSocialMediaId?: string;
   createdBySocialMediaId?: string;
   status?: 'ativo' | 'bloqueado';
+  additionalInfo?: string; // Informações adicionais, orientações ou regras específicas
   driveStorageUsedGB?: number;
   driveStorageLimitGB?: number;
 }

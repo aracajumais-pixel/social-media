@@ -84,7 +84,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     googleDriveFolderUrl: '',
     logoUrl: '',
     activeSocialNetworks: ['instagram', 'facebook'] as SocialNetwork[],
-    assignedSocialMediaId: socialMedias[0]?.id || ''
+    assignedSocialMediaId: socialMedias[0]?.id || '',
+    additionalInfo: ''
   });
 
   // Estado para busca automática de CEP
@@ -97,7 +98,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     const clean = cepInput.replace(/\D/g, '');
     if (clean.length === 8) {
       setIsFetchingCep(true);
-      setCepStatusMessage(null);
+      setCepStatusMessage({ type: 'success', message: 'Buscando endereço automaticamente...' });
       const res = await fetchAddressByCep(clean);
       setIsFetchingCep(false);
       if (res) {
@@ -109,11 +110,12 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
           state: res.uf || prev.state,
           complement: res.complemento || prev.complement
         }));
-        setCepStatusMessage({ type: 'success', message: `Endereço localizado: ${res.logradouro}, ${res.bairro} - ${res.localidade}/${res.uf}` });
+        const summary = [res.logradouro, res.bairro, `${res.localidade}/${res.uf}`].filter(Boolean).join(' - ');
+        setCepStatusMessage({ type: 'success', message: `Endereço localizado: ${summary}` });
       } else {
-        setCepStatusMessage({ type: 'error', message: 'CEP não encontrado. Preencha os campos de endereço manualmente.' });
+        setCepStatusMessage({ type: 'error', message: 'CEP não encontrado. Preencha os dados manualmente.' });
       }
-    } else {
+    } else if (clean.length === 0) {
       setCepStatusMessage(null);
     }
   };
@@ -196,7 +198,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       googleDriveFolderUrl: '',
       logoUrl: '',
       activeSocialNetworks: ['instagram', 'facebook'],
-      assignedSocialMediaId: activeSocialMediaId || socialMedias[0]?.id || ''
+      assignedSocialMediaId: activeSocialMediaId || socialMedias[0]?.id || '',
+      additionalInfo: ''
     });
     setIsClientModalOpen(true);
   };
@@ -228,7 +231,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       googleDriveFolderUrl: targetClient.googleDriveFolderUrl || '',
       logoUrl: targetClient.logoUrl || '',
       activeSocialNetworks: targetClient.activeSocialNetworks || ['instagram', 'facebook'],
-      assignedSocialMediaId: targetClient.assignedSocialMediaId || socialMedias[0]?.id || ''
+      assignedSocialMediaId: targetClient.assignedSocialMediaId || socialMedias[0]?.id || '',
+      additionalInfo: targetClient.additionalInfo || ''
     });
     setIsClientModalOpen(true);
   };
@@ -308,7 +312,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
-        assignedSocialMediaId: modalForm.assignedSocialMediaId || undefined
+        assignedSocialMediaId: modalForm.assignedSocialMediaId || undefined,
+        additionalInfo: modalForm.additionalInfo.trim() || undefined
       };
 
       onUpdateClient(updated);
@@ -342,6 +347,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         assignedSocialMediaId: modalForm.assignedSocialMediaId || activeSocialMediaId || undefined,
         createdBySocialMediaId: modalForm.assignedSocialMediaId || activeSocialMediaId || undefined,
         status: 'ativo',
+        additionalInfo: modalForm.additionalInfo.trim() || undefined,
         driveStorageUsedGB: 0.5,
         driveStorageLimitGB: 15.0
       };
@@ -1077,27 +1083,45 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   {/* CEP e Status da Busca */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-1">
-                      <label className="block text-slate-300 font-bold mb-1">CEP:</label>
-                      <div className="relative">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-300 font-bold">CEP:</label>
+                        <span className="text-[10px] text-cyan-400 font-medium">8 dígitos</span>
+                      </div>
+                      <div className="relative flex items-center">
                         <input
                           type="text"
                           maxLength={9}
                           value={modalForm.cep}
                           onChange={(e) => handleCepLookup(e.target.value)}
+                          onBlur={() => {
+                            const clean = modalForm.cep.replace(/\D/g, '');
+                            if (clean.length === 8 && !modalForm.street) {
+                              handleCepLookup(clean);
+                            }
+                          }}
                           placeholder="00000-000"
-                          className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                          className="w-full bg-slate-900 text-white p-2.5 pr-8 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
                         />
-                        {isFetchingCep && (
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        {isFetchingCep ? (
+                          <div className="absolute right-2.5">
                             <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
                           </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleCepLookup(modalForm.cep)}
+                            title="Buscar endereço por este CEP"
+                            className="absolute right-1.5 p-1 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
+                          >
+                            <Search className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
                     </div>
 
                     <div className="sm:col-span-2 flex items-end">
-                      {cepStatusMessage && (
-                        <div className={`p-2 rounded-xl text-[11px] font-semibold w-full flex items-center gap-1.5 ${
+                      {cepStatusMessage ? (
+                        <div className={`p-2 rounded-xl text-[11px] font-semibold w-full flex items-center gap-1.5 animate-fade-in ${
                           cepStatusMessage.type === 'success'
                             ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300'
                             : 'bg-rose-950/70 border border-rose-500/40 text-rose-300'
@@ -1107,8 +1131,12 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                           ) : (
                             <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                           )}
-                          <span>{cepStatusMessage.message}</span>
+                          <span className="truncate">{cepStatusMessage.message}</span>
                         </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-500 pb-1">
+                          ⚡ Busca automática ao digitar os 8 dígitos do CEP.
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1287,6 +1315,20 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                       );
                     })}
                   </div>
+                </div>
+
+                {/* Campo de Informações Adicionais */}
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">
+                    Informações Adicionais:
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={modalForm.additionalInfo}
+                    onChange={(e) => setModalForm({ ...modalForm, additionalInfo: e.target.value })}
+                    placeholder="Adicione preferências do cliente, orientações sobre a marca, horários de postagem, observações sobre reuniões ou regras gerais..."
+                    className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 text-xs leading-relaxed"
+                  />
                 </div>
 
                 {/* Botões do Formulário */}

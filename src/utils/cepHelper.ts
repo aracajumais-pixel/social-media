@@ -9,22 +9,54 @@ export interface ViaCepResponse {
 }
 
 /**
- * Consulta o endereço através do CEP utilizando a API pública e gratuita do ViaCEP.
+ * Consulta o endereço através do CEP utilizando a API pública do ViaCEP com fallback automático para BrasilAPI.
  */
 export async function fetchAddressByCep(cep: string): Promise<ViaCepResponse | null> {
   const clean = cep.replace(/\D/g, '');
   if (clean.length !== 8) return null;
 
+  // 1. Tenta ViaCEP com timeout rápido (3 segundos)
   try {
-    const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.erro) return null;
-    return data;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const data = await res.json();
+      if (!data.erro) {
+        return {
+          cep: data.cep || clean,
+          logradouro: data.logradouro || '',
+          complemento: data.complemento || '',
+          bairro: data.bairro || '',
+          localidade: data.localidade || '',
+          uf: data.uf || ''
+        };
+      }
+    }
   } catch (err) {
-    console.warn('Erro ao consultar ViaCEP:', err);
-    return null;
+    console.warn('ViaCEP indisponível ou timeout, tentando BrasilAPI como fallback...');
   }
+
+  // 2. Fallback resiliente BrasilAPI
+  try {
+    const res2 = await fetch(`https://brasilapi.com.br/api/cep/v1/${clean}`);
+    if (res2.ok) {
+      const data2 = await res2.json();
+      return {
+        cep: data2.cep || clean,
+        logradouro: data2.street || '',
+        complemento: '',
+        bairro: data2.neighborhood || '',
+        localidade: data2.city || '',
+        uf: data2.state || ''
+      };
+    }
+  } catch (err2) {
+    console.warn('Erro ao consultar BrasilAPI fallback:', err2);
+  }
+
+  return null;
 }
 
 /**

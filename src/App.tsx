@@ -6,7 +6,8 @@ import {
 } from './data/mockData';
 import { 
   ClientProject, PostItem, InspirationFile, BillingReceipt, 
-  UserRole, PostStatus, WhatsAppNotificationPayload, SocialMediaUser, SaaSPaymentProof, SocialNetwork
+  UserRole, PostStatus, WhatsAppNotificationPayload, SocialMediaUser, SaaSPaymentProof, SocialNetwork,
+  ClientTask, TaskStatus
 } from './types';
 
 import { Header } from './components/Header';
@@ -24,12 +25,27 @@ import { AdminSaaSDashboard } from './components/AdminSaaSDashboard';
 import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
+import { ClientTasksSection } from './components/ClientTasksSection';
 import { Footer } from './components/Footer';
 import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl } from './utils/token';
 import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase, syncReceiptToSupabase, getSupabaseClient } from './lib/supabase';
 import { openWhatsAppDirect } from './utils/whatsappHelper';
 
-import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle } from 'lucide-react';
+import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight } from 'lucide-react';
+
+const INITIAL_DEMO_TASKS: ClientTask[] = [
+  {
+    id: 'task-1',
+    clientProjectId: 'client-1',
+    title: 'Post Promocional: Festival de Cafés Especiais de Outono',
+    description: 'Solicito a criação de um carrossel ou post de destaque para divulgar o novo blend de café bourbon amarelo e a promoção especial de 20% para a semana do festival. Incluir chamada para o link da bio.',
+    deadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'novo',
+    createdAt: new Date().toISOString(),
+    createdByRole: 'cliente',
+    createdByName: 'Mariana Silva (Diretora)'
+  }
+];
 
 const defaultEmptyClient: ClientProject = {
   id: 'novo-cliente',
@@ -114,6 +130,15 @@ export default function App() {
       return INITIAL_SAAS_PROOF_PAYMENTS;
     }
   });
+  const [tasks, setTasks] = useState<ClientTask[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_tasks');
+      return saved ? JSON.parse(saved) : INITIAL_DEMO_TASKS;
+    } catch {
+      return INITIAL_DEMO_TASKS;
+    }
+  });
+  const [convertingTask, setConvertingTask] = useState<ClientTask | null>(null);
 
   // Initial data fetch from Supabase (with fallback to LocalStorage/Mock)
   React.useEffect(() => {
@@ -182,6 +207,10 @@ export default function App() {
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_saas_proofs', JSON.stringify(saasProofs)); } catch {}
   }, [saasProofs]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_tasks', JSON.stringify(tasks)); } catch {}
+  }, [tasks]);
 
   const handleAddSaasProof = (newProof: Omit<SaaSPaymentProof, 'id' | 'submittedAt' | 'status'>) => {
     const proofItem: SaaSPaymentProof = {
@@ -326,6 +355,8 @@ export default function App() {
   const draftsCount = clientPosts.filter(p => p.status === 'rascunho').length;
   const changesRequestedCount = clientPosts.filter(p => p.status === 'alterar').length;
   const approvedCount = clientPosts.filter(p => p.status === 'aprovado').length;
+  const clientTasks = tasks.filter(t => t.clientProjectId === selectedClientId);
+  const pendingTasksCount = clientTasks.filter(t => t.status === 'novo' || t.status === 'em_andamento').length;
 
   // Handlers
   const handleUpdatePostStatus = (postId: string, newStatus: PostStatus) => {
@@ -399,6 +430,20 @@ export default function App() {
       }
       return p;
     }));
+
+    // Quando o social media postar (isPublished === true), a tarefa atrelada muda automaticamente para 'concluido'
+    if (isPublished) {
+      setTasks(prev => prev.map(t => {
+        if (t.linkedPostId === postId) {
+          return { ...t, status: 'concluido', updatedAt: new Date().toISOString() };
+        }
+        const targetPost = posts.find(p => p.id === postId);
+        if (targetPost?.linkedTaskId && t.id === targetPost.linkedTaskId) {
+          return { ...t, status: 'concluido', updatedAt: new Date().toISOString() };
+        }
+        return t;
+      }));
+    }
   };
 
   const handleConfirmPreviewCleanup = (postId: string) => {
@@ -501,7 +546,9 @@ export default function App() {
           id: `c-${Date.now()}`,
           authorRole: currentUserRole,
           authorName: currentUserRole === 'social_media' ? 'Social Media' : 'Gestor',
-          text: 'Rascunho criado para aprovação do cliente.',
+          text: newPostData.linkedTaskId 
+            ? 'Rascunho criado a partir de tarefa solicitada pelo cliente.'
+            : 'Rascunho criado para aprovação do cliente.',
           timestamp: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         }
       ]
@@ -509,6 +556,21 @@ export default function App() {
 
     setPosts([newPost, ...posts]);
     
+    // Se o post foi gerado a partir de uma tarefa solicitada pelo cliente, vincula o ID do post à tarefa e atualiza para 'em_andamento'
+    if (newPostData.linkedTaskId) {
+      setTasks(prev => prev.map(t => {
+        if (t.id === newPostData.linkedTaskId) {
+          return {
+            ...t,
+            status: 'em_andamento',
+            linkedPostId: newPost.id,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return t;
+      }));
+    }
+
     // Auto add whatsapp notification
     setNotificationHistory(prev => [
       {
@@ -520,6 +582,37 @@ export default function App() {
       },
       ...prev
     ]);
+  };
+
+  // Handlers para Tarefas Solicitadas pelo Cliente
+  const handleAddTask = (newTaskData: Omit<ClientTask, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const newTask: ClientTask = {
+      ...newTaskData,
+      id: `task-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setTasks(prev => [newTask, ...prev]);
+  };
+
+  const handleUpdateTask = (updatedTask: ClientTask) => {
+    setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...updatedTask, updatedAt: new Date().toISOString() } : t));
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+  };
+
+  const handleConvertTaskToPost = (task: ClientTask) => {
+    // Ao transformar em rascunho, o status já muda para 'em_andamento'
+    setTasks(prev => prev.map(t => {
+      if (t.id === task.id) {
+        return { ...t, status: 'em_andamento' as TaskStatus, updatedAt: new Date().toISOString() };
+      }
+      return t;
+    }));
+    setConvertingTask(task);
+    setIsNewPostModalOpen(true);
   };
 
   const handleAddInspiration = (newInsp: Omit<InspirationFile, 'id' | 'createdAt'>) => {
@@ -610,6 +703,9 @@ export default function App() {
     // Remover posts vinculados a esse cliente
     setPosts(prev => prev.filter(p => p.clientProjectId !== clientId));
 
+    // Remover tarefas vinculadas a esse cliente
+    setTasks(prev => prev.filter(t => t.clientProjectId !== clientId));
+
     // Deletar no Supabase se configurado
     if (isSupabaseConfigured) {
       try {
@@ -623,6 +719,9 @@ export default function App() {
   const handleDeletePost = async (postId: string) => {
     // Remover do estado de posts
     setPosts(prev => prev.filter(p => p.id !== postId));
+
+    // Desvincular post de tarefas se estiver vinculado
+    setTasks(prev => prev.map(t => t.linkedPostId === postId ? { ...t, linkedPostId: undefined } : t));
 
     if (selectedPostForDetails?.id === postId) {
       setSelectedPostForDetails(null);
@@ -734,6 +833,7 @@ export default function App() {
         draftsCount={draftsCount}
         changesRequestedCount={changesRequestedCount}
         inspirationsCount={clientInspirations.length}
+        pendingTasksCount={pendingTasksCount}
       />
 
       {/* Main Container Content */}
@@ -804,6 +904,38 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* Aviso de Tarefas do Cliente Pendentes */}
+            {pendingTasksCount > 0 && (
+              <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-indigo-950/40 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                    <ClipboardList className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                      <span>{pendingTasksCount} {pendingTasksCount === 1 ? 'tarefa solicitada pelo cliente pendente' : 'tarefas solicitadas pelo cliente pendentes'}</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
+                        Ação Necessária
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      {currentUserRole === 'cliente'
+                        ? 'Acompanhe o andamento das solicitações que você enviou ao seu Social Media.'
+                        : 'Transforme as solicitações do cliente em rascunhos de publicações diretamente.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('tasks')}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-white border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition-all self-end sm:self-center shrink-0"
+                >
+                  <span>Ver Tarefas</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
             {/* Top Toolbar: Search, Status Filter & Create Post */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
@@ -904,12 +1036,31 @@ export default function App() {
                     onQuickRequestChange={(id) => handleUpdatePostStatus(id, 'alterar')}
                     onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
                     onDeletePost={handleDeletePost}
+                    onPublishPost={(id) => handleTogglePublished(id, true)}
                   />
                 ))}
               </div>
             )}
 
           </div>
+        )}
+
+        {/* TAB: TAREFAS DO CLIENTE */}
+        {activeTab === 'tasks' && (
+          <ClientTasksSection
+            tasks={tasks}
+            client={selectedClient}
+            currentUserRole={currentUserRole}
+            posts={clientPosts}
+            onAddTask={handleAddTask}
+            onUpdateTask={handleUpdateTask}
+            onDeleteTask={handleDeleteTask}
+            onConvertTaskToPost={handleConvertTaskToPost}
+            onOpenPostDetails={(postId) => {
+              const target = posts.find(p => p.id === postId);
+              if (target) setSelectedPostForDetails(target);
+            }}
+          />
         )}
 
         {/* TAB 2: INSPIRAÇÕES & MODELOS */}
@@ -1045,10 +1196,16 @@ export default function App() {
 
       <NewPostModal
         isOpen={isNewPostModalOpen}
-        onClose={() => setIsNewPostModalOpen(false)}
+        onClose={() => {
+          setIsNewPostModalOpen(false);
+          setConvertingTask(null);
+        }}
         clientProjectId={selectedClientId}
         inspirations={clientInspirations}
         onCreatePost={handleCreatePost}
+        initialTitle={convertingTask?.title || ''}
+        initialCaption={convertingTask?.description ? `Briefing da Solicitação do Cliente: ${convertingTask.description}\n\n` : ''}
+        initialLinkedTaskId={convertingTask?.id}
       />
 
       <WhatsAppNotificationModal
