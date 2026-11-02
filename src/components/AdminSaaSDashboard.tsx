@@ -4,7 +4,7 @@ import {
   ShieldAlert, DollarSign, TrendingUp, Users, HardDrive, 
   CheckCircle2, Plus, Sparkles, ExternalLink, Trash2, Mail, Phone, AlertTriangle, Layers,
   Lock, Unlock, Edit3, Code2, History, BookOpen, FileSpreadsheet, BarChart2, CheckSquare, Clock, Upload, Check, X,
-  MessageSquare, Send, MousePointerClick, Database, UploadCloud
+  MessageSquare, Send, MousePointerClick, Database, UploadCloud, MapPin, Loader2
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ComposedChart, Line, Area 
@@ -14,6 +14,7 @@ import {
   syncAllClientsToSupabase, syncAllPostsToSupabase, syncSocialMediaToSupabase 
 } from '../lib/supabase';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
+import { fetchAddressByCep, formatCep, buildFormattedAddress } from '../utils/cepHelper';
 
 interface AdminSaaSDashboardProps {
   clients: ClientProject[];
@@ -85,6 +86,13 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     companyName: '',
     cnpj: '',
     address: '',
+    cep: '',
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: '',
+    state: '',
     contactName: '',
     whatsappNumber: '',
     email: '',
@@ -130,6 +138,13 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     companyName: '',
     cnpj: '',
     address: '',
+    cep: '',
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: '',
+    state: '',
     contactName: '',
     whatsappNumber: '',
     email: '',
@@ -138,6 +153,63 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     logoUrl: '',
     assignedSocialMediaId: ''
   });
+
+  const [isFetchingCepAdmin, setIsFetchingCepAdmin] = useState(false);
+  const [cepAdminStatus, setCepAdminStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleCepLookupNewClient = async (val: string) => {
+    const formatted = formatCep(val);
+    setNewClientForm(prev => ({ ...prev, cep: formatted }));
+    const clean = val.replace(/\D/g, '');
+    if (clean.length === 8) {
+      setIsFetchingCepAdmin(true);
+      setCepAdminStatus(null);
+      const res = await fetchAddressByCep(clean);
+      setIsFetchingCepAdmin(false);
+      if (res) {
+        setNewClientForm(prev => ({
+          ...prev,
+          street: res.logradouro || prev.street,
+          neighborhood: res.bairro || prev.neighborhood,
+          city: res.localidade || prev.city,
+          state: res.uf || prev.state,
+          complement: res.complemento || prev.complement
+        }));
+        setCepAdminStatus({ type: 'success', message: 'Endereço localizado com sucesso!' });
+      } else {
+        setCepAdminStatus({ type: 'error', message: 'CEP não encontrado.' });
+      }
+    } else {
+      setCepAdminStatus(null);
+    }
+  };
+
+  const handleCepLookupEditClient = async (val: string) => {
+    const formatted = formatCep(val);
+    setClientEditForm(prev => ({ ...prev, cep: formatted }));
+    const clean = val.replace(/\D/g, '');
+    if (clean.length === 8) {
+      setIsFetchingCepAdmin(true);
+      setCepAdminStatus(null);
+      const res = await fetchAddressByCep(clean);
+      setIsFetchingCepAdmin(false);
+      if (res) {
+        setClientEditForm(prev => ({
+          ...prev,
+          street: res.logradouro || prev.street,
+          neighborhood: res.bairro || prev.neighborhood,
+          city: res.localidade || prev.city,
+          state: res.uf || prev.state,
+          complement: res.complemento || prev.complement
+        }));
+        setCepAdminStatus({ type: 'success', message: 'Endereço localizado com sucesso!' });
+      } else {
+        setCepAdminStatus({ type: 'error', message: 'CEP não encontrado.' });
+      }
+    } else {
+      setCepAdminStatus(null);
+    }
+  };
 
   const handleOpenEditSm = (sm: SocialMediaUser) => {
     setEditingSm(sm);
@@ -167,11 +239,19 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
 
   const handleOpenEditClient = (c: ClientProject) => {
     setEditingClient(c);
+    setCepAdminStatus(null);
     setClientEditForm({
       name: c.name || '',
       companyName: c.companyName || '',
       cnpj: c.cnpj || '',
       address: c.address || '',
+      cep: c.cep || '',
+      street: c.street || c.address || '',
+      number: c.number || '',
+      complement: c.complement || '',
+      neighborhood: c.neighborhood || '',
+      city: c.city || '',
+      state: c.state || '',
       contactName: c.contactName || '',
       whatsappNumber: c.whatsappNumber || '',
       email: c.email || '',
@@ -2307,12 +2387,30 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!newClientForm.name.trim()) return;
+
+                const fullAddress = buildFormattedAddress({
+                  street: newClientForm.street.trim(),
+                  number: newClientForm.number.trim(),
+                  complement: newClientForm.complement.trim(),
+                  neighborhood: newClientForm.neighborhood.trim(),
+                  city: newClientForm.city.trim(),
+                  state: newClientForm.state.trim().toUpperCase(),
+                  cep: newClientForm.cep.trim()
+                }) || newClientForm.address.trim() || 'Endereço Comercial';
+
                 const created: ClientProject = {
                   id: `client-${Date.now()}`,
                   name: newClientForm.name.trim(),
                   companyName: newClientForm.companyName.trim() || newClientForm.name.trim(),
                   cnpj: newClientForm.cnpj.trim() || '00.000.000/0001-00',
-                  address: newClientForm.address.trim() || 'Endereço Comercial',
+                  address: fullAddress,
+                  cep: newClientForm.cep.trim() || undefined,
+                  street: newClientForm.street.trim() || undefined,
+                  number: newClientForm.number.trim() || undefined,
+                  complement: newClientForm.complement.trim() || undefined,
+                  neighborhood: newClientForm.neighborhood.trim() || undefined,
+                  city: newClientForm.city.trim() || undefined,
+                  state: newClientForm.state.trim().toUpperCase() || undefined,
                   contactName: newClientForm.contactName.trim() || 'Contato Principal',
                   whatsappNumber: newClientForm.whatsappNumber.trim() || '5511999998888',
                   email: newClientForm.email.trim() || 'contato@cliente.com',
@@ -2339,6 +2437,13 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                     companyName: '',
                     cnpj: '',
                     address: '',
+                    cep: '',
+                    street: '',
+                    number: '',
+                    complement: '',
+                    neighborhood: '',
+                    city: '',
+                    state: '',
                     contactName: '',
                     whatsappNumber: '',
                     email: '',
@@ -2347,6 +2452,7 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                     logoUrl: '',
                     assignedSocialMediaId: socialMedias[0]?.id || ''
                   });
+                  setCepAdminStatus(null);
                 }
               }}
               className="space-y-4 text-xs"
@@ -2431,6 +2537,127 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                 </div>
               </div>
 
+              {/* SEÇÃO COMPLETA DE ENDEREÇO COM BUSCA AUTOMÁTICA POR CEP */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <span className="text-slate-200 font-bold text-xs flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-cyan-400" />
+                    <span>Endereço Comercial do Cliente:</span>
+                  </span>
+                  <span className="text-[10px] text-cyan-400 font-semibold bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    ⚡ Busca Automática por CEP
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-1">
+                    <label className="block text-slate-300 font-bold mb-1">CEP:</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        maxLength={9}
+                        value={newClientForm.cep}
+                        onChange={(e) => handleCepLookupNewClient(e.target.value)}
+                        placeholder="00000-000"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                      />
+                      {isFetchingCepAdmin && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-2 flex items-end">
+                    {cepAdminStatus && (
+                      <div className={`p-2 rounded-xl text-[11px] font-semibold w-full flex items-center gap-1.5 ${
+                        cepAdminStatus.type === 'success'
+                          ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300'
+                          : 'bg-rose-950/70 border border-rose-500/40 text-rose-300'
+                      }`}>
+                        {cepAdminStatus.type === 'success' ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        )}
+                        <span>{cepAdminStatus.message}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-3">
+                    <label className="block text-slate-300 font-bold mb-1">Endereço (Rua / Avenida):</label>
+                    <input
+                      type="text"
+                      value={newClientForm.street}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, street: e.target.value })}
+                      placeholder="Ex: Av. Beira Mar"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-slate-300 font-bold mb-1">Número:</label>
+                    <input
+                      type="text"
+                      value={newClientForm.number}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, number: e.target.value })}
+                      placeholder="Ex: 150"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Complemento (Apto, Sala, Bloco):</label>
+                    <input
+                      type="text"
+                      value={newClientForm.complement}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, complement: e.target.value })}
+                      placeholder="Ex: Sala 204"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Bairro:</label>
+                    <input
+                      type="text"
+                      value={newClientForm.neighborhood}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, neighborhood: e.target.value })}
+                      placeholder="Ex: Jardins"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-slate-300 font-bold mb-1">Cidade:</label>
+                    <input
+                      type="text"
+                      value={newClientForm.city}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, city: e.target.value })}
+                      placeholder="Ex: Aracaju"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-slate-300 font-bold mb-1">Estado (UF):</label>
+                    <input
+                      type="text"
+                      maxLength={2}
+                      value={newClientForm.state}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, state: e.target.value.toUpperCase() })}
+                      placeholder="Ex: SE"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-bold uppercase text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-slate-300 font-bold mb-1">Link da Logomarca (Drive ou Imagem Direct):</label>
                 <input
@@ -2512,12 +2739,30 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!clientEditForm.name.trim() || !editingClient) return;
+
+                const fullAddress = buildFormattedAddress({
+                  street: clientEditForm.street.trim(),
+                  number: clientEditForm.number.trim(),
+                  complement: clientEditForm.complement.trim(),
+                  neighborhood: clientEditForm.neighborhood.trim(),
+                  city: clientEditForm.city.trim(),
+                  state: clientEditForm.state.trim().toUpperCase(),
+                  cep: clientEditForm.cep.trim()
+                }) || clientEditForm.address.trim() || 'Endereço Comercial';
+
                 const updated: ClientProject = {
                   ...editingClient,
                   name: clientEditForm.name.trim(),
                   companyName: clientEditForm.companyName.trim() || clientEditForm.name.trim(),
                   cnpj: clientEditForm.cnpj.trim() || '00.000.000/0001-00',
-                  address: clientEditForm.address.trim() || 'Endereço Comercial',
+                  address: fullAddress,
+                  cep: clientEditForm.cep.trim() || undefined,
+                  street: clientEditForm.street.trim() || undefined,
+                  number: clientEditForm.number.trim() || undefined,
+                  complement: clientEditForm.complement.trim() || undefined,
+                  neighborhood: clientEditForm.neighborhood.trim() || undefined,
+                  city: clientEditForm.city.trim() || undefined,
+                  state: clientEditForm.state.trim().toUpperCase() || undefined,
                   contactName: clientEditForm.contactName.trim() || 'Contato Principal',
                   whatsappNumber: clientEditForm.whatsappNumber.trim() || '5511999998888',
                   email: clientEditForm.email.trim() || 'contato@cliente.com',
@@ -2531,6 +2776,7 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                 }
                 setIsEditingClientModal(false);
                 setEditingClient(null);
+                setCepAdminStatus(null);
               }}
               className="space-y-4 text-xs"
             >
@@ -2611,6 +2857,127 @@ CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USI
                     onChange={(e) => setClientEditForm({ ...clientEditForm, pricePerPost: Number(e.target.value) })}
                     className="w-full bg-slate-950 text-emerald-400 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                   />
+                </div>
+              </div>
+
+              {/* SEÇÃO COMPLETA DE ENDEREÇO COM BUSCA AUTOMÁTICA POR CEP */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <span className="text-slate-200 font-bold text-xs flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-cyan-400" />
+                    <span>Endereço Comercial do Cliente:</span>
+                  </span>
+                  <span className="text-[10px] text-cyan-400 font-semibold bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    ⚡ Busca Automática por CEP
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-1">
+                    <label className="block text-slate-300 font-bold mb-1">CEP:</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        maxLength={9}
+                        value={clientEditForm.cep}
+                        onChange={(e) => handleCepLookupEditClient(e.target.value)}
+                        placeholder="00000-000"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                      />
+                      {isFetchingCepAdmin && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-2 flex items-end">
+                    {cepAdminStatus && (
+                      <div className={`p-2 rounded-xl text-[11px] font-semibold w-full flex items-center gap-1.5 ${
+                        cepAdminStatus.type === 'success'
+                          ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300'
+                          : 'bg-rose-950/70 border border-rose-500/40 text-rose-300'
+                      }`}>
+                        {cepAdminStatus.type === 'success' ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        )}
+                        <span>{cepAdminStatus.message}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-3">
+                    <label className="block text-slate-300 font-bold mb-1">Endereço (Rua / Avenida):</label>
+                    <input
+                      type="text"
+                      value={clientEditForm.street}
+                      onChange={(e) => setClientEditForm({ ...clientEditForm, street: e.target.value })}
+                      placeholder="Ex: Av. Beira Mar"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-slate-300 font-bold mb-1">Número:</label>
+                    <input
+                      type="text"
+                      value={clientEditForm.number}
+                      onChange={(e) => setClientEditForm({ ...clientEditForm, number: e.target.value })}
+                      placeholder="Ex: 150"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Complemento (Apto, Sala, Bloco):</label>
+                    <input
+                      type="text"
+                      value={clientEditForm.complement}
+                      onChange={(e) => setClientEditForm({ ...clientEditForm, complement: e.target.value })}
+                      placeholder="Ex: Sala 204"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Bairro:</label>
+                    <input
+                      type="text"
+                      value={clientEditForm.neighborhood}
+                      onChange={(e) => setClientEditForm({ ...clientEditForm, neighborhood: e.target.value })}
+                      placeholder="Ex: Jardins"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-slate-300 font-bold mb-1">Cidade:</label>
+                    <input
+                      type="text"
+                      value={clientEditForm.city}
+                      onChange={(e) => setClientEditForm({ ...clientEditForm, city: e.target.value })}
+                      placeholder="Ex: Aracaju"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-slate-300 font-bold mb-1">Estado (UF):</label>
+                    <input
+                      type="text"
+                      maxLength={2}
+                      value={clientEditForm.state}
+                      onChange={(e) => setClientEditForm({ ...clientEditForm, state: e.target.value.toUpperCase() })}
+                      placeholder="Ex: SE"
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-bold uppercase text-xs"
+                    />
+                  </div>
                 </div>
               </div>
 

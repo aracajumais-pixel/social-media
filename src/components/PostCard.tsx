@@ -3,10 +3,11 @@ import { PostItem, UserRole, SocialNetwork } from '../types';
 import { 
   CheckCircle, AlertCircle, Clock, MessageSquare, 
   Instagram, Facebook, Linkedin, Video, Layers, Calendar, ExternalLink, Key, ShieldCheck,
-  Trash2, AlertTriangle 
+  Trash2, AlertTriangle, Share2
 } from 'lucide-react';
 import { getTimeRemainingText, isTokenExpired } from '../utils/token';
 import { DriveImage } from './DriveImage';
+import { PublishModal } from './PublishModal';
 
 interface PostCardProps {
   post: PostItem;
@@ -29,6 +30,7 @@ export const PostCard: React.FC<PostCardProps> = ({
 }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const expired = isTokenExpired(post.tokenExpiresAt);
   const timeInfo = getTimeRemainingText(post.tokenExpiresAt);
   // Configurações visuais dos 3 únicos status permitidos
@@ -252,7 +254,30 @@ export const PostCard: React.FC<PostCardProps> = ({
           )}
 
         </div>
+
+        {/* Botão de Postar no Meta Business / App para Posts Aprovados */}
+        {post.status === 'aprovado' && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsPublishModalOpen(true);
+            }}
+            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 transition-all hover:scale-[1.01] mt-1"
+            title="Abrir Meta Business Suite ou aplicativo para postar"
+          >
+            <Share2 className="w-3.5 h-3.5 text-white" />
+            <span>Postar no Meta Business / App</span>
+          </button>
+        )}
       </div>
+
+      {/* Modal para Postar no Meta Business ou Apps */}
+      <PublishModal
+        post={post}
+        isOpen={isPublishModalOpen}
+        onClose={() => setIsPublishModalOpen(false)}
+      />
 
       {/* Modal de Confirmação de Exclusão do Rascunho */}
       {showDeleteConfirm && (

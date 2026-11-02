@@ -10,6 +10,8 @@ import { DriveImage } from './DriveImage';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 import { openWhatsAppDirect } from '../utils/whatsappHelper';
+import { PublishModal } from './PublishModal';
+import { copyCaptionToClipboard } from '../utils/publishHelper';
 
 interface PostDetailModalProps {
   post: PostItem | null;
@@ -55,6 +57,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [approvalThanksFeedback, setApprovalThanksFeedback] = useState(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [copiedPublishCaption, setCopiedPublishCaption] = useState(false);
 
   const [newComment, setNewComment] = useState('');
   const [copiedCaption, setCopiedCaption] = useState(false);
@@ -457,6 +461,18 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
               </div>
               <div className="flex items-center gap-2">
+                {post.status === 'aprovado' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsPublishModalOpen(true)}
+                    className="px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white font-black text-xs flex items-center gap-1.5 shadow-md shadow-blue-600/25 transition-all hover:scale-[1.01]"
+                    title="Abrir Meta Business Suite ou aplicativo para postar"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Postar no Meta Business / App</span>
+                  </button>
+                )}
+
                 {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && post.status === 'rascunho' && onDeletePost && (
                   <button
                     type="button"
@@ -557,6 +573,60 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     A aprovação foi registrada como comentário com data e hora para fins de auditoria.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* Bloco de Abertura do Sistema para Postar (Meta Business Suite e Apps) */}
+            {post.status === 'aprovado' && (
+              <div className="p-4 bg-gradient-to-r from-blue-950/70 via-indigo-950/50 to-slate-950 border border-blue-500/50 rounded-2xl space-y-3 shadow-xl animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-blue-600/25 border border-blue-500/40 text-blue-400">
+                      <Share2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-white">Post Aprovado — Abrir Sistema para Postar</h4>
+                      <p className="text-[11px] text-slate-400">Postagem facilitada com cópia automática de legenda</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold uppercase">
+                    Pronto para Postar
+                  </span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <a
+                    href="https://business.facebook.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      copyCaptionToClipboard(post.caption);
+                      setCopiedPublishCaption(true);
+                      setTimeout(() => setCopiedPublishCaption(false), 3000);
+                    }}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.01]"
+                    title="Abrir Meta Business Suite (Instagram e Facebook) e copiar legenda"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Abrir Meta Business (business.facebook.com)</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsPublishModalOpen(true)}
+                    className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-blue-300 hover:text-white border border-blue-500/40 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    title="Ver todas as opções de postagem (Instagram, TikTok, LinkedIn)"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Outros Apps</span>
+                  </button>
+                </div>
+
+                {copiedPublishCaption && (
+                  <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1 animate-fade-in">
+                    <Check className="w-3 h-3" /> Legenda copiada automaticamente! Cole no Meta Business ou app.
+                  </p>
+                )}
               </div>
             )}
 
@@ -893,6 +963,13 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal para Postar no Meta Business ou Apps */}
+      <PublishModal
+        post={post}
+        isOpen={isPublishModalOpen}
+        onClose={() => setIsPublishModalOpen(false)}
+      />
 
     </div>
   );

@@ -97,6 +97,13 @@ export interface ClientProject {
   companyName: string;
   cnpj: string;
   address: string;
+  cep?: string;
+  street?: string;
+  number?: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
   contactName: string;
   whatsappNumber: string;
   email: string;

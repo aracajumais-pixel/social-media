@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ClientProject, UserRole, SocialNetwork, SocialMediaUser } from '../types';
-import { Building, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Sparkles, Loader2, AlertCircle, Trash2, AlertTriangle, UserPlus, UserCheck, Users, Upload, UploadCloud, CheckCircle2 } from 'lucide-react';
+import { Building, Phone, Mail, HardDrive, Image as ImageIcon, Share2, Search, Plus, Edit3, X, Check, Sparkles, Loader2, AlertCircle, Trash2, AlertTriangle, UserPlus, UserCheck, Users, Upload, UploadCloud, CheckCircle2, MapPin } from 'lucide-react';
 import { DriveImage } from './DriveImage';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 import { searchClientsInSupabase } from '../lib/supabase';
 import { createDriveFolderForClient, getSavedDriveWebhookUrl } from '../utils/driveAutomation';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
+import { fetchAddressByCep, formatCep, buildFormattedAddress } from '../utils/cepHelper';
 
 interface ClientSettingsProps {
   client: ClientProject;
@@ -69,6 +70,13 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     companyName: '',
     cnpj: '',
     address: '',
+    cep: '',
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: '',
+    state: '',
     contactName: '',
     whatsappNumber: '',
     email: '',
@@ -78,6 +86,37 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     activeSocialNetworks: ['instagram', 'facebook'] as SocialNetwork[],
     assignedSocialMediaId: socialMedias[0]?.id || ''
   });
+
+  // Estado para busca automática de CEP
+  const [isFetchingCep, setIsFetchingCep] = useState(false);
+  const [cepStatusMessage, setCepStatusMessage] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleCepLookup = async (cepInput: string) => {
+    const formatted = formatCep(cepInput);
+    setModalForm(prev => ({ ...prev, cep: formatted }));
+    const clean = cepInput.replace(/\D/g, '');
+    if (clean.length === 8) {
+      setIsFetchingCep(true);
+      setCepStatusMessage(null);
+      const res = await fetchAddressByCep(clean);
+      setIsFetchingCep(false);
+      if (res) {
+        setModalForm(prev => ({
+          ...prev,
+          street: res.logradouro || prev.street,
+          neighborhood: res.bairro || prev.neighborhood,
+          city: res.localidade || prev.city,
+          state: res.uf || prev.state,
+          complement: res.complemento || prev.complement
+        }));
+        setCepStatusMessage({ type: 'success', message: `Endereço localizado: ${res.logradouro}, ${res.bairro} - ${res.localidade}/${res.uf}` });
+      } else {
+        setCepStatusMessage({ type: 'error', message: 'CEP não encontrado. Preencha os campos de endereço manualmente.' });
+      }
+    } else {
+      setCepStatusMessage(null);
+    }
+  };
 
   // Sub-aba ativa na tela de configurações (Clientes vs Equipe Social Media)
   const [activeView, setActiveView] = useState<'clients' | 'social_medias'>('clients');
@@ -136,12 +175,20 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     setSavedSuccess(false);
     setDriveGenError(null);
     setDriveGenSuccess(false);
+    setCepStatusMessage(null);
     setModalForm({
       id: '',
       name: '',
       companyName: '',
       cnpj: '',
       address: '',
+      cep: '',
+      street: '',
+      number: '',
+      complement: '',
+      neighborhood: '',
+      city: '',
+      state: '',
       contactName: '',
       whatsappNumber: '',
       email: '',
@@ -160,12 +207,20 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     setSavedSuccess(false);
     setDriveGenError(null);
     setDriveGenSuccess(false);
+    setCepStatusMessage(null);
     setModalForm({
       id: targetClient.id,
       name: targetClient.name || '',
       companyName: targetClient.companyName || '',
       cnpj: targetClient.cnpj || '',
       address: targetClient.address || '',
+      cep: targetClient.cep || '',
+      street: targetClient.street || targetClient.address || '',
+      number: targetClient.number || '',
+      complement: targetClient.complement || '',
+      neighborhood: targetClient.neighborhood || '',
+      city: targetClient.city || '',
+      state: targetClient.state || '',
       contactName: targetClient.contactName || '',
       whatsappNumber: targetClient.whatsappNumber || '',
       email: targetClient.email || '',
@@ -184,6 +239,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     setSavedSuccess(false);
     setDriveGenError(null);
     setDriveGenSuccess(false);
+    setCepStatusMessage(null);
   };
 
   const handleQuickGenerateDriveFolder = async () => {
@@ -220,6 +276,16 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     e.preventDefault();
     if (!modalForm.name.trim()) return;
 
+    const fullAddress = buildFormattedAddress({
+      street: modalForm.street.trim(),
+      number: modalForm.number.trim(),
+      complement: modalForm.complement.trim(),
+      neighborhood: modalForm.neighborhood.trim(),
+      city: modalForm.city.trim(),
+      state: modalForm.state.trim().toUpperCase(),
+      cep: modalForm.cep.trim()
+    }) || modalForm.address.trim() || 'Endereço Comercial';
+
     if (editingClient) {
       // Edit Existing Client
       const updated: ClientProject = {
@@ -227,7 +293,14 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         name: modalForm.name.trim(),
         companyName: modalForm.companyName.trim() || modalForm.name.trim(),
         cnpj: modalForm.cnpj.trim(),
-        address: modalForm.address.trim(),
+        address: fullAddress,
+        cep: modalForm.cep.trim() || undefined,
+        street: modalForm.street.trim() || undefined,
+        number: modalForm.number.trim() || undefined,
+        complement: modalForm.complement.trim() || undefined,
+        neighborhood: modalForm.neighborhood.trim() || undefined,
+        city: modalForm.city.trim() || undefined,
+        state: modalForm.state.trim().toUpperCase() || undefined,
         contactName: modalForm.contactName.trim(),
         whatsappNumber: modalForm.whatsappNumber.trim(),
         email: modalForm.email.trim(),
@@ -250,7 +323,14 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         name: modalForm.name.trim(),
         companyName: modalForm.companyName.trim() || modalForm.name.trim(),
         cnpj: modalForm.cnpj.trim() || '00.000.000/0001-00',
-        address: modalForm.address.trim() || 'Endereço Comercial',
+        address: fullAddress,
+        cep: modalForm.cep.trim() || undefined,
+        street: modalForm.street.trim() || undefined,
+        number: modalForm.number.trim() || undefined,
+        complement: modalForm.complement.trim() || undefined,
+        neighborhood: modalForm.neighborhood.trim() || undefined,
+        city: modalForm.city.trim() || undefined,
+        state: modalForm.state.trim().toUpperCase() || undefined,
         contactName: modalForm.contactName.trim() || 'Contato Principal',
         whatsappNumber: modalForm.whatsappNumber.trim() || '5511999998888',
         email: modalForm.email.trim() || 'contato@cliente.com',
@@ -979,6 +1059,131 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                       placeholder="Ex: 150.00"
                       className="w-full bg-slate-950 text-amber-300 font-bold p-3 rounded-xl border border-slate-800 focus:outline-none font-mono"
                     />
+                  </div>
+                </div>
+
+                {/* SEÇÃO COMPLETA DE ENDEREÇO COM BUSCA AUTOMÁTICA POR CEP */}
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                    <span className="text-slate-200 font-bold text-xs flex items-center gap-1.5">
+                      <MapPin className="w-4 h-4 text-cyan-400" />
+                      <span>Endereço Comercial do Cliente:</span>
+                    </span>
+                    <span className="text-[10px] text-cyan-400 font-semibold bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      ⚡ Busca Automática por CEP
+                    </span>
+                  </div>
+
+                  {/* CEP e Status da Busca */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-1">
+                      <label className="block text-slate-300 font-bold mb-1">CEP:</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          maxLength={9}
+                          value={modalForm.cep}
+                          onChange={(e) => handleCepLookup(e.target.value)}
+                          placeholder="00000-000"
+                          className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                        />
+                        {isFetchingCep && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-2 flex items-end">
+                      {cepStatusMessage && (
+                        <div className={`p-2 rounded-xl text-[11px] font-semibold w-full flex items-center gap-1.5 ${
+                          cepStatusMessage.type === 'success'
+                            ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300'
+                            : 'bg-rose-950/70 border border-rose-500/40 text-rose-300'
+                        }`}>
+                          {cepStatusMessage.type === 'success' ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )}
+                          <span>{cepStatusMessage.message}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Endereço (Logradouro/Rua) e Número */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="sm:col-span-3">
+                      <label className="block text-slate-300 font-bold mb-1">Endereço (Rua / Avenida):</label>
+                      <input
+                        type="text"
+                        value={modalForm.street}
+                        onChange={(e) => setModalForm({ ...modalForm, street: e.target.value })}
+                        placeholder="Ex: Av. Beira Mar"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="block text-slate-300 font-bold mb-1">Número:</label>
+                      <input
+                        type="text"
+                        value={modalForm.number}
+                        onChange={(e) => setModalForm({ ...modalForm, number: e.target.value })}
+                        placeholder="Ex: 150"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Complemento e Bairro */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1">Complemento (Apto, Sala, Bloco):</label>
+                      <input
+                        type="text"
+                        value={modalForm.complement}
+                        onChange={(e) => setModalForm({ ...modalForm, complement: e.target.value })}
+                        placeholder="Ex: Sala 204"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1">Bairro:</label>
+                      <input
+                        type="text"
+                        value={modalForm.neighborhood}
+                        onChange={(e) => setModalForm({ ...modalForm, neighborhood: e.target.value })}
+                        placeholder="Ex: Jardins"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Cidade e Estado */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-slate-300 font-bold mb-1">Cidade:</label>
+                      <input
+                        type="text"
+                        value={modalForm.city}
+                        onChange={(e) => setModalForm({ ...modalForm, city: e.target.value })}
+                        placeholder="Ex: Aracaju"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="block text-slate-300 font-bold mb-1">Estado (UF):</label>
+                      <input
+                        type="text"
+                        maxLength={2}
+                        value={modalForm.state}
+                        onChange={(e) => setModalForm({ ...modalForm, state: e.target.value.toUpperCase() })}
+                        placeholder="Ex: SE"
+                        className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none font-bold uppercase text-xs"
+                      />
+                    </div>
                   </div>
                 </div>
 
