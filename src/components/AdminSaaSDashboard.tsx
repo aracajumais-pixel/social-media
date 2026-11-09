@@ -624,7 +624,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
             
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-2">
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-xs font-bold">Volume em Rascunho</span>
+                <span className="text-xs font-bold">Volume em Projeto</span>
                 <Clock className="w-4 h-4 text-amber-400" />
               </div>
               <div className="text-2xl font-black text-amber-400">{rascunhoCount} <span className="text-xs text-slate-400 font-normal">posts</span></div>
@@ -1499,7 +1499,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                     <span>Configuração & Diagnóstico do Supabase DB</span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Insira as credenciais do seu projeto Supabase para persistência relacional de clientes, posts, rascunhos e auditoria.
+                    Insira as credenciais do seu projeto Supabase para persistência relacional de clientes, posts, projetos e auditoria.
                   </p>
                 </div>
 

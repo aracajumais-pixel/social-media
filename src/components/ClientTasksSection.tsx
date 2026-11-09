@@ -180,7 +180,7 @@ export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
               Tarefas Solicitadas pelo Cliente
             </h2>
             <p className="text-xs text-slate-300">
-              O cliente solicita a demanda com prazo e descrição. O Social Media pode converter diretamente em um rascunho de postagem!
+              O cliente solicita a demanda com prazo e descrição. O Social Media pode converter diretamente em um projeto de postagem!
             </p>
           </div>
         </div>
@@ -350,13 +350,13 @@ export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
                     </span>
                   </div>
 
-                  {/* Rascunho Vinculado (Se já existir) */}
+                  {/* Projeto Vinculado (Se já existir) */}
                   {linkedPost && (
                     <div className="bg-indigo-950/30 border border-indigo-500/30 p-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-2 min-w-0">
                         <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
                         <div className="min-w-0">
-                          <span className="text-[10px] text-indigo-300 block font-semibold">Rascunho Atrelado:</span>
+                          <span className="text-[10px] text-indigo-300 block font-semibold">Projeto Atrelado:</span>
                           <span className="text-white font-bold truncate block">{linkedPost.title}</span>
                         </div>
                       </div>
@@ -380,17 +380,17 @@ export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
                 {/* Ações da Tarefa */}
                 <div className="pt-3 border-t border-slate-800 space-y-2">
                   
-                  {/* Botão de Converter em Rascunho para Social Media e Gestor */}
+                  {/* Botão de Converter em Projeto para Social Media e Gestor */}
                   {(currentUserRole === 'social_media' || currentUserRole === 'gestor') && !isCompleted && (
                     <button
                       type="button"
                       onClick={() => onConvertTaskToPost(task)}
                       className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition-all hover:scale-[1.01]"
-                      title="Transformar esta tarefa em um rascunho de postagem no mural"
+                      title="Transformar esta tarefa em um projeto de postagem no mural"
                     >
                       <Sparkles className="w-4 h-4 text-amber-300" />
                       <span>
-                        {task.status === 'em_andamento' ? 'Criar Novo Rascunho para Esta Tarefa' : 'Transformar em Rascunho'}
+                        {task.status === 'em_andamento' ? 'Criar Novo Projeto para Esta Tarefa' : 'Transformar em Projeto'}
                       </span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
@@ -540,8 +540,8 @@ export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
                     onChange={(e) => setFormStatus(e.target.value as TaskStatus)}
                     className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none cursor-pointer capitalize font-bold"
                   >
-                    <option value="novo">Novo (Aguardando Rascunho)</option>
-                    <option value="em_andamento">Em Andamento (Rascunho Criado)</option>
+                    <option value="novo">Novo (Aguardando Projeto)</option>
+                    <option value="em_andamento">Em Andamento (Projeto Criado)</option>
                     <option value="atendido">Atendido / Concluído</option>
                   </select>
                 </div>

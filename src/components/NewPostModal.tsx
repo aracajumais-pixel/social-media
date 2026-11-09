@@ -96,9 +96,9 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <Plus className="w-5 h-5 text-indigo-400" />
-              Novo Rascunho de Publicação
+              Novo Projeto de Publicação
             </h2>
-            <p className="text-xs text-slate-400">O post ficará em Rascunho para aguardar aprovação do cliente</p>
+            <p className="text-xs text-slate-400">O post ficará em Projeto para aguardar aprovação do cliente</p>
           </div>
           <button
             onClick={onClose}
@@ -289,7 +289,7 @@ export const NewPostModal: React.FC<NewPostModalProps> = ({
               type="submit"
               className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-600/20"
             >
-              Salvar em Rascunho
+              Salvar Projeto
             </button>
           </div>
 

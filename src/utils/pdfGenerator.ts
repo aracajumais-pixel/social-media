@@ -2,7 +2,7 @@ import { BillingReceipt, ClientProject } from '../types';
 import { valorPorExtenso } from './numberToWords';
 import { getEmbeddableMediaUrl } from './driveHelper';
 
-export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject) {
+export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject, socialMediaLogoUrl?: string) {
   const printWindow = window.open('', '_blank', 'width=800,height=900');
   if (!printWindow) {
     alert('Por favor autorize janelas pop-up para gerar o PDF do recibo.');
@@ -26,14 +26,16 @@ export function printReceiptPDF(receipt: BillingReceipt, client: ClientProject) 
   const socialBank = receipt.socialMediaBank || '[Banco / Agência / Conta]';
   const socialCpfCnpj = receipt.socialMediaCpfCnpj || '[CNPJ ou CPF do Prestador]';
 
-  const logoUrlClean = client.logoUrl ? getEmbeddableMediaUrl(client.logoUrl) : '';
+  // A logomarca no topo direito deve ser a do Social Media
+  const rawLogo = receipt.socialMediaLogoUrl || socialMediaLogoUrl || '';
+  const logoUrlClean = rawLogo ? getEmbeddableMediaUrl(rawLogo) : (client.logoUrl ? getEmbeddableMediaUrl(client.logoUrl) : '');
   const signatureUrlClean = receipt.socialMediaSignatureUrl ? getEmbeddableMediaUrl(receipt.socialMediaSignatureUrl) : '';
 
   const logoHtml = logoUrlClean ? `
-    <img src="${logoUrlClean}" alt="Logo" style="max-height: 55px; max-width: 160px; object-fit: contain;" />
+    <img src="${logoUrlClean}" alt="Logo Social Media" style="max-height: 60px; max-width: 170px; object-fit: contain;" />
   ` : `
     <div style="font-size: 13px; font-weight: bold; color: #475569; border: 1px dashed #cbd5e1; padding: 6px 12px; border-radius: 6px;">
-      [Logo do Social Media / Agência]
+      [Logo do Social Media]
     </div>
   `;
 

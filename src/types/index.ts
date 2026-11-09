@@ -186,6 +186,8 @@ export interface BillingReceipt {
   socialMediaBank?: string;
   socialMediaCpfCnpj?: string;
   socialMediaSignatureUrl?: string;
+  socialMediaLogoUrl?: string;
+  socialMediaId?: string;
 }
 
 export interface CompetitorComparison {

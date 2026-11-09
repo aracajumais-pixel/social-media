@@ -1,17 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { BillingReceipt, ClientProject, ReceiptLineItem, UserRole } from '../types';
+import { BillingReceipt, ClientProject, ReceiptLineItem, UserRole, SocialMediaUser, SaaSPaymentProof } from '../types';
 import { printReceiptPDF } from '../utils/pdfGenerator';
 import { valorPorExtenso } from '../utils/numberToWords';
-import { FileText, Printer, Plus, Trash2, Shield, DollarSign, Send, CheckCircle2, Image as ImageIcon, Sparkles, EyeOff, BarChart2, UploadCloud, Clock, Edit3, RotateCcw } from 'lucide-react';
+import { 
+  FileText, Printer, Plus, Trash2, Shield, DollarSign, Send, CheckCircle2, 
+  Image as ImageIcon, Sparkles, EyeOff, BarChart2, UploadCloud, Clock, Edit3, 
+  RotateCcw, UserCheck, ExternalLink, Copy, Check, Save, History 
+} from 'lucide-react';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
+import { SaasBillingClosureModal } from './SaasBillingClosureModal';
 
 interface ReceiptGeneratorProps {
   receipts: BillingReceipt[];
   selectedClient: ClientProject;
   currentUserRole: UserRole;
   feePerPost?: number;
+  socialMedias?: SocialMediaUser[];
   onSaveReceipt: (receipt: BillingReceipt) => void;
   onSendWhatsAppReceipt: (receipt: BillingReceipt) => void;
+  onAddSaasProof?: (newProof: Omit<SaaSPaymentProof, 'id' | 'submittedAt' | 'status'>) => void;
 }
 
 export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
@@ -19,8 +26,10 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
   selectedClient,
   currentUserRole,
   feePerPost = 0.50,
+  socialMedias = [],
   onSaveReceipt,
-  onSendWhatsAppReceipt
+  onSendWhatsAppReceipt,
+  onAddSaasProof
 }) => {
 
   const existingReceipt = receipts.find(r => r.clientProjectId === selectedClient.id) || null;
@@ -41,6 +50,8 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     return new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
+  const assignedSm = socialMedias.find(sm => sm.id === selectedClient.assignedSocialMediaId) || socialMedias[0];
+
   const [period, setPeriod] = useState(existingReceipt?.period || '');
   // Regra solicitada: Manter data sempre no dia atual
   const [issueDate, setIssueDate] = useState(getTodayDateString());
@@ -54,36 +65,136 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     existingReceipt?.customReceiptText || ''
   );
 
-  const [socialMediaName, setSocialMediaName] = useState(existingReceipt?.socialMediaName || '');
-  const [socialMediaPix, setSocialMediaPix] = useState(existingReceipt?.socialMediaPix || '');
-  const [socialMediaBank, setSocialMediaBank] = useState(existingReceipt?.socialMediaBank || '');
-  const [socialMediaCpfCnpj, setSocialMediaCpfCnpj] = useState(existingReceipt?.socialMediaCpfCnpj || '');
-  const [socialMediaSignatureUrl, setSocialMediaSignatureUrl] = useState(existingReceipt?.socialMediaSignatureUrl || '');
+  const [socialMediaName, setSocialMediaName] = useState(existingReceipt?.socialMediaName || assignedSm?.name || '');
+  const [socialMediaPix, setSocialMediaPix] = useState(existingReceipt?.socialMediaPix || assignedSm?.pixKey || '');
+  const [socialMediaBank, setSocialMediaBank] = useState(existingReceipt?.socialMediaBank || assignedSm?.bankInfo || '');
+  const [socialMediaCpfCnpj, setSocialMediaCpfCnpj] = useState(existingReceipt?.socialMediaCpfCnpj || assignedSm?.cnpj || '');
+  const [socialMediaSignatureUrl, setSocialMediaSignatureUrl] = useState(existingReceipt?.socialMediaSignatureUrl || assignedSm?.signatureUrl || '');
+  
+  // A logomarca no topo direito do recibo é a do Social Media
+  const [socialMediaLogoUrl, setSocialMediaLogoUrl] = useState(
+    existingReceipt?.socialMediaLogoUrl || assignedSm?.logoUrl || assignedSm?.avatarUrl || ''
+  );
 
   const [notes, setNotes] = useState(existingReceipt?.notes || '');
   const [discount, setDiscount] = useState(existingReceipt?.discount || 0);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isSaasClosureModalOpen, setIsSaasClosureModalOpen] = useState(false);
 
   // Sincroniza e garante data no dia atual ao alternar clientes
   useEffect(() => {
     setIssueDate(getTodayDateString());
+    const sm = socialMedias.find(s => s.id === selectedClient.assignedSocialMediaId) || socialMedias[0];
+
     if (existingReceipt) {
       setPeriod(existingReceipt.period || '');
       setDueDate(existingReceipt.dueDate || '');
       setCityState(existingReceipt.cityState || '');
       setServiceSummaryText(existingReceipt.serviceSummaryText || '');
       setCustomReceiptText(existingReceipt.customReceiptText || '');
-      setSocialMediaName(existingReceipt.socialMediaName || '');
-      setSocialMediaPix(existingReceipt.socialMediaPix || '');
-      setSocialMediaBank(existingReceipt.socialMediaBank || '');
-      setSocialMediaCpfCnpj(existingReceipt.socialMediaCpfCnpj || '');
-      setSocialMediaSignatureUrl(existingReceipt.socialMediaSignatureUrl || '');
+      setSocialMediaName(existingReceipt.socialMediaName || sm?.name || '');
+      setSocialMediaPix(existingReceipt.socialMediaPix || sm?.pixKey || '');
+      setSocialMediaBank(existingReceipt.socialMediaBank || sm?.bankInfo || '');
+      setSocialMediaCpfCnpj(existingReceipt.socialMediaCpfCnpj || sm?.cnpj || '');
+      setSocialMediaSignatureUrl(existingReceipt.socialMediaSignatureUrl || sm?.signatureUrl || '');
+      setSocialMediaLogoUrl(existingReceipt.socialMediaLogoUrl || sm?.logoUrl || sm?.avatarUrl || '');
       setDiscount(existingReceipt.discount || 0);
       if (existingReceipt.items && existingReceipt.items.length > 0) {
         setItems(existingReceipt.items);
       }
+    } else if (sm) {
+      setSocialMediaName(sm.name || '');
+      setSocialMediaPix(sm.pixKey || '');
+      setSocialMediaBank(sm.bankInfo || '');
+      setSocialMediaCpfCnpj(sm.cnpj || '');
+      setSocialMediaSignatureUrl(sm.signatureUrl || '');
+      setSocialMediaLogoUrl(sm.logoUrl || sm.avatarUrl || '');
     }
-  }, [selectedClient.id]);
+  }, [selectedClient.id, socialMedias]);
+
+  // Função para calcular o próximo mês de competência a partir de um período
+  const getNextMonthPeriod = (prevPeriod: string) => {
+    const monthNames = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+
+    if (prevPeriod) {
+      const match = prevPeriod.match(/([a-zA-ZçÇãÃéÉíÍóÓúÚ]+)\s*\/?\s*(\d{4})/i);
+      if (match) {
+        const monthStr = match[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const year = parseInt(match[2], 10);
+        const index = monthNames.findIndex(m => m.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === monthStr);
+        if (index !== -1) {
+          const nextIndex = (index + 1) % 12;
+          const nextYear = nextIndex === 0 ? year + 1 : year;
+          return `${monthNames[nextIndex]} / ${nextYear}`;
+        }
+      }
+
+      const mmYyyy = prevPeriod.match(/^(\d{1,2})\/(\d{4})$/);
+      if (mmYyyy) {
+        let m = parseInt(mmYyyy[1], 10);
+        let y = parseInt(mmYyyy[2], 10);
+        m += 1;
+        if (m > 12) {
+          m = 1;
+          y += 1;
+        }
+        return `${String(m).padStart(2, '0')}/${y}`;
+      }
+    }
+
+    const now = new Date();
+    return `${monthNames[now.getMonth()]} / ${now.getFullYear()}`;
+  };
+
+  // Último recibo deste cliente ou mais recente da lista de recibos
+  const clientReceipts = receipts.filter(r => r.clientProjectId === selectedClient.id);
+  const lastGeneratedReceipt = clientReceipts[clientReceipts.length - 1] || receipts[receipts.length - 1] || existingReceipt;
+
+  // Carrega e clona os dados do último recibo, avançando o mês de competência e fixando a data de hoje
+  const handleLoadLastReceiptWithNextMonth = () => {
+    if (!lastGeneratedReceipt) {
+      setToastMessage('Nenhum recibo anterior encontrado no histórico para servir de modelo.');
+      setTimeout(() => setToastMessage(null), 4000);
+      return;
+    }
+
+    const nextPeriod = getNextMonthPeriod(lastGeneratedReceipt.period || period || '');
+    const today = getTodayDateString();
+
+    setPeriod(nextPeriod);
+    setIssueDate(today);
+
+    // Vencimento padrão: 10 dias a partir de hoje
+    const d = new Date();
+    d.setDate(d.getDate() + 10);
+    const newDueDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    setDueDate(newDueDate);
+
+    if (lastGeneratedReceipt.cityState) setCityState(lastGeneratedReceipt.cityState);
+    if (lastGeneratedReceipt.serviceSummaryText) setServiceSummaryText(lastGeneratedReceipt.serviceSummaryText);
+    if (lastGeneratedReceipt.customReceiptText) setCustomReceiptText(lastGeneratedReceipt.customReceiptText);
+    if (lastGeneratedReceipt.socialMediaName) setSocialMediaName(lastGeneratedReceipt.socialMediaName);
+    if (lastGeneratedReceipt.socialMediaPix) setSocialMediaPix(lastGeneratedReceipt.socialMediaPix);
+    if (lastGeneratedReceipt.socialMediaBank) setSocialMediaBank(lastGeneratedReceipt.socialMediaBank);
+    if (lastGeneratedReceipt.socialMediaCpfCnpj) setSocialMediaCpfCnpj(lastGeneratedReceipt.socialMediaCpfCnpj);
+    if (lastGeneratedReceipt.socialMediaSignatureUrl) setSocialMediaSignatureUrl(lastGeneratedReceipt.socialMediaSignatureUrl);
+    if (lastGeneratedReceipt.socialMediaLogoUrl) setSocialMediaLogoUrl(lastGeneratedReceipt.socialMediaLogoUrl);
+    setDiscount(lastGeneratedReceipt.discount || 0);
+
+    if (lastGeneratedReceipt.items && lastGeneratedReceipt.items.length > 0) {
+      setItems(lastGeneratedReceipt.items.map((it, idx) => ({
+        ...it,
+        id: `item-${Date.now()}-${idx}`
+      })));
+    }
+
+    setToastMessage(`✓ Dados do último recibo carregados com sucesso! Mês de competência atualizado para "${nextPeriod}" e data do documento definida para hoje (${getFormattedIssueDate(today)}).`);
+    setTimeout(() => setToastMessage(null), 7000);
+  };
 
   const [items, setItems] = useState<ReceiptLineItem[]>(
     existingReceipt?.items || [
@@ -154,14 +265,16 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     socialMediaPix,
     socialMediaBank,
     socialMediaCpfCnpj,
-    socialMediaSignatureUrl
+    socialMediaSignatureUrl,
+    socialMediaLogoUrl: socialMediaLogoUrl || assignedSm?.logoUrl || assignedSm?.avatarUrl || '',
+    socialMediaId: assignedSm?.id
   };
 
   const handlePrintPDF = () => {
     onSaveReceipt(currentReceiptObj);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 5000);
-    printReceiptPDF(currentReceiptObj, selectedClient);
+    printReceiptPDF(currentReceiptObj, selectedClient, socialMediaLogoUrl);
   };
 
   const handleSendWhatsApp = () => {
@@ -171,11 +284,40 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     onSendWhatsAppReceipt(currentReceiptObj);
   };
 
+  const handleSaveCurrentReceipt = () => {
+    onSaveReceipt(currentReceiptObj);
+    setSaveSuccess(true);
+    setToastMessage('✓ Dados do recibo gravados e sincronizados com sucesso no histórico da plataforma!');
+    setTimeout(() => {
+      setSaveSuccess(false);
+      setToastMessage(null);
+    }, 5000);
+  };
+
   return (
     <div className="space-y-6">
       
+      {/* Toast de Notificação Geral */}
+      {toastMessage && (
+        <div className="bg-indigo-950/90 border border-indigo-500/50 p-4 rounded-2xl flex items-center justify-between text-indigo-200 shadow-xl animate-fade-in">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-indigo-400 shrink-0" />
+            <span className="text-xs font-bold leading-relaxed">
+              {toastMessage}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastMessage(null)}
+            className="text-slate-400 hover:text-white p-1 text-xs font-bold ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Registration Confirmation Toast */}
-      {saveSuccess && (
+      {saveSuccess && !toastMessage && (
         <div className="bg-emerald-950/90 border border-emerald-500/50 p-4 rounded-2xl flex items-center justify-between text-emerald-200 shadow-xl animate-fade-in">
           <div className="flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
@@ -204,14 +346,37 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-300">
-                Preencha as informações do recibo, acompanhe a conversão do valor em extenso e imprima o documento formatado.
+                Preencha as informações do recibo, use modelos anteriores com avanço de competência ou imprima o PDF oficial.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Opção para gravar/repetir os dados do último recibo gerado mudando o mês e data */}
           <button
+            type="button"
+            onClick={handleLoadLastReceiptWithNextMonth}
+            className="px-3.5 py-2.5 rounded-2xl bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-300 border border-indigo-500/40 font-bold text-xs flex items-center gap-2 transition-all shadow-md hover:scale-[1.02]"
+            title="Carregar dados do último recibo gerado e avançar automaticamente o mês de competência com data de hoje"
+          >
+            <History className="w-4 h-4 text-indigo-400" />
+            <span>Repetir Último Recibo (Novo Mês)</span>
+          </button>
+
+          {/* Botão de Gravar Recibo Atual */}
+          <button
+            type="button"
+            onClick={handleSaveCurrentReceipt}
+            className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-bold text-xs flex items-center gap-2 transition-all shadow-md"
+            title="Gravar e salvar os dados do recibo atual no histórico da plataforma"
+          >
+            <Save className="w-4 h-4 text-slate-300" />
+            <span>Gravar Recibo</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handlePrintPDF}
             className="px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-all"
           >
@@ -220,6 +385,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={handleSendWhatsApp}
             className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold text-xs flex items-center gap-2 transition-all"
           >
@@ -259,9 +425,25 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
             <span className="text-base font-black text-emerald-400">R$ {totalAmount.toFixed(2)}</span>
           </div>
 
-          <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
-            <span className="text-slate-400 text-[10px] block font-bold">Taxa SaaS de Infraestrutura: R$ 0,50 por post</span>
-            <span className="text-base font-black text-amber-400">R$ {platformFeeTotal.toFixed(2)}</span>
+          {/* Link para fechar faturamento Gestor e Social Media */}
+          <div 
+            onClick={() => setIsSaasClosureModalOpen(true)}
+            className="bg-slate-950 hover:bg-slate-900 border border-amber-500/40 p-3 rounded-2xl cursor-pointer transition-all hover:scale-[1.02] shadow-md group relative overflow-hidden"
+            title="Clique para fechar o faturamento de infraestrutura SaaS entre Gestor e Social Media"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-amber-300 text-[10px] block font-bold group-hover:underline flex items-center gap-1">
+                <span>Taxa SaaS de Infraestrutura: R$ {feePerPost.toFixed(2)} por post aprovado</span>
+                <ExternalLink className="w-3 h-3 text-amber-400" />
+              </span>
+              <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black border border-amber-500/30 shrink-0">
+                Fechar Faturamento ➜
+              </span>
+            </div>
+            <span className="text-base font-black text-amber-400 block mt-1">R$ {platformFeeTotal.toFixed(2)}</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">
+              Clique para fechar o faturamento entre gestor e social media com a mesma proposta do recibo
+            </span>
           </div>
 
           <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
@@ -517,10 +699,41 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
 
           {/* Social Media Signature & Bank Info Block */}
           <div className="border-t border-slate-800 pt-4 space-y-4">
-            <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              Dados do Social Media Prestador (Assinatura e Pagamento)
-            </h4>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                Dados do Social Media Prestador (Assinatura e Pagamento)
+              </h4>
+
+              {socialMedias.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400 font-medium">Preencher com:</span>
+                  <select
+                    onChange={(e) => {
+                      const found = socialMedias.find(s => s.id === e.target.value);
+                      if (found) {
+                        setSocialMediaName(found.name || '');
+                        setSocialMediaPix(found.pixKey || '');
+                        setSocialMediaBank(found.bankInfo || '');
+                        setSocialMediaCpfCnpj(found.cnpj || '');
+                        if (found.signatureUrl) {
+                          setSocialMediaSignatureUrl(found.signatureUrl);
+                        }
+                      }
+                    }}
+                    defaultValue=""
+                    className="bg-slate-950 text-emerald-400 text-xs px-2.5 py-1 rounded-xl border border-emerald-500/30 focus:outline-none focus:border-emerald-500 font-bold"
+                  >
+                    <option value="" disabled>Selecionar Social Media...</option>
+                    {socialMedias.map(sm => (
+                      <option key={sm.id} value={sm.id}>
+                        {sm.name} {sm.signatureUrl ? '✓ (Assinatura Cadastrada)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
@@ -566,6 +779,55 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
                   className="w-full bg-slate-950 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500"
                 />
               </div>
+            </div>
+
+            {/* Campo de Logomarca do Social Media com Upload no Supabase (Bucket media / pasta logos) */}
+            <div className="space-y-2 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+              <div className="flex items-center justify-between">
+                <label className="block text-slate-300 font-bold text-xs flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" /> Logomarca do Social Media (Topo Direito do Recibo):
+                </label>
+                <span className="text-[10px] text-purple-400 font-semibold flex items-center gap-1">
+                  <UploadCloud className="w-3 h-3" /> Armazenamento no Supabase
+                </span>
+              </div>
+
+              <SupabaseMediaUploader
+                compact={true}
+                currentUrl={socialMediaLogoUrl}
+                folder="logos"
+                onUploadSuccess={(url) => {
+                  setSocialMediaLogoUrl(url);
+                }}
+              />
+
+              <div>
+                <label className="block text-slate-400 text-[10px] font-bold mb-1">
+                  Ou informe o link da imagem da logomarca (URL externa ou Supabase):
+                </label>
+                <input
+                  type="url"
+                  value={socialMediaLogoUrl}
+                  onChange={(e) => setSocialMediaLogoUrl(e.target.value)}
+                  placeholder="https://... link da logomarca do social media"
+                  className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-purple-500 font-mono text-[11px]"
+                />
+              </div>
+
+              {socialMediaLogoUrl && (
+                <div className="flex items-center justify-between pt-1 text-[11px] border-t border-slate-900">
+                  <span className="flex items-center gap-1.5 text-purple-400 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" /> Logomarca definida para o topo direito do recibo
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSocialMediaLogoUrl('')}
+                    className="text-rose-400 hover:text-rose-300 hover:underline text-[10px] font-bold"
+                  >
+                    Remover Logomarca
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Campo de Assinatura Digitalizada com Upload no Supabase (Bucket media / pasta signatures) */}
@@ -640,10 +902,13 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
                 <div className="font-extrabold text-sm text-slate-900 leading-tight">
                   Recibo de Prestação de Serviços em Redes Sociais
                 </div>
-                {selectedClient.logoUrl ? (
-                  <img src={selectedClient.logoUrl} alt="Logo" className="w-14 h-14 object-contain" />
+                {/* A logomarca no topo direito deve ser a do Social Media */}
+                {socialMediaLogoUrl ? (
+                  <img src={socialMediaLogoUrl} alt="Logo Social Media" className="max-h-12 max-w-[130px] object-contain" />
+                ) : assignedSm?.logoUrl ? (
+                  <img src={assignedSm.logoUrl} alt="Logo Social Media" className="max-h-12 max-w-[130px] object-contain" />
                 ) : (
-                  <div className="text-[10px] text-slate-400 border border-dashed border-slate-300 px-2 py-1 rounded">
+                  <div className="text-[10px] text-purple-700 bg-purple-50 border border-dashed border-purple-300 px-2 py-1 rounded font-bold">
                     [Logo Social Media]
                   </div>
                 )}
@@ -698,6 +963,19 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
         </div>
 
       </div>
+
+      {/* Modal de Fechamento de Faturamento SaaS: Taxa de Infraestrutura entre Gestor e Social Media */}
+      <SaasBillingClosureModal
+        isOpen={isSaasClosureModalOpen}
+        onClose={() => setIsSaasClosureModalOpen(false)}
+        selectedClient={selectedClient}
+        socialMedia={assignedSm}
+        postsCount={totalPostsCount}
+        feePerPost={feePerPost}
+        period={period}
+        currentUserRole={currentUserRole}
+        onAddSaasProof={onAddSaasProof}
+      />
 
     </div>
   );

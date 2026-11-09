@@ -198,7 +198,7 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
               <div className="space-y-4">
                 <div>
                   <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider block mb-1">
-                    Publicação do Rascunho:
+                    Publicação do Projeto:
                   </span>
                   <h3 className="text-lg font-bold text-white">{post.title}</h3>
                 </div>

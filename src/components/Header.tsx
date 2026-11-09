@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject, UserRole } from '../types';
-import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Plus } from 'lucide-react';
+import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Eye } from 'lucide-react';
 
 interface HeaderProps {
   clients: ClientProject[];
@@ -11,6 +11,7 @@ interface HeaderProps {
   onOpenWhatsAppModal: () => void;
   onOpenDriveModal: () => void;
   onOpenAddClientModal?: () => void;
+  onOpenClientCard?: () => void;
   unreadNotificationsCount: number;
   socialMedias?: import('../types').SocialMediaUser[];
   activeSocialMediaId?: string;
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenWhatsAppModal,
   onOpenDriveModal,
   onOpenAddClientModal,
+  onOpenClientCard,
   unreadNotificationsCount,
   socialMedias = [],
   activeSocialMediaId,
@@ -75,11 +77,19 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Client Selector Dropdown or Locked Space Badge */}
           {currentUserRole === 'cliente' ? (
-            <div className="hidden md:flex items-center gap-2 bg-emerald-950/60 border border-emerald-500/40 rounded-xl px-3 py-1.5 shadow-md">
-              <Building className="w-4 h-4 text-emerald-400 shrink-0" />
+            <button
+              type="button"
+              onClick={onOpenClientCard}
+              className="hidden md:flex items-center gap-2 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-500/40 rounded-xl px-3 py-1.5 shadow-md cursor-pointer transition-all text-left group"
+              title="Clique para abrir os dados cadastrados deste cliente"
+            >
+              <Building className="w-4 h-4 text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
               <div className="flex flex-col">
-                <span className="text-[10px] text-emerald-300 font-extrabold uppercase tracking-wider">Espaço Exclusivo:</span>
-                <span className="text-xs font-bold text-white max-w-[200px] truncate">{selectedClient?.name || 'Cliente'}</span>
+                <span className="text-[10px] text-emerald-300 font-extrabold uppercase tracking-wider flex items-center gap-1">
+                  Espaço Exclusivo:
+                  <span className="text-[9px] bg-emerald-800 text-emerald-200 px-1 py-0.2 rounded font-normal">Ver Dados</span>
+                </span>
+                <span className="text-xs font-bold text-white max-w-[200px] truncate group-hover:underline">{selectedClient?.name || 'Cliente'}</span>
               </div>
               {(() => {
                 const assignedSm = socialMedias.find(sm => sm.id === (selectedClient?.assignedSocialMediaId || (selectedClient as any)?.createdBySocialMediaId));
@@ -89,15 +99,15 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                 ) : null;
               })()}
-            </div>
+            </button>
           ) : (
-            <div className="hidden md:flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-1.5">
-              <Building className="w-4 h-4 text-indigo-400" />
+            <div className="hidden md:flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/60 rounded-xl px-2.5 py-1.5">
+              <Building className="w-4 h-4 text-indigo-400 shrink-0" />
               <span className="text-xs text-slate-400 font-medium">Cliente:</span>
               <select
                 value={selectedClientId}
                 onChange={(e) => onSelectClient(e.target.value)}
-                className="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer pr-2 max-w-[250px]"
+                className="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer pr-1 max-w-[210px] truncate"
               >
                 {clients.length === 0 ? (
                   <option value="" disabled className="bg-slate-900 text-slate-400">
@@ -114,14 +124,17 @@ export const Header: React.FC<HeaderProps> = ({
                   })
                 )}
               </select>
-              {onOpenAddClientModal && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
+
+              {/* Botão de Abrir Card de Dados Cadastrados do Cliente */}
+              {onOpenClientCard && selectedClient && (
                 <button
-                  onClick={onOpenAddClientModal}
-                  className="ml-1 p-1 hover:bg-indigo-600/30 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-indigo-500/30 px-2 py-0.5"
-                  title="Cadastrar Novo Cliente"
+                  type="button"
+                  onClick={onOpenClientCard}
+                  className="p-1 hover:bg-indigo-600/30 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-indigo-500/30 px-2 py-0.5"
+                  title="Abrir Card com Dados Cadastrados do Cliente"
                 >
-                  <Plus className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="text-[11px]">+ Novo</span>
+                  <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="text-[11px] hidden lg:inline">Dados</span>
                 </button>
               )}
             </div>

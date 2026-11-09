@@ -1,0 +1,5 @@
+{
+  "summary":  "Componente ReceiptGenerator.tsx atualizado com: 1) data de emissão mantida sempre no dia atual por padrão (com atalho para data de hoje e formatação em português pt-BR); 2) opção completa de edição e personalização do texto de declaração do recibo com restauração rápida para o texto dinâmico.",
+  "updatedAt":  "2026-10-31T09:30:48.565109808Z",
+  "userFacing":  true
+}

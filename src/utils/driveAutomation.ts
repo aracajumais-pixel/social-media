@@ -138,6 +138,7 @@ export async function createDriveFolderForClient(
 
   const response = await fetch(targetUrl, {
     method: 'POST',
+    // Usando text/plain para evitar problemas de preflight CORS no Google Apps Script
     headers: {
       'Content-Type': 'text/plain;charset=utf-8'
     },

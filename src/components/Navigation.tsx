@@ -92,7 +92,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             {(draftsCount > 0 || changesRequestedCount > 0) && (
               <span className="flex items-center gap-1 ml-1">
                 {draftsCount > 0 && (
-                  <span className="bg-amber-500/20 text-amber-300 text-[11px] font-bold px-1.5 py-0.2 rounded-full border border-amber-500/30" title="Rascunhos pendentes">
+                  <span className="bg-amber-500/20 text-amber-300 text-[11px] font-bold px-1.5 py-0.2 rounded-full border border-amber-500/30" title="Projetos pendentes">
                     {draftsCount}
                   </span>
                 )}

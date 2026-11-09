@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { ClientProject, UserRole, MetricOverview, ChannelPerformance } from '../types';
+import { ClientProject, UserRole, MetricOverview, ChannelPerformance, PostItem } from '../types';
 import { 
   BarChart3, TrendingUp, Users, Eye, MousePointer, 
   ShoppingBag, Instagram, Facebook, Linkedin, Filter, ShieldCheck, 
   MessageSquare, DollarSign, Target, Calendar, HelpCircle, Flame, ArrowUpRight, Zap,
   Bookmark, Share2, Video, Award, Calculator, Layers, Sparkles, PieChart as PieChartIcon,
-  CheckCircle2, ArrowRight
+  CheckCircle2, ArrowRight, Clock, AlertCircle
 } from 'lucide-react';
 import { 
-  ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, Legend, CartesianGrid 
+  ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
+  PieChart, Pie, Cell 
 } from 'recharts';
 
 interface MetricsDashboardProps {
@@ -17,6 +18,7 @@ interface MetricsDashboardProps {
   channels: ChannelPerformance[];
   currentUserRole: UserRole;
   onChangeMetricsAccess?: (clientId: string, access: ClientProject['metricsAccess']) => void;
+  posts?: PostItem[];
 }
 
 export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({
@@ -24,7 +26,8 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({
   metrics,
   channels,
   currentUserRole,
-  onChangeMetricsAccess
+  onChangeMetricsAccess,
+  posts = []
 }) => {
   const [selectedYear, setSelectedYear] = useState<number>(metrics.year || 2026);
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'ano'>('30d');
@@ -97,6 +100,52 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({
   const projectedClicks = Math.round(simulatedBudget / (metrics.costPerClick || 0.36));
   const projectedLeads = Math.round(simulatedBudget / (metrics.cpl || 6.80));
   const projectedRevenue = Math.round(simulatedBudget * (metrics.roas || 4.8));
+
+  // Cálculos do Gráfico de Rosca (Donut) de Posts para o Cliente Selecionado
+  const clientPosts = (posts || []).filter(p => p.clientProjectId === client.id);
+  const aprovadosCount = clientPosts.filter(p => p.status === 'aprovado').length;
+  const alteradosCount = clientPosts.filter(p => p.status === 'alterar').length;
+  const rascunhosCount = clientPosts.filter(p => p.status === 'rascunho').length;
+  const totalPosts = aprovadosCount + alteradosCount + rascunhosCount;
+
+  const aprovadosPct = totalPosts > 0 ? ((aprovadosCount / totalPosts) * 100).toFixed(1) : '0';
+  const alteradosPct = totalPosts > 0 ? ((alteradosCount / totalPosts) * 100).toFixed(1) : '0';
+  const rascunhosPct = totalPosts > 0 ? ((rascunhosCount / totalPosts) * 100).toFixed(1) : '0';
+
+  const postDistributionData = [
+    {
+      name: 'Aprovados',
+      value: aprovadosCount,
+      percentage: aprovadosPct,
+      color: '#10b981', // emerald-500
+      barClass: 'bg-emerald-500',
+      badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+      description: 'Posts aprovados prontos para publicação'
+    },
+    {
+      name: 'Alterados',
+      value: alteradosCount,
+      percentage: alteradosPct,
+      color: '#f59e0b', // amber-500
+      barClass: 'bg-amber-500',
+      badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+      description: 'Posts com solicitação de alteração/ajuste'
+    },
+    {
+      name: 'Projetos',
+      value: rascunhosCount,
+      percentage: rascunhosPct,
+      color: '#6366f1', // indigo-500
+      barClass: 'bg-indigo-500',
+      badgeClass: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30',
+      description: 'Posts em criação ou aguardando aprovação'
+    }
+  ];
+
+  // Dados para o Recharts (se não houver posts no momento, exibe anel neutro estilizado)
+  const chartPieData = totalPosts > 0
+    ? postDistributionData.filter(d => d.value > 0)
+    : [{ name: 'Sem posts no momento', value: 1, color: '#334155', percentage: '0', description: 'Nenhum post cadastrado' }];
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-12">
@@ -392,51 +441,198 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({
 
           </div>
 
-          {/* Gráfico de Evolução de Alcance Orgânico vs Pago */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+          {/* SEÇÃO PRINCIPAL DE GRÁFICOS: ROSCA DE POSTS & ALCANCE */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            {/* 1. GRÁFICO DE ROSCA (RECHARTS): PROPORÇÃO DE POSTS DO CLIENTE */}
+            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-blue-400" />
-                  Evolução Mensal: Alcance Orgânico vs Alcance Pago (Ads)
-                </h3>
-                <p className="text-xs text-slate-400">Comparativo mês a mês do crescimento do público</p>
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <PieChartIcon className="w-4 h-4 text-emerald-400" />
+                      Proporção de Posts por Status
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Aprovados vs. Alterados vs. Projetos para <strong className="text-cyan-400">{client.name}</strong>
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-mono px-2.5 py-1 rounded-xl bg-slate-950 text-slate-300 font-bold border border-slate-800 shrink-0">
+                    {totalPosts} {totalPosts === 1 ? 'post' : 'posts'}
+                  </span>
+                </div>
+
+                {/* Container do Gráfico de Rosca */}
+                <div className="relative w-full h-56 flex items-center justify-center my-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            if (totalPosts === 0) {
+                              return (
+                                <div className="bg-slate-950/95 border border-slate-700 p-2.5 rounded-xl shadow-xl text-xs text-slate-400">
+                                  Nenhum post registrado para {client.name}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="bg-slate-950/95 border border-slate-700 p-3 rounded-2xl shadow-2xl text-xs space-y-1 backdrop-blur-md">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: data.color }} />
+                                  <span className="font-bold text-white text-sm">{data.name}</span>
+                                </div>
+                                <div className="text-slate-300">
+                                  Total: <strong className="text-white font-mono">{data.value}</strong> {data.value === 1 ? 'post' : 'posts'}
+                                </div>
+                                <div className="text-slate-400 text-[11px]">
+                                  Proporção: <strong className="text-cyan-400 font-mono">{data.percentage}%</strong> do total
+                                </div>
+                                <div className="text-[10px] text-slate-500 pt-0.5 border-t border-slate-800">
+                                  {data.description}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Pie
+                        data={chartPieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={64}
+                        outerRadius={92}
+                        paddingAngle={totalPosts > 0 ? 5 : 0}
+                        dataKey="value"
+                        stroke="#0f172a"
+                        strokeWidth={2}
+                      >
+                        {chartPieData.map((entry, index) => (
+                          <Cell key={`donut-slice-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  {/* Centro da Rosca */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-2xl font-black text-white font-mono tracking-tight">{totalPosts}</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Posts Totais</span>
+                    {totalPosts > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-400 mt-0.5">
+                        {aprovadosPct}% Aprovados
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Breakdown de Status com Barras de Proporção */}
+                <div className="space-y-2 mt-2">
+                  {postDistributionData.map((item) => (
+                    <div 
+                      key={item.name} 
+                      className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80 hover:border-slate-700 transition-colors"
+                    >
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                          <span className="font-bold text-slate-200">{item.name}</span>
+                          <span className="text-[10px] text-slate-500 hidden sm:inline">({item.description})</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-white">{item.value}</span>
+                          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md border ${item.badgeClass}`}>
+                            {item.percentage}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${item.barClass}`}
+                          style={{ width: `${Math.max(Number(item.percentage), item.value > 0 ? 4 : 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex items-center gap-4 text-xs font-bold">
-                <span className="flex items-center gap-1.5 text-blue-400">
-                  <span className="w-3 h-3 rounded bg-blue-500"></span> Orgânico
-                </span>
-                <span className="flex items-center gap-1.5 text-emerald-400">
-                  <span className="w-3 h-3 rounded bg-emerald-500"></span> Pago (Turbinar)
-                </span>
+              {/* Dica / Resumo Editorial */}
+              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between mt-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    {totalPosts > 0 ? (
+                      <>
+                        <strong className="text-emerald-400">{aprovadosCount} de {totalPosts} posts</strong> aprovados ({aprovadosPct}%).
+                      </>
+                    ) : (
+                      'Nenhum post registrado no momento para este cliente.'
+                    )}
+                  </span>
+                </div>
+                {totalPosts > 0 && (
+                  <span className="text-cyan-400 font-bold font-mono">
+                    {Number(aprovadosPct) >= 70 ? 'Fluxo Saudável' : 'Requer Atenção'}
+                  </span>
+                )}
               </div>
             </div>
 
-            <div className="h-72 w-full pt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={monthlyReachData}>
-                  <defs>
-                    <linearGradient id="colorOrganico" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorPago" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="mes" stroke="#94a3b8" fontSize={11} />
-                  <YAxis stroke="#94a3b8" fontSize={11} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', fontSize: '11px' }}
-                  />
-                  <Area type="monotone" dataKey="organico" stroke="#3b82f6" fillOpacity={1} fill="url(#colorOrganico)" name="Alcance Orgânico" />
-                  <Area type="monotone" dataKey="pago" stroke="#10b981" fillOpacity={1} fill="url(#colorPago)" name="Alcance Pago" />
-                </AreaChart>
-              </ResponsiveContainer>
+            {/* 2. GRÁFICO DE EVOLUÇÃO DE ALCANCE ORGÂNICO VS PAGO */}
+            <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl flex flex-col justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-blue-400" />
+                    Evolução Mensal: Alcance Orgânico vs Alcance Pago (Ads)
+                  </h3>
+                  <p className="text-xs text-slate-400">Comparativo mês a mês do crescimento do público</p>
+                </div>
+
+                <div className="flex items-center gap-4 text-xs font-bold shrink-0">
+                  <span className="flex items-center gap-1.5 text-blue-400">
+                    <span className="w-3 h-3 rounded bg-blue-500"></span> Orgânico
+                  </span>
+                  <span className="flex items-center gap-1.5 text-emerald-400">
+                    <span className="w-3 h-3 rounded bg-emerald-500"></span> Pago (Turbinar)
+                  </span>
+                </div>
+              </div>
+
+              <div className="h-72 w-full pt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyReachData}>
+                    <defs>
+                      <linearGradient id="colorOrganico" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorPago" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="mes" stroke="#94a3b8" fontSize={11} />
+                    <YAxis stroke="#94a3b8" fontSize={11} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', fontSize: '11px' }}
+                    />
+                    <Area type="monotone" dataKey="organico" stroke="#3b82f6" fillOpacity={1} fill="url(#colorOrganico)" name="Alcance Orgânico" />
+                    <Area type="monotone" dataKey="pago" stroke="#10b981" fillOpacity={1} fill="url(#colorPago)" name="Alcance Pago" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                <span>Audiência consolidada combinada de Meta Ads e alcance orgânico</span>
+                <span className="text-emerald-400 font-bold font-mono">+38.5% crescimento anual</span>
+              </div>
             </div>
+
           </div>
 
           {/* Channels Grid */}

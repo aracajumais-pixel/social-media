@@ -26,12 +26,13 @@ import { ProjectBookView } from './components/ProjectBookView';
 import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
 import { ClientTasksSection } from './components/ClientTasksSection';
+import { ClientDetailsCardModal } from './components/ClientDetailsCardModal';
 import { Footer } from './components/Footer';
 import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl } from './utils/token';
 import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase, syncReceiptToSupabase, getSupabaseClient } from './lib/supabase';
 import { openWhatsAppDirect } from './utils/whatsappHelper';
 
-import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight } from 'lucide-react';
+import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight, Eye } from 'lucide-react';
 
 const INITIAL_DEMO_TASKS: ClientTask[] = [
   {
@@ -236,6 +237,7 @@ export default function App() {
   const [isNewPostModalOpen, setIsNewPostModalOpen] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+  const [isClientCardOpen, setIsClientCardOpen] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<WhatsAppNotificationPayload[]>([]);
 
   // Detect ?client=..., ?sm=..., ?token=... in URL for direct mural or public token link approval
@@ -547,8 +549,8 @@ export default function App() {
           authorRole: currentUserRole,
           authorName: currentUserRole === 'social_media' ? 'Social Media' : 'Gestor',
           text: newPostData.linkedTaskId 
-            ? 'Rascunho criado a partir de tarefa solicitada pelo cliente.'
-            : 'Rascunho criado para aprovação do cliente.',
+            ? 'Projeto criado a partir de tarefa solicitada pelo cliente.'
+            : 'Projeto criado para aprovação do cliente.',
           timestamp: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         }
       ]
@@ -578,7 +580,7 @@ export default function App() {
         recipientName: selectedClient.contactName,
         type: 'novo_rascunho',
         postTitle: newPost.title,
-        customMessage: `Novo rascunho de post "${newPost.title}" enviado para aprovação.`
+        customMessage: `Novo projeto de post "${newPost.title}" enviado para aprovação.`
       },
       ...prev
     ]);
@@ -649,7 +651,7 @@ export default function App() {
   const handleSendWhatsAppAlert = (postId: string, messageText: string) => {
     const targetPost = posts.find(p => p.id === postId);
     const tokenUrl = targetPost ? buildApprovalUrl(targetPost.approvalToken || 'token') : '';
-    const textToSend = messageText.trim() || `Olá! Temos um rascunho de post ("${targetPost?.title || 'Novo Post'}") da ${selectedClient.name} pronto para sua aprovação:\n\n🔗 Acesse para aprovar: ${tokenUrl}`;
+    const textToSend = messageText.trim() || `Olá! Temos um projeto de post ("${targetPost?.title || 'Novo Post'}") da ${selectedClient.name} pronto para sua aprovação:\n\n🔗 Acesse para aprovar: ${tokenUrl}`;
     openWhatsAppDirect(selectedClient.whatsappNumber, textToSend);
   };
 
@@ -659,7 +661,7 @@ export default function App() {
     openWhatsAppDirect(selectedClient.whatsappNumber, text);
   };
 
-  // Envio da tela completa do Mural de Posts e Aprovações para o WhatsApp com isolamento de rascunhos
+  // Envio da tela completa do Mural de Posts e Aprovações para o WhatsApp com isolamento de projetos
   const handleSendEntireMuralWhatsApp = () => {
     const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
     const authorSmId = selectedClient.assignedSocialMediaId || activeSocialMediaId;
@@ -818,6 +820,7 @@ export default function App() {
         onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
         onOpenDriveModal={() => setIsDriveModalOpen(true)}
         onOpenAddClientModal={() => setActiveTab('settings')}
+        onOpenClientCard={() => setIsClientCardOpen(true)}
         unreadNotificationsCount={draftsCount + changesRequestedCount}
         socialMedias={socialMedias}
         activeSocialMediaId={activeSocialMediaId}
@@ -869,11 +872,15 @@ export default function App() {
             {/* Banner de Identificação Exclusiva do Espaço e Isolamento de Rascunhos */}
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950/70 to-purple-950/70 border border-indigo-500/30 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0">
+                <div 
+                  onClick={() => setIsClientCardOpen(true)}
+                  className="w-12 h-12 rounded-2xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer transition-all hover:scale-105 shadow-md group"
+                  title="Clique para visualizar o card de dados cadastrados do cliente"
+                >
                   {selectedClient.logoUrl ? (
                     <img src={selectedClient.logoUrl} alt={selectedClient.name} className="w-full h-full object-contain p-1" />
                   ) : (
-                    <Building2 className="w-6 h-6 text-indigo-400" />
+                    <Building2 className="w-6 h-6 text-indigo-400 group-hover:scale-110 transition-transform" />
                   )}
                 </div>
                 <div>
@@ -883,7 +890,16 @@ export default function App() {
                     </span>
                     <span className="text-xs text-slate-400">• Espaço Isolado</span>
                   </div>
-                  <h2 className="text-base sm:text-lg font-bold text-white mt-0.5">{selectedClient.name}</h2>
+                  <h2 
+                    onClick={() => setIsClientCardOpen(true)}
+                    className="text-base sm:text-lg font-bold text-white mt-0.5 cursor-pointer hover:text-indigo-300 transition-colors flex items-center gap-2 group flex-wrap"
+                    title="Clique para visualizar o card de dados cadastrados deste cliente"
+                  >
+                    <span>{selectedClient.name}</span>
+                    <span className="text-[10px] font-semibold text-indigo-300 bg-indigo-950/70 border border-indigo-500/40 px-2 py-0.5 rounded-full group-hover:bg-indigo-600 group-hover:text-white transition-all flex items-center gap-1">
+                      <Eye className="w-3 h-3" /> Ver Dados Cadastrados
+                    </span>
+                  </h2>
                   <p className="text-xs text-slate-300">
                     Atendimento exclusivo por: <strong className="text-purple-300 font-bold">{responsibleSm?.name || 'Social Media Responsável'}</strong>
                     {responsibleSm?.companyName ? ` (${responsibleSm.companyName})` : ''}
@@ -897,9 +913,9 @@ export default function App() {
               <div className="bg-slate-950/80 border border-slate-800 rounded-2xl px-3.5 py-2 text-xs shrink-0 flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                 <div>
-                  <div className="text-[10px] text-slate-400 font-medium">Isolamento Seguro de Rascunhos</div>
+                  <div className="text-[10px] text-slate-400 font-medium">Isolamento Seguro de Projetos</div>
                   <div className="font-bold text-slate-200">
-                    Exibindo apenas rascunhos de <span className="text-indigo-300">{responsibleSm?.name || 'Social Media'}</span>
+                    Exibindo apenas projetos de <span className="text-indigo-300">{responsibleSm?.name || 'Social Media'}</span>
                   </div>
                 </div>
               </div>
@@ -922,7 +938,7 @@ export default function App() {
                     <p className="text-[11px] text-slate-400">
                       {currentUserRole === 'cliente'
                         ? 'Acompanhe o andamento das solicitações que você enviou ao seu Social Media.'
-                        : 'Transforme as solicitações do cliente em rascunhos de publicações diretamente.'}
+                        : 'Transforme as solicitações do cliente em projetos de publicações diretamente.'}
                     </p>
                   </div>
                 </div>
@@ -969,7 +985,7 @@ export default function App() {
                     statusFilter === 'rascunho' ? 'bg-amber-600 text-white' : 'bg-slate-950 text-amber-400 hover:text-white border border-slate-800'
                   }`}
                 >
-                  <Clock className="w-3.5 h-3.5" /> Rascunho ({draftsCount})
+                  <Clock className="w-3.5 h-3.5" /> Projeto ({draftsCount})
                 </button>
 
                 <button
@@ -1010,7 +1026,7 @@ export default function App() {
                     className="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all shrink-0 hover:scale-[1.02]"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Novo Rascunho</span>
+                    <span>Novo Projeto</span>
                   </button>
                 )}
               </div>
@@ -1085,6 +1101,7 @@ export default function App() {
             socialMedias={socialMedias}
             onSaveReceipt={handleSaveReceipt}
             onSendWhatsAppReceipt={handleSendWhatsAppReceipt}
+            onAddSaasProof={handleAddSaasProof}
           />
         )}
 
@@ -1223,6 +1240,19 @@ export default function App() {
         onClose={() => setIsDriveModalOpen(false)}
         client={selectedClient}
         onUpdateClient={handleUpdateClient}
+      />
+
+      {/* Modal com Card de Dados Cadastrados do Cliente */}
+      <ClientDetailsCardModal
+        client={selectedClient}
+        isOpen={isClientCardOpen}
+        onClose={() => setIsClientCardOpen(false)}
+        currentUserRole={currentUserRole}
+        socialMedias={socialMedias}
+        onEditClient={(c) => {
+          setSelectedClientId(c.id);
+          setActiveTab('settings');
+        }}
       />
 
     </div>

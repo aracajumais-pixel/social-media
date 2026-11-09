@@ -424,6 +424,8 @@ export async function syncSocialMediaToSupabase(sm: {
   pixKey?: string;
   customFeePerPost?: number;
   status?: string;
+  signatureUrl?: string;
+  bankInfo?: string;
 }) {
   const clientDb = getSupabaseClient();
   if (!clientDb) return null;
@@ -438,12 +440,33 @@ export async function syncSocialMediaToSupabase(sm: {
         social_profile: sm.socialProfile,
         pix_key: sm.pixKey,
         custom_fee_per_post: sm.customFeePerPost ?? null,
-        status: sm.status || 'ativo'
+        status: sm.status || 'ativo',
+        signature_url: sm.signatureUrl || null,
+        bank_info: sm.bankInfo || null
       }]);
     if (error) console.warn('Erro ao sincronizar Social Media no Supabase:', error.message);
     return data;
   } catch (err) {
     console.warn('Falha ao conectar com Supabase:', err);
+    return null;
+  }
+}
+
+/**
+ * Remove um Social Media da tabela social_medias no Supabase.
+ */
+export async function deleteSocialMediaFromSupabase(smId: string) {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !smId) return null;
+  try {
+    const { data, error } = await clientDb
+      .from('social_medias')
+      .delete()
+      .eq('id', smId);
+    if (error) console.warn('Erro ao deletar Social Media no Supabase:', error.message);
+    return data;
+  } catch (err) {
+    console.warn('Falha ao conectar com Supabase ao excluir social media:', err);
     return null;
   }
 }

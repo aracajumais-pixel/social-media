@@ -42,7 +42,7 @@ export const PostCard: React.FC<PostCardProps> = ({
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
             <Clock className="w-3.5 h-3.5" />
-            Rascunho
+            Projeto
           </span>
         );
       case 'aprovado':
@@ -240,7 +240,7 @@ export const PostCard: React.FC<PostCardProps> = ({
             </div>
           )}
 
-          {/* Botão de Excluir Rascunho (Gestor e Social Media) */}
+          {/* Botão de Excluir Projeto (Gestor e Social Media) */}
           {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && post.status === 'rascunho' && onDeletePost && (
             <button
               type="button"
@@ -249,7 +249,7 @@ export const PostCard: React.FC<PostCardProps> = ({
                 setShowDeleteConfirm(true);
               }}
               className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center justify-center transition-colors shrink-0"
-              title="Excluir Rascunho"
+              title="Excluir Projeto"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -282,7 +282,7 @@ export const PostCard: React.FC<PostCardProps> = ({
         onMarkAsPublished={onPublishPost}
       />
 
-      {/* Modal de Confirmação de Exclusão do Rascunho */}
+      {/* Modal de Confirmação de Exclusão do Projeto */}
       {showDeleteConfirm && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md" 
@@ -294,14 +294,14 @@ export const PostCard: React.FC<PostCardProps> = ({
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-white">Excluir Rascunho</h3>
+                <h3 className="text-sm font-bold text-white">Excluir Projeto</h3>
                 <p className="text-[11px] text-slate-400">Ação permanente</p>
               </div>
             </div>
 
             <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-1.5">
               <p>
-                Tem certeza de que deseja apagar o rascunho <strong className="text-white">"{post.title}"</strong>?
+                Tem certeza de que deseja apagar o projeto <strong className="text-white">"{post.title}"</strong>?
               </p>
               <p className="text-[11px] text-slate-400">
                 Esta publicação será removida permanentemente do sistema e do Supabase.
