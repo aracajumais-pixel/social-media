@@ -34,7 +34,7 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
 
     switch (notificationType) {
       case 'novo_rascunho':
-        return `Olá ${selectedClient.contactName}! 🎨 Um novo projeto de post ("${postTitle}") está disponível no Social Media 5.0 para sua aprovação.\n\nAcesse o link para revisar a legenda e mídia:\n${approvalUrl}`;
+        return `Olá ${selectedClient.contactName}! 🎨 Um novo projeto de post ("${postTitle}") está disponível no Social Media 5.0 para sua aprovação.\n\n🔗 Acesse para ver a prévia, aprovar ou solicitar ajustes:\n${approvalUrl}`;
       case 'pedido_alteracao':
         return `Atenção Equipe Social Media! ⚠️ O cliente ${selectedClient.name} solicitou ajustes na publicação "${postTitle}". Por favor verifique o comentário no app.`;
       case 'aprovacao':

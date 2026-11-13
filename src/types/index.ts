@@ -49,6 +49,8 @@ export interface Comment {
   authorRole: UserRole;
   authorName: string;
   avatarUrl?: string;
+  authorPhone?: string; // Número do WhatsApp de quem respondeu / comentou
+  authorEmail?: string; // E-mail de quem comentou
   text: string;
   timestamp: string;
   isInternalDebate?: boolean; // Debate entre gestor e social media

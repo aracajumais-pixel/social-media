@@ -7,7 +7,7 @@ import {
 import { 
   ClientProject, PostItem, InspirationFile, BillingReceipt, 
   UserRole, PostStatus, WhatsAppNotificationPayload, SocialMediaUser, SaaSPaymentProof, SocialNetwork,
-  ClientTask, TaskStatus
+  ClientTask, TaskStatus, Comment
 } from './types';
 
 import { Header } from './components/Header';
@@ -32,7 +32,7 @@ import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl }
 import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase, syncReceiptToSupabase, getSupabaseClient } from './lib/supabase';
 import { openWhatsAppDirect } from './utils/whatsappHelper';
 
-import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight, Eye } from 'lucide-react';
+import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight, Eye, Bell, ChevronRight, ClipboardCheck } from 'lucide-react';
 
 const INITIAL_DEMO_TASKS: ClientTask[] = [
   {
@@ -474,15 +474,24 @@ export default function App() {
     }));
   };
 
-  const handleAddComment = (postId: string, commentText: string) => {
-    const authorName = 
-      currentUserRole === 'cliente' ? `${selectedClient.contactName} (Cliente)` :
-      currentUserRole === 'social_media' ? 'Social Media' : 'Gestor';
+  const handleAddComment = (
+    postId: string, 
+    commentText: string,
+    metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string }
+  ) => {
+    const authorName = metadata?.authorName || (
+      currentUserRole === 'cliente' ? `${selectedClient.contactName || 'Cliente'} (Cliente)` :
+      currentUserRole === 'social_media' ? (responsibleSm?.name || 'Social Media') : 'Gestor'
+    );
+    const authorPhone = metadata?.authorPhone || (currentUserRole === 'cliente' ? selectedClient.whatsappNumber : responsibleSm?.whatsapp);
+    const authorEmail = metadata?.authorEmail || (currentUserRole === 'cliente' ? (selectedClient as any).email : responsibleSm?.email);
 
-    const newCommentObj = {
+    const newCommentObj: Comment = {
       id: `c-${Date.now()}`,
       authorRole: currentUserRole,
       authorName,
+      authorPhone,
+      authorEmail,
       text: commentText,
       timestamp: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
@@ -651,7 +660,7 @@ export default function App() {
   const handleSendWhatsAppAlert = (postId: string, messageText: string) => {
     const targetPost = posts.find(p => p.id === postId);
     const tokenUrl = targetPost ? buildApprovalUrl(targetPost.approvalToken || 'token') : '';
-    const textToSend = messageText.trim() || `Olá! Temos um projeto de post ("${targetPost?.title || 'Novo Post'}") da ${selectedClient.name} pronto para sua aprovação:\n\n🔗 Acesse para aprovar: ${tokenUrl}`;
+    const textToSend = messageText.trim() || `Olá! Temos um projeto de post ("${targetPost?.title || 'Novo Post'}") da ${selectedClient.name} pronto para sua aprovação:\n\n🔗 Acesse para ver a prévia, aprovar ou solicitar ajustes:\n${tokenUrl}`;
     openWhatsAppDirect(selectedClient.whatsappNumber, textToSend);
   };
 
@@ -869,12 +878,14 @@ export default function App() {
         {activeTab === 'posts' && (
           <div className="space-y-6">
             
-            {/* Banner de Identificação Exclusiva do Espaço e Isolamento de Rascunhos */}
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950/70 to-purple-950/70 border border-indigo-500/30 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5">
+            {/* ============================================================ */}
+            {/* FORMATO ENXUTO: CARD 1 - CABEÇALHO DO CLIENTE & SOCIAL MEDIA */}
+            {/* ============================================================ */}
+            <div className="bg-gradient-to-r from-[#0c1024] via-[#0f142d] to-[#14102d] border border-indigo-900/60 rounded-3xl p-3 sm:p-4 shadow-xl flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <div 
                   onClick={() => setIsClientCardOpen(true)}
-                  className="w-12 h-12 rounded-2xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer transition-all hover:scale-105 shadow-md group"
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-[#141b38] hover:bg-[#1a234a] border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer transition-all hover:scale-105 shadow-md group"
                   title="Clique para visualizar o card de dados cadastrados do cliente"
                 >
                   {selectedClient.logoUrl ? (
@@ -883,147 +894,137 @@ export default function App() {
                     <Building2 className="w-6 h-6 text-indigo-400 group-hover:scale-110 transition-transform" />
                   )}
                 </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">
-                      {currentUserRole === 'cliente' ? 'Mural Exclusivo do Cliente' : 'Espaço Exclusivo de Atendimento'}
+
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/50 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" /> ESPAÇO EXCLUSIVO DE ATENDIMENTO
                     </span>
-                    <span className="text-xs text-slate-400">• Espaço Isolado</span>
                   </div>
-                  <h2 
-                    onClick={() => setIsClientCardOpen(true)}
-                    className="text-base sm:text-lg font-bold text-white mt-0.5 cursor-pointer hover:text-indigo-300 transition-colors flex items-center gap-2 group flex-wrap"
-                    title="Clique para visualizar o card de dados cadastrados deste cliente"
-                  >
-                    <span>{selectedClient.name}</span>
-                    <span className="text-[10px] font-semibold text-indigo-300 bg-indigo-950/70 border border-indigo-500/40 px-2 py-0.5 rounded-full group-hover:bg-indigo-600 group-hover:text-white transition-all flex items-center gap-1">
-                      <Eye className="w-3 h-3" /> Ver Dados Cadastrados
+
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <h2 
+                      onClick={() => setIsClientCardOpen(true)}
+                      className="text-sm sm:text-base font-bold text-white cursor-pointer hover:text-indigo-300 transition-colors flex items-center gap-1.5"
+                      title="Clique para visualizar os dados cadastrados deste cliente"
+                    >
+                      <span>{selectedClient.name}</span>
+                    </h2>
+                    <span className="text-slate-500 text-xs hidden sm:inline">•</span>
+                    <span className="text-xs sm:text-sm text-slate-200 font-medium">
+                      Social Media: <strong className="text-white font-bold">{responsibleSm?.name || 'Social Media'}</strong>
                     </span>
-                  </h2>
-                  <p className="text-xs text-slate-300">
-                    Atendimento exclusivo por: <strong className="text-purple-300 font-bold">{responsibleSm?.name || 'Social Media Responsável'}</strong>
-                    {responsibleSm?.companyName ? ` (${responsibleSm.companyName})` : ''}
-                    {responsibleSm?.whatsapp && (
-                      <span className="ml-2 text-emerald-400 font-medium"> • WhatsApp: {responsibleSm.whatsapp}</span>
-                    )}
-                  </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl px-3.5 py-2 text-xs shrink-0 flex items-center gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <div>
-                  <div className="text-[10px] text-slate-400 font-medium">Isolamento Seguro de Projetos</div>
-                  <div className="font-bold text-slate-200">
-                    Exibindo apenas projetos de <span className="text-indigo-300">{responsibleSm?.name || 'Social Media'}</span>
-                  </div>
-                </div>
-              </div>
+              {/* Botão de Atalho para Tarefas */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('tasks')}
+                className="border border-amber-500/70 hover:border-amber-400 bg-amber-950/20 hover:bg-amber-950/40 text-amber-400 hover:text-amber-300 font-bold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl flex items-center gap-2 transition-all shadow-md shrink-0 hover:scale-[1.02] group"
+                title="Acessar tarefas solicitadas pelo cliente"
+              >
+                <ClipboardCheck className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+                <span className="text-xs sm:text-sm font-bold text-white">
+                  {clientTasks.length} {clientTasks.length === 1 ? 'Tarefa' : 'Tarefas'}
+                </span>
+                <ChevronRight className="w-4 h-4 text-amber-400" />
+              </button>
             </div>
 
-            {/* Aviso de Tarefas do Cliente Pendentes */}
-            {pendingTasksCount > 0 && (
-              <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-indigo-950/40 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-                    <ClipboardList className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                      <span>{pendingTasksCount} {pendingTasksCount === 1 ? 'tarefa solicitada pelo cliente pendente' : 'tarefas solicitadas pelo cliente pendentes'}</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
-                        Ação Necessária
-                      </span>
-                    </h4>
-                    <p className="text-[11px] text-slate-400">
-                      {currentUserRole === 'cliente'
-                        ? 'Acompanhe o andamento das solicitações que você enviou ao seu Social Media.'
-                        : 'Transforme as solicitações do cliente em projetos de publicações diretamente.'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('tasks')}
-                  className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-white border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition-all self-end sm:self-center shrink-0"
-                >
-                  <span>Ver Tarefas</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            {/* Top Toolbar: Search, Status Filter & Create Post */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
+            {/* ============================================================ */}
+            {/* FORMATO ENXUTO: CARD 2 - BARRA DE BUSCA, FILTROS & AÇÕES   */}
+            {/* ============================================================ */}
+            <div className="bg-[#0c1024] border border-indigo-900/60 rounded-3xl p-2.5 sm:p-3 shadow-xl flex flex-wrap items-center justify-between gap-2.5">
               
-              {/* Search input */}
-              <div className="relative flex-1 max-w-md">
+              {/* Campo de Pesquisa em Pill */}
+              <div className="relative flex-1 min-w-[200px] max-w-xs sm:max-w-sm">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Buscar por título ou palavras-chave da legenda..."
+                  placeholder="Buscar por título ou palavra-chave da legenda..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-slate-950 text-xs text-white pl-10 pr-4 py-2.5 rounded-2xl border border-slate-800 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-[#070b16] text-xs text-white pl-9 pr-4 py-2 rounded-full border border-slate-800/80 focus:outline-none focus:border-indigo-500 placeholder-slate-500"
                 />
               </div>
 
-              {/* Status Filters */}
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+              {/* Filtros em Pill e Botões de Ação */}
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                
+                {/* Todos */}
                 <button
+                  type="button"
                   onClick={() => setStatusFilter('todos')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                    statusFilter === 'todos' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
+                    statusFilter === 'todos' 
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' 
+                      : 'bg-[#0a0f21] text-slate-300 hover:text-white border border-slate-800'
                   }`}
                 >
                   Todos ({clientPosts.length})
                 </button>
 
+                {/* Projeto */}
                 <button
+                  type="button"
                   onClick={() => setStatusFilter('rascunho')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 ${
-                    statusFilter === 'rascunho' ? 'bg-amber-600 text-white' : 'bg-slate-950 text-amber-400 hover:text-white border border-slate-800'
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                    statusFilter === 'rascunho' 
+                      ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30' 
+                      : 'border-amber-500/70 text-amber-400 bg-amber-950/20 hover:bg-amber-950/40'
                   }`}
                 >
-                  <Clock className="w-3.5 h-3.5" /> Projeto ({draftsCount})
+                  <span className="w-3.5 h-3.5 rounded-full border border-amber-400 text-amber-400 text-[10px] font-black flex items-center justify-center leading-none">!</span>
+                  <span>Projeto ({draftsCount})</span>
                 </button>
 
+                {/* Alterar */}
                 <button
+                  type="button"
                   onClick={() => setStatusFilter('alterar')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 ${
-                    statusFilter === 'alterar' ? 'bg-rose-600 text-white' : 'bg-slate-950 text-rose-400 hover:text-white border border-slate-800'
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                    statusFilter === 'alterar' 
+                      ? 'bg-rose-600 text-white border-rose-500 shadow-md shadow-rose-600/30' 
+                      : 'border-rose-500/70 text-rose-400 bg-rose-950/20 hover:bg-rose-950/40'
                   }`}
                 >
-                  <AlertCircle className="w-3.5 h-3.5" /> Alterar ({changesRequestedCount})
+                  <span className="w-3.5 h-3.5 rounded-full border border-rose-400 text-rose-400 text-[10px] font-black flex items-center justify-center leading-none">!</span>
+                  <span>Alterar ({changesRequestedCount})</span>
                 </button>
 
+                {/* Aprovado */}
                 <button
+                  type="button"
                   onClick={() => setStatusFilter('aprovado')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 ${
-                    statusFilter === 'aprovado' ? 'bg-emerald-600 text-white' : 'bg-slate-950 text-emerald-400 hover:text-white border border-slate-800'
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                    statusFilter === 'aprovado' 
+                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30' 
+                      : 'border-emerald-500/70 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-950/40'
                   }`}
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Aprovado ({approvedCount})
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Aprovado ({approvedCount})</span>
                 </button>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Botão de Enviar Tela Completa do Mural via WhatsApp */}
+                {/* Enviar Mural via WhatsApp */}
                 <button
                   type="button"
                   onClick={handleSendEntireMuralWhatsApp}
-                  className="px-4 py-2.5 rounded-2xl bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md hover:scale-[1.02]"
-                  title="Enviar link completo do Mural de Posts para o WhatsApp do cliente"
+                  className="px-3.5 py-1.5 rounded-full border border-emerald-500/60 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/30 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm hover:scale-[1.02]"
+                  title="Enviar link completo do Mural para o WhatsApp do cliente"
                 >
-                  <MessageCircle className="w-4 h-4 text-emerald-400" />
+                  <Bell className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Enviar Mural via WhatsApp</span>
                 </button>
 
-                {/* Create Post Button (Gestor or Social Media) */}
+                {/* + Novo Projeto */}
                 {(currentUserRole === 'social_media' || currentUserRole === 'gestor') && (
                   <button
+                    type="button"
                     onClick={() => setIsNewPostModalOpen(true)}
-                    className="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all shrink-0 hover:scale-[1.02]"
+                    className="px-4 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 transition-all shrink-0 hover:scale-[1.02]"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Novo Projeto</span>
@@ -1203,9 +1204,9 @@ export default function App() {
         isOpen={!!publicApprovalPost}
         onClose={() => setPublicApprovalPost(null)}
         onApprove={(postId) => handleUpdatePostStatus(postId, 'aprovado')}
-        onRequestChange={(postId, text) => {
+        onRequestChange={(postId, text, metadata) => {
           handleUpdatePostStatus(postId, 'alterar');
-          handleAddComment(postId, `[Instrução de Ajuste]: ${text}`);
+          handleAddComment(postId, `[Instrução de Ajuste]: ${text}`, metadata);
         }}
         onAddComment={handleAddComment}
         onRenewToken={handleRenewToken}
