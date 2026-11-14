@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { PostItem, ClientProject, SocialMediaUser } from '../types';
+import { PostItem, ClientProject, SocialMediaUser, UserRole } from '../types';
 import { 
   X, CheckCircle, AlertCircle, Send, 
   MessageSquare, ShieldCheck, Calendar, Check, RefreshCw, ArrowLeft,
-  Sparkles, Clock, Phone, Mail
+  Sparkles, Clock
 } from 'lucide-react';
 import { getTimeRemainingText, isTokenExpired, buildApprovalUrl } from '../utils/token';
 import { DriveImage } from './DriveImage';
@@ -15,8 +15,8 @@ interface ApprovalPublicModalProps {
   isOpen: boolean;
   onClose: () => void;
   onApprove: (postId: string) => void;
-  onRequestChange: (postId: string, commentText: string, metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string }) => void;
-  onAddComment: (postId: string, text: string, metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string }) => void;
+  onRequestChange: (postId: string, commentText: string, metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string; authorRole?: UserRole }) => void;
+  onAddComment: (postId: string, text: string, metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string; authorRole?: UserRole }) => void;
   onRenewToken?: (postId: string) => void;
 }
 
@@ -70,6 +70,8 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
     return true;
   });
 
+  const clientDisplayName = (client?.contactName || client?.name || 'Cliente').trim();
+
   const handleApprove = () => {
     if (post.status !== 'aprovado') {
       onApprove(post.id);
@@ -80,9 +82,8 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
       );
       if (!alreadyHasApproval) {
         onAddComment(post.id, '🎉 Projeto aprovado pelo cliente com sucesso!', {
-          authorPhone: client?.whatsappNumber,
-          authorEmail: (client as any)?.email,
-          authorName: `${client?.contactName || client?.name || 'Cliente'} (Cliente)`
+          authorName: clientDisplayName,
+          authorRole: 'cliente'
         });
       }
       setApprovedFeedback(true);
@@ -93,11 +94,10 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
     e.preventDefault();
     if (!chatMessage.trim()) return;
 
-    // Registra a solicitação de ajuste e o comentário na discussão com os dados de identificação do cliente
+    // Registra a solicitação de ajuste e o comentário apenas com o nome do cliente
     onRequestChange(post.id, chatMessage.trim(), {
-      authorPhone: client?.whatsappNumber,
-      authorEmail: (client as any)?.email,
-      authorName: `${client?.contactName || client?.name || 'Cliente'} (Cliente)`
+      authorName: clientDisplayName,
+      authorRole: 'cliente'
     });
     setChatMessage('');
   };
@@ -362,18 +362,6 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
                       <div className={`flex flex-col ${isClient ? 'items-end' : 'items-start'} max-w-[82%]`}>
                         <div className="text-[10px] text-slate-400 mb-0.5 flex flex-wrap items-center gap-1.5 font-medium">
                           <span className="text-white font-semibold">{comment.authorName}</span>
-                          {comment.authorPhone && (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
-                              <Phone className="w-2.5 h-2.5" />
-                              {comment.authorPhone}
-                            </span>
-                          )}
-                          {comment.authorEmail && (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded-full bg-blue-950/80 text-blue-300 border border-blue-800/50">
-                              <Mail className="w-2.5 h-2.5" />
-                              {comment.authorEmail}
-                            </span>
-                          )}
                           <span>{comment.timestamp}</span>
                         </div>
 

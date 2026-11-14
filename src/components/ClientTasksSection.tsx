@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ClientTask, TaskStatus, UserRole, ClientProject, PostItem } from '../types';
 import { 
   ClipboardList, Plus, Calendar, Clock, CheckCircle2, AlertCircle, 
-  Search, Sparkles, ArrowRight, Edit3, Trash2, X, Check, Building2, UserCheck, Layers, ExternalLink
+  Search, Sparkles, ArrowRight, Edit3, Trash2, X, Check, Building2, UserCheck, Layers, ExternalLink, RefreshCw, Database, Copy
 } from 'lucide-react';
 
 interface ClientTasksSectionProps {
@@ -15,6 +15,9 @@ interface ClientTasksSectionProps {
   onDeleteTask: (taskId: string) => void;
   onConvertTaskToPost: (task: ClientTask) => void;
   onOpenPostDetails?: (postId: string) => void;
+  tasksDbWarning?: boolean;
+  onManualSync?: () => void;
+  isSyncing?: boolean;
 }
 
 export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
@@ -26,8 +29,12 @@ export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
   onUpdateTask,
   onDeleteTask,
   onConvertTaskToPost,
-  onOpenPostDetails
+  onOpenPostDetails,
+  tasksDbWarning = false,
+  onManualSync,
+  isSyncing = false
 }) => {
+  const [copiedTaskSql, setCopiedTaskSql] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'todos' | TaskStatus>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -185,15 +192,71 @@ export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreateModal}
-          className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-indigo-600 hover:from-amber-500 hover:to-indigo-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-600/25 transition-all shrink-0 hover:scale-[1.02]"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Solicitar Nova Tarefa</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          {onManualSync && (
+            <button
+              type="button"
+              onClick={onManualSync}
+              disabled={isSyncing}
+              className="px-3.5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all disabled:opacity-50"
+              title="Buscar tarefas atualizadas do banco de dados"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-indigo-600 hover:from-amber-500 hover:to-indigo-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-600/25 transition-all shrink-0 hover:scale-[1.02]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Solicitar Nova Tarefa</span>
+          </button>
+        </div>
       </div>
+
+      {tasksDbWarning && (
+        <div className="bg-amber-950/50 border border-amber-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-start gap-2.5 text-amber-200">
+            <Database className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <strong className="block text-white font-bold">Tabela "client_tasks" ainda não criada no Supabase</strong>
+              <span className="text-amber-200/90">
+                Execute o SQL da tabela no Supabase SQL Editor para que as tarefas sincronizem diretamente no seu banco Supabase entre todos os dispositivos.
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const sql = `CREATE TABLE IF NOT EXISTS client_tasks (
+  id TEXT PRIMARY KEY,
+  client_project_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  deadline TEXT,
+  status TEXT DEFAULT 'novo',
+  linked_post_id TEXT,
+  created_by_role TEXT DEFAULT 'cliente',
+  created_by_name TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir acesso total client_tasks" ON client_tasks;
+CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);`;
+              navigator.clipboard.writeText(sql);
+              setCopiedTaskSql(true);
+              setTimeout(() => setCopiedTaskSql(false), 3500);
+            }}
+            className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-[11px] flex items-center gap-1.5 shrink-0"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>{copiedTaskSql ? 'SQL Copiado!' : 'Copiar SQL client_tasks'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Toolbar: Filtros & Busca */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">

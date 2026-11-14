@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { PostItem, UserRole, SocialNetwork } from '../types';
+import { PostItem, UserRole } from '../types';
 import { 
   CheckCircle, AlertCircle, Clock, MessageSquare, 
-  Instagram, Facebook, Linkedin, Video, Layers, Calendar, ExternalLink, Key, ShieldCheck,
+  Video, Layers, Calendar, Key, ShieldCheck,
   Trash2, AlertTriangle, Share2
 } from 'lucide-react';
 import { getTimeRemainingText, isTokenExpired } from '../utils/token';
@@ -64,21 +64,6 @@ export const PostCard: React.FC<PostCardProps> = ({
     }
   };
 
-  const renderNetworkIcon = (network: SocialNetwork) => {
-    switch (network) {
-      case 'instagram':
-        return <Instagram className="w-4 h-4 text-pink-400" title="Instagram" />;
-      case 'facebook':
-        return <Facebook className="w-4 h-4 text-blue-400" title="Facebook" />;
-      case 'linkedin':
-        return <Linkedin className="w-4 h-4 text-sky-400" title="LinkedIn" />;
-      case 'tiktok':
-        return <span className="text-xs font-black text-emerald-300" title="TikTok">TT</span>;
-      default:
-        return null;
-    }
-  };
-
   const formattedDate = new Date(post.scheduledDate).toLocaleDateString('pt-BR', {
     day: '2-digit',
     month: 'short',
@@ -125,22 +110,71 @@ export const PostCard: React.FC<PostCardProps> = ({
           </div>
         </div>
 
-        {/* Caption & Info Body */}
-        <div className="p-4 space-y-3">
-          
-          {/* Social Networks List & Token Expiration Pill */}
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
-            <span className="text-xs text-slate-400 font-medium">Canais:</span>
-            <div className="flex items-center gap-2">
-              {post.socialNetworks.map(net => (
-                <div key={net} className="p-1 rounded-md bg-slate-800/80 border border-slate-700/50">
-                  {renderNetworkIcon(net)}
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* Botões Comentar e Aprovar lado a lado imediatamente abaixo da foto (50% cada da largura do preview) */}
+        <div className="grid grid-cols-2 w-full border-t border-b border-slate-800/80 divide-x divide-slate-800/80">
+          <button
+            type="button"
+            onClick={() => onOpenDetails(post)}
+            className="w-full py-2.5 px-3 bg-slate-800/90 hover:bg-slate-700 text-slate-100 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Comentar</span>
+            {post.comments.length > 0 && (
+              <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold ml-0.5">
+                {post.comments.length}
+              </span>
+            )}
+          </button>
 
-          {/* Token Hash Expiration Badge */}
+          <button
+            type="button"
+            disabled={post.status === 'aprovado' || !onQuickApprove}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (post.status !== 'aprovado' && onQuickApprove) {
+                onQuickApprove(post.id);
+              }
+            }}
+            className={`w-full py-2.5 px-3 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+              post.status === 'aprovado'
+                ? 'bg-emerald-600/25 text-emerald-300 cursor-default'
+                : 'bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white'
+            }`}
+            title={post.status === 'aprovado' ? 'Projeto já aprovado' : 'Aprovar Publicação'}
+          >
+            <CheckCircle className="w-3.5 h-3.5" />
+            <span>{post.status === 'aprovado' ? 'Aprovado' : 'Aprovar'}</span>
+          </button>
+        </div>
+
+        {/* Caption, Chat & Token Body */}
+        <div className="p-4 pt-3 space-y-3">
+          {/* Caption Snippet */}
+          <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed font-normal bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
+            {post.caption}
+          </p>
+
+          {/* Latest Comment / Discussion Snippet (Chat) */}
+          {latestComment ? (
+            <div className="bg-slate-850/80 p-2.5 rounded-xl border border-slate-800 text-xs space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-200 text-[11px] flex items-center gap-1">
+                  <MessageSquare className="w-3 h-3 text-indigo-400" />
+                  {latestComment.authorName}:
+                </span>
+                <span className="text-[10px] text-slate-500">{latestComment.timestamp}</span>
+              </div>
+              <p className="text-slate-400 text-[11px] line-clamp-1 italic">
+                "{latestComment.text}"
+              </p>
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-500 italic flex items-center gap-1 py-1">
+              <MessageSquare className="w-3 h-3" /> Sem comentários no momento
+            </div>
+          )}
+
+          {/* Token Hash Expiration Badge (Última informação do card abaixo do chat) */}
           <div className="flex items-center justify-between bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800/80 text-[11px]">
             <span className="text-slate-400 font-medium flex items-center gap-1.5">
               <Key className="w-3 h-3 text-indigo-400" /> Token 5d:
@@ -161,118 +195,45 @@ export const PostCard: React.FC<PostCardProps> = ({
               <span>{timeInfo.text}</span>
             </button>
           </div>
-
-          {/* Caption Snippet */}
-          <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed font-normal bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
-            {post.caption}
-          </p>
-
-          {/* Latest Comment / Discussion Snippet */}
-          {latestComment ? (
-            <div className="bg-slate-850/80 p-2.5 rounded-xl border border-slate-800 text-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-200 text-[11px] flex items-center gap-1">
-                  <MessageSquare className="w-3 h-3 text-indigo-400" />
-                  {latestComment.authorName}:
-                </span>
-                <span className="text-[10px] text-slate-500">{latestComment.timestamp}</span>
-              </div>
-              <p className="text-slate-400 text-[11px] line-clamp-1 italic">
-                "{latestComment.text}"
-              </p>
-            </div>
-          ) : (
-            <div className="text-[11px] text-slate-500 italic flex items-center gap-1 py-1">
-              <MessageSquare className="w-3 h-3" /> Sem comentários no momento
-            </div>
-          )}
-
         </div>
       </div>
 
-      {/* Action Bar Footer */}
-      <div className="p-4 pt-0 space-y-2">
-        <div className="flex items-center gap-2 pt-2 border-t border-slate-800/80">
-          
-          <button
-            onClick={() => onOpenDetails(post)}
-            className="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Ver & Debater</span>
-            {post.comments.length > 0 && (
-              <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold ml-1">
-                {post.comments.length}
-              </span>
-            )}
-          </button>
-
-          {/* Direct Approval / Change Action for Client or Gestor */}
-          {(currentUserRole === 'cliente' || currentUserRole === 'gestor') && (
-            <div className="flex items-center gap-1.5">
-              {post.status !== 'aprovado' && onQuickApprove && (
-                <button
-                  onClick={() => onQuickApprove(post.id)}
-                  className="py-2 px-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
-                  title="Aprovar Publicação"
-                >
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Aprovar</span>
-                </button>
-              )}
-
-              {post.status !== 'alterar' && (
-                <button
-                  onClick={() => {
-                    if (onQuickRequestChange) {
-                      onQuickRequestChange(post.id);
-                    } else {
-                      onOpenDetails(post);
-                    }
-                  }}
-                  className="py-2 px-3 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
-                  title="Solicitar Revisão"
-                >
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Revisar</span>
-                </button>
-              )}
+      {/* Action Bar Footer (Apenas Excluir para equipe e Postar no Meta quando aprovado) */}
+      {(((currentUserRole === 'gestor' || currentUserRole === 'social_media') && onDeletePost) || post.status === 'aprovado') && (
+        <div className="p-4 pt-0 space-y-2">
+          {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && onDeletePost && (
+            <div className="flex items-center justify-end pt-2 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteConfirm(true);
+                }}
+                className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center justify-center transition-colors shrink-0"
+                title="Excluir Projeto com Confirmação"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 
-          {/* Botão de Excluir Projeto (Gestor e Social Media) */}
-          {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && post.status === 'rascunho' && onDeletePost && (
+          {/* Botão de Postar no Meta Business / App para Posts Aprovados */}
+          {post.status === 'aprovado' && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setShowDeleteConfirm(true);
+                setIsPublishModalOpen(true);
               }}
-              className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center justify-center transition-colors shrink-0"
-              title="Excluir Projeto"
+              className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 transition-all hover:scale-[1.01] mt-1"
+              title="Abrir Meta Business Suite ou aplicativo para postar"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Share2 className="w-3.5 h-3.5 text-white" />
+              <span>Postar no Meta Business / App</span>
             </button>
           )}
-
         </div>
-
-        {/* Botão de Postar no Meta Business / App para Posts Aprovados */}
-        {post.status === 'aprovado' && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsPublishModalOpen(true);
-            }}
-            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 transition-all hover:scale-[1.01] mt-1"
-            title="Abrir Meta Business Suite ou aplicativo para postar"
-          >
-            <Share2 className="w-3.5 h-3.5 text-white" />
-            <span>Postar no Meta Business / App</span>
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Modal para Postar no Meta Business ou Apps */}
       <PublishModal
@@ -295,17 +256,22 @@ export const PostCard: React.FC<PostCardProps> = ({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white">Excluir Projeto</h3>
-                <p className="text-[11px] text-slate-400">Ação permanente</p>
+                <p className="text-[11px] text-slate-400">Confirmação obrigatória</p>
               </div>
             </div>
 
-            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-1.5">
+            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-2">
               <p>
                 Tem certeza de que deseja apagar o projeto <strong className="text-white">"{post.title}"</strong>?
               </p>
               <p className="text-[11px] text-slate-400">
-                Esta publicação será removida permanentemente do sistema e do Supabase.
+                Esta publicação será removida permanentemente do mural e do Supabase.
               </p>
+              {post.status === 'aprovado' && (
+                <div className="p-2.5 rounded-xl bg-amber-950/50 border border-amber-500/40 text-amber-200 text-[11px] leading-relaxed">
+                  <strong>Auditoria de Faturamento:</strong> Este projeto já possui registro oficial de aprovação. Mesmo após excluir o card do mural, o registro de aprovação permanece preservado para computação de faturamento.
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-1">

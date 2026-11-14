@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { UserRole, MetricsVisibility } from '../types';
-import { CheckCircle2, Lightbulb, FileText, BarChart3, Settings, Lock, Sparkles, BookOpen, FileSpreadsheet, ClipboardList } from 'lucide-react';
+import { CheckCircle2, Lightbulb, FileText, BarChart3, Settings, Lock, Sparkles, BookOpen, FileSpreadsheet, ClipboardList, Cake } from 'lucide-react';
 
-export type TabType = 'posts' | 'tasks' | 'inspirations' | 'billing' | 'metrics' | 'settings' | 'admin' | 'book' | 'market';
+export type TabType = 'posts' | 'tasks' | 'inspirations' | 'birthdays' | 'billing' | 'metrics' | 'settings' | 'admin' | 'book' | 'market';
 
 interface NavigationProps {
   activeTab: TabType;
@@ -13,6 +13,7 @@ interface NavigationProps {
   changesRequestedCount: number;
   inspirationsCount: number;
   pendingTasksCount?: number;
+  birthdaysCount?: number;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -23,7 +24,8 @@ export const Navigation: React.FC<NavigationProps> = ({
   draftsCount,
   changesRequestedCount,
   inspirationsCount,
-  pendingTasksCount = 0
+  pendingTasksCount = 0,
+  birthdaysCount = 0
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isMouseDown, setIsMouseDown] = useState(false);
@@ -88,7 +90,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             }`}
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>Mural de Posts & Aprovações</span>
+            <span>Mural</span>
             {(draftsCount > 0 || changesRequestedCount > 0) && (
               <span className="flex items-center gap-1 ml-1">
                 {draftsCount > 0 && (
@@ -145,6 +147,24 @@ export const Navigation: React.FC<NavigationProps> = ({
             )}
           </button>
 
+          {/* Tab: Aniversariantes (Gestor, Social Media e Cliente com login auditado) */}
+          <button
+            onClick={() => onTabChange('birthdays')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
+              activeTab === 'birthdays'
+                ? 'bg-pink-600 text-white shadow-md shadow-pink-600/20'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Cake className={`w-4 h-4 ${activeTab === 'birthdays' ? 'text-white' : 'text-pink-400'}`} />
+            <span>Aniversariantes</span>
+            {birthdaysCount > 0 && (
+              <span className="bg-pink-500/20 text-pink-200 text-[11px] font-bold px-1.5 py-0.2 rounded-full border border-pink-500/30">
+                {birthdaysCount}
+              </span>
+            )}
+          </button>
+
           {/* Tab 3: Fechamento & Recibos PDF (Gestor & Social Media) */}
           {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
             <button
@@ -160,27 +180,29 @@ export const Navigation: React.FC<NavigationProps> = ({
             </button>
           )}
 
-          {/* Tab 4: Painel de Métricas Meta / Google */}
-          <button
-            onClick={() => {
-              if (canViewMetrics) {
-                onTabChange('metrics');
-              }
-            }}
-            disabled={!canViewMetrics}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
-              !canViewMetrics
-                ? 'opacity-40 cursor-not-allowed text-slate-500'
-                : activeTab === 'metrics'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
-            title={!canViewMetrics ? 'O Gestor restringiu o acesso ao painel de métricas para este perfil' : 'Meta Business Suite & Google Analytics'}
-          >
-            <BarChart3 className="w-4 h-4 text-cyan-400" />
-            <span>Painel de Métricas</span>
-            {!canViewMetrics && <Lock className="w-3.5 h-3.5 text-slate-500" />}
-          </button>
+          {/* Tab 4: Painel de Métricas Meta / Google (Oculto para Cliente) */}
+          {currentUserRole !== 'cliente' && (
+            <button
+              onClick={() => {
+                if (canViewMetrics) {
+                  onTabChange('metrics');
+                }
+              }}
+              disabled={!canViewMetrics}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
+                !canViewMetrics
+                  ? 'opacity-40 cursor-not-allowed text-slate-500'
+                  : activeTab === 'metrics'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+              title={!canViewMetrics ? 'O Gestor restringiu o acesso ao painel de métricas para este perfil' : 'Meta Business Suite & Google Analytics'}
+            >
+              <BarChart3 className="w-4 h-4 text-cyan-400" />
+              <span>Painel de Métricas</span>
+              {!canViewMetrics && <Lock className="w-3.5 h-3.5 text-slate-500" />}
+            </button>
+          )}
 
           {/* Tab 5: Clientes */}
           {(currentUserRole === 'gestor' || currentUserRole === 'social_media') && (

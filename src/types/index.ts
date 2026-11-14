@@ -91,8 +91,29 @@ export interface PostItem {
   previewCleanedUp?: boolean; // Confirmação do social media para apagar preview
   socialMediaAuthorId?: string;
   linkedTaskId?: string; // ID da tarefa solicitada pelo cliente que originou este post
+  approvedAt?: string; // Data/hora oficial da aprovação para auditoria e faturamento
+  approvedBy?: string; // Nome/identificação de quem aprovou
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ApprovalRecord {
+  id: string;
+  postId: string;
+  postTitle: string;
+  clientProjectId: string;
+  clientName: string;
+  socialMediaId?: string;
+  socialMediaName?: string;
+  approvedAt: string; // ISO string da aprovação oficial
+  approvedByRole: UserRole;
+  approvedByName: string;
+  approvedByPhone?: string;
+  approvedByEmail?: string;
+  pricePerPostSnapshot: number;
+  feePerPostSnapshot: number;
+  billingStatus: 'computado' | 'faturado';
+  postDeletedAt?: string; // Preenchido se o card do post for excluído após a aprovação
 }
 
 export type TaskStatus = 'novo' | 'em_andamento' | 'atendido' | 'concluido';
@@ -266,3 +287,112 @@ export interface WhatsAppNotificationPayload {
   customMessage?: string;
   receiptUrl?: string;
 }
+
+// ============================================================
+// MÓDULO ANIVERSARIANTES (Enquadramento IA, Grupos, Molduras PNG & Auditoria)
+// ============================================================
+
+export interface BirthdayCutoutRect {
+  x: number; // % da largura (0..100)
+  y: number; // % da altura (0..100)
+  width: number; // % da largura (0..100)
+  height: number; // % da altura (0..100)
+}
+
+export interface BirthdayElementTransform {
+  xPct: number; // Centro X em % do canvas (0..100)
+  yPct: number; // Centro Y em % do canvas (0..100)
+  widthPct: number; // Largura da caixa em % (10..95)
+  scale: number; // Escala de tamanho do objeto (0.4..2.5)
+  rotation: number; // Rotação em graus (-180..180)
+}
+
+export interface BirthdayElementSet {
+  date: BirthdayElementTransform;
+  name: BirthdayElementTransform;
+  message: BirthdayElementTransform;
+}
+
+export interface BirthdayBackground {
+  id: string;
+  clientProjectId: string;
+  name: string;
+  imageUrl: string;
+  width: number;
+  height: number;
+  cutoutRect: BirthdayCutoutRect;
+  defaultElements: BirthdayElementSet;
+  aiAnalysisNotes?: string;
+  createdAt: string;
+  createdByName?: string;
+}
+
+export interface BirthdayGroup {
+  id: string;
+  clientProjectId: string;
+  name: string; // Ex: Adultos, Adolescentes, Crianças
+  backgroundId: string;
+  defaultMessageId?: string;
+  createdAt: string;
+}
+
+export interface BirthdayMessage {
+  id: string;
+  clientProjectId: string;
+  title: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface BirthdayPhotoTransform {
+  scale: number; // Zoom relativo ao recorte (1 = ajuste base)
+  offsetX: number; // Deslocamento X em % do recorte (-50..50)
+  offsetY: number; // Deslocamento Y em % do recorte (-50..50)
+  faceBox?: {
+    ymin: number;
+    xmin: number;
+    ymax: number;
+    xmax: number;
+  };
+  aiFramed?: boolean;
+  notes?: string;
+}
+
+export interface BirthdayPerson {
+  id: string;
+  clientProjectId: string;
+  name: string;
+  birthDay: number; // 1..31
+  birthMonth: number; // 1..12
+  groupId: string;
+  messageId: string;
+  photoUrl: string;
+  photoTransform: BirthdayPhotoTransform;
+  elementOverrides?: BirthdayElementSet;
+  createdAt: string;
+  updatedAt: string;
+  createdByName?: string;
+  createdByRole?: UserRole;
+}
+
+export interface BirthdayAuditLog {
+  id: string;
+  clientProjectId: string;
+  actorName: string;
+  actorEmail?: string;
+  actorRole: UserRole;
+  action: string;
+  targetType: 'aniversariante' | 'plano_de_fundo' | 'grupo' | 'mensagem' | 'arte_exportada' | 'login_cliente';
+  targetLabel: string;
+  timestamp: string;
+  details?: string;
+}
+
+export interface BirthdayClientAuthSession {
+  clientId: string;
+  name: string;
+  email: string;
+  authenticatedAt: string;
+  method: 'supabase' | 'audit_login';
+}
+

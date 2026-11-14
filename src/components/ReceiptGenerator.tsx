@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { BillingReceipt, ClientProject, ReceiptLineItem, UserRole, SocialMediaUser, SaaSPaymentProof } from '../types';
+import { BillingReceipt, ClientProject, ReceiptLineItem, UserRole, SocialMediaUser, SaaSPaymentProof, PostItem, ApprovalRecord } from '../types';
 import { printReceiptPDF } from '../utils/pdfGenerator';
 import { valorPorExtenso } from '../utils/numberToWords';
 import { 
   FileText, Printer, Plus, Trash2, Shield, DollarSign, Send, CheckCircle2, 
   Image as ImageIcon, Sparkles, EyeOff, BarChart2, UploadCloud, Clock, Edit3, 
-  RotateCcw, UserCheck, ExternalLink, Copy, Check, Save, History 
+  RotateCcw, UserCheck, ExternalLink, Copy, Check, Save, History, ShieldCheck, AlertTriangle 
 } from 'lucide-react';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 import { SaasBillingClosureModal } from './SaasBillingClosureModal';
@@ -16,6 +16,8 @@ interface ReceiptGeneratorProps {
   currentUserRole: UserRole;
   feePerPost?: number;
   socialMedias?: SocialMediaUser[];
+  posts?: PostItem[];
+  approvalRecords?: ApprovalRecord[];
   onSaveReceipt: (receipt: BillingReceipt) => void;
   onSendWhatsAppReceipt: (receipt: BillingReceipt) => void;
   onAddSaasProof?: (newProof: Omit<SaaSPaymentProof, 'id' | 'submittedAt' | 'status'>) => void;
@@ -27,6 +29,8 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
   currentUserRole,
   feePerPost = 0.50,
   socialMedias = [],
+  posts = [],
+  approvalRecords = [],
   onSaveReceipt,
   onSendWhatsAppReceipt,
   onAddSaasProof
@@ -236,10 +240,79 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     setItems(items.filter(i => i.id !== id));
   };
 
+  // Registros Oficiais de Aprovação para este cliente (reconciliado com posts aprovados ativos)
+  const effectiveFee = assignedSm?.customFeePerPost !== undefined ? assignedSm.customFeePerPost : feePerPost;
+
+  const clientApprovalRecords: ApprovalRecord[] = (() => {
+    const existingForClient = approvalRecords.filter(r => r.clientProjectId === selectedClient.id);
+    const recordedPostIds = new Set(existingForClient.map(r => r.postId));
+    const missingFromPosts: ApprovalRecord[] = posts
+      .filter(p => p.clientProjectId === selectedClient.id && p.status === 'aprovado' && !recordedPostIds.has(p.id))
+      .map(p => ({
+        id: `apr-rec-${p.id}`,
+        postId: p.id,
+        postTitle: p.title,
+        clientProjectId: selectedClient.id,
+        clientName: selectedClient.name,
+        socialMediaId: p.socialMediaAuthorId || assignedSm?.id,
+        socialMediaName: assignedSm?.name,
+        approvedAt: p.approvedAt || p.updatedAt || p.createdAt,
+        approvedByRole: 'cliente',
+        approvedByName: p.approvedBy || selectedClient.contactName || 'Cliente',
+        approvedByPhone: selectedClient.whatsappNumber,
+        approvedByEmail: selectedClient.email,
+        pricePerPostSnapshot: selectedClient.pricePerPost || 150,
+        feePerPostSnapshot: effectiveFee,
+        billingStatus: 'computado'
+      }));
+    return [...existingForClient, ...missingFromPosts].sort(
+      (a, b) => new Date(b.approvedAt).getTime() - new Date(a.approvedAt).getTime()
+    );
+  })();
+
+  const verifiedApprovedCount = clientApprovalRecords.length;
+  const pendingBillingApprovalsCount = clientApprovalRecords.filter(r => r.billingStatus === 'computado').length;
+  const billedApprovalsCount = clientApprovalRecords.filter(r => r.billingStatus === 'faturado').length;
+  const deletedAfterApprovalCount = clientApprovalRecords.filter(r => Boolean(r.postDeletedAt)).length;
+  const verifiedGrossTotal = verifiedApprovedCount * (selectedClient.pricePerPost || 150);
+
+  const handleComputeApprovalsToReceipt = () => {
+    if (verifiedApprovedCount === 0) {
+      setToastMessage('Nenhum registro oficial de aprovação encontrado para este cliente até o momento.');
+      setTimeout(() => setToastMessage(null), 5000);
+      return;
+    }
+
+    const previewTitles = clientApprovalRecords
+      .slice(0, 3)
+      .map(r => r.postTitle)
+      .join(', ');
+    const extraSuffix = clientApprovalRecords.length > 3 ? ` (+${clientApprovalRecords.length - 3} projetos)` : '';
+    const unitPrice = selectedClient.pricePerPost || 150;
+
+    setItems([
+      {
+        id: `item-verified-${Date.now()}`,
+        description: `Projetos aprovados oficialmente (${previewTitles}${extraSuffix})`,
+        quantity: verifiedApprovedCount,
+        unitPrice,
+        total: verifiedApprovedCount * unitPrice
+      }
+    ]);
+    setServiceSummaryText(
+      `criação e publicação de ${verifiedApprovedCount} projeto(s) aprovado(s) oficialmente pelo cliente`
+    );
+    setToastMessage(
+      `✓ Faturamento computado com base nos ${verifiedApprovedCount} registro(s) oficial(is) de aprovação (Total: R$ ${(verifiedApprovedCount * unitPrice).toFixed(2)}).`
+    );
+    setTimeout(() => setToastMessage(null), 6000);
+  };
+
   const subtotal = items.reduce((acc, curr) => acc + curr.total, 0);
   const totalAmount = Math.max(0, subtotal - discount);
   const totalPostsCount = items.reduce((acc, curr) => acc + curr.quantity, 0);
-  const platformFeeTotal = totalPostsCount * feePerPost;
+  const auditedPostsCount = Math.max(totalPostsCount, verifiedApprovedCount);
+  const platformFeeTotal = auditedPostsCount * effectiveFee;
   const valorExtenso = valorPorExtenso(totalAmount);
   const defaultDeclarationText = `A quantia de R$ ${totalAmount.toFixed(2)} (${valorExtenso}), referente a serviços de ${serviceSummaryText || 'criação e postagens de stories, artes para o feed e vídeos editados'}.`;
 
@@ -433,7 +506,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
           >
             <div className="flex items-center justify-between">
               <span className="text-amber-300 text-[10px] block font-bold group-hover:underline flex items-center gap-1">
-                <span>Taxa SaaS de Infraestrutura: R$ {feePerPost.toFixed(2)} por post aprovado</span>
+                <span>Taxa SaaS: R$ {effectiveFee.toFixed(2)}/post ({auditedPostsCount} auditados)</span>
                 <ExternalLink className="w-3 h-3 text-amber-400" />
               </span>
               <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black border border-amber-500/30 shrink-0">
@@ -442,7 +515,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
             </div>
             <span className="text-base font-black text-amber-400 block mt-1">R$ {platformFeeTotal.toFixed(2)}</span>
             <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">
-              Clique para fechar o faturamento entre gestor e social media com a mesma proposta do recibo
+              Base auditada: {verifiedApprovedCount} aprovação(ões) oficial(is) registrada(s)
             </span>
           </div>
 
@@ -451,6 +524,124 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
             <span className="text-base font-black text-purple-400">R$ {(totalAmount - platformFeeTotal).toFixed(2)}</span>
           </div>
         </div>
+      </div>
+
+      {/* APPROVAL RECORD VERIFICATION PANEL FOR BILLING */}
+      <div className="bg-slate-900 border border-emerald-800/40 rounded-3xl p-5 space-y-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex flex-wrap items-center gap-2">
+                <span>Verificação de Registros de Aprovação (Base de Faturamento)</span>
+                <span className="bg-emerald-500/15 text-emerald-300 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border border-emerald-500/30">
+                  {verifiedApprovedCount} {verifiedApprovedCount === 1 ? 'Aprovado' : 'Aprovados'}
+                </span>
+                {deletedAfterApprovalCount > 0 && (
+                  <span className="bg-amber-500/15 text-amber-300 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border border-amber-500/30">
+                    {deletedAfterApprovalCount} Excluído(s) pós-aprovação (Preservado)
+                  </span>
+                )}
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Cada projeto aprovado gera um registro permanente para computação do faturamento do cliente e repasse SaaS, mesmo se o card for removido do mural após a publicação.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleComputeApprovalsToReceipt}
+            disabled={verifiedApprovedCount === 0}
+            className="px-4 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all shrink-0"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Computar Aprovações no Recibo ({verifiedApprovedCount})</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+            <span className="text-slate-400 text-[10px] block font-bold">Aprovações Verificadas</span>
+            <span className="text-sm font-black text-emerald-400">{verifiedApprovedCount} projetos</span>
+          </div>
+          <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+            <span className="text-slate-400 text-[10px] block font-bold">Aguardando Recibo (Computado)</span>
+            <span className="text-sm font-black text-amber-300">{pendingBillingApprovalsCount} projetos</span>
+          </div>
+          <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+            <span className="text-slate-400 text-[10px] block font-bold">Já Faturados em Recibo</span>
+            <span className="text-sm font-black text-indigo-300">{billedApprovalsCount} projetos</span>
+          </div>
+          <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+            <span className="text-slate-400 text-[10px] block font-bold">Faturamento Bruto Verificado</span>
+            <span className="text-sm font-black text-white font-mono">R$ {verifiedGrossTotal.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {verifiedApprovedCount > 0 && totalPostsCount !== verifiedApprovedCount && (
+          <div className="bg-amber-950/50 border border-amber-500/40 rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-200">
+            <div className="flex items-start sm:items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+              <span>
+                Divergência detectada: este recibo está calculando <strong>{totalPostsCount} post(s)</strong>, mas existem <strong>{verifiedApprovedCount} aprovação(ões) oficial(is)</strong> registrada(s) para <strong>{selectedClient.name}</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleComputeApprovalsToReceipt}
+              className="text-[11px] font-extrabold text-amber-950 bg-amber-400 hover:bg-amber-300 px-3 py-1 rounded-xl shrink-0 transition-colors"
+            >
+              Sincronizar Quantidade
+            </button>
+          </div>
+        )}
+
+        {clientApprovalRecords.length === 0 ? (
+          <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 text-center text-xs text-slate-500 italic">
+            Nenhum projeto aprovado encontrado para {selectedClient.name}. Assim que um projeto for aprovado, o registro será listado aqui para faturamento.
+          </div>
+        ) : (
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl divide-y divide-slate-800/70 max-h-52 overflow-y-auto">
+            {clientApprovalRecords.map((rec) => (
+              <div key={rec.id} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="space-y-0.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-white truncate">{rec.postTitle}</span>
+                    {rec.postDeletedAt ? (
+                      <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                        Card excluído pós-aprovação
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-semibold">
+                        Card ativo no mural
+                      </span>
+                    )}
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                      rec.billingStatus === 'faturado'
+                        ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    }`}>
+                      {rec.billingStatus === 'faturado' ? 'Faturado' : 'Computado'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Aprovado por <strong className="text-slate-200">{rec.approvedByName}</strong>
+                    {rec.approvedByPhone ? ` (${rec.approvedByPhone})` : ''} em{' '}
+                    {new Date(rec.approvedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0 font-mono">
+                  <div className="font-bold text-emerald-400">R$ {rec.pricePerPostSnapshot.toFixed(2)}</div>
+                  <div className="text-[10px] text-amber-300">Taxa SaaS: R$ {rec.feePerPostSnapshot.toFixed(2)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -970,8 +1161,8 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
         onClose={() => setIsSaasClosureModalOpen(false)}
         selectedClient={selectedClient}
         socialMedia={assignedSm}
-        postsCount={totalPostsCount}
-        feePerPost={feePerPost}
+        postsCount={auditedPostsCount}
+        feePerPost={effectiveFee}
         period={period}
         currentUserRole={currentUserRole}
         onAddSaasProof={onAddSaasProof}

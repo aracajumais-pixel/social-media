@@ -4,7 +4,7 @@ import {
   X, CheckCircle, Copy, Send, 
   MessageSquare, Trash2, Pencil, Check, Paperclip, Link2, 
   AlertTriangle, Image as ImageIcon, Sparkles, UploadCloud, Loader2,
-  HardDrive, Eye, EyeOff, Calendar, Phone, Mail, User
+  HardDrive, Eye, EyeOff, Calendar, User
 } from 'lucide-react';
 import { buildApprovalUrl } from '../utils/token';
 import { DriveImage } from './DriveImage';
@@ -20,11 +20,13 @@ interface PostDetailModalProps {
   clientWhatsapp?: string;
   clientEmail?: string;
   clientName?: string;
+  clientContactName?: string;
+  socialMediaName?: string;
   onUpdateStatus: (postId: string, newStatus: PostStatus) => void;
   onUpdateSocialNetworks?: (postId: string, networks: SocialNetwork[]) => void;
   onTogglePublished?: (postId: string, isPublished: boolean) => void;
   onConfirmPreviewCleanup?: (postId: string) => void;
-  onAddComment: (postId: string, commentText: string, metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string }) => void;
+  onAddComment: (postId: string, commentText: string, metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string; authorRole?: UserRole }) => void;
   onSendWhatsAppAlert: (postId: string, message: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
   onRenewToken?: (postId: string) => void;
@@ -38,9 +40,9 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onClose,
   currentUserRole,
   inspirations,
-  clientWhatsapp,
-  clientEmail,
   clientName,
+  clientContactName,
+  socialMediaName,
   onUpdateStatus,
   onTogglePublished,
   onConfirmPreviewCleanup,
@@ -71,11 +73,14 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [manualMediaUrl, setManualMediaUrl] = useState(post.mediaUrl || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Identification of User commenting (WhatsApp / E-mail / Nome)
-  const defaultAuthorPhone = currentUserRole === 'cliente' ? (clientWhatsapp || '') : '';
-  const defaultAuthorEmail = currentUserRole === 'cliente' ? (clientEmail || '') : '';
-  const [authorPhoneInput, setAuthorPhoneInput] = useState(defaultAuthorPhone);
-  const [authorEmailInput, setAuthorEmailInput] = useState(defaultAuthorEmail);
+  // Identidade separada por perfil (apenas o nome do remetente)
+  const getDefaultNameForRole = (role: UserRole) => {
+    if (role === 'cliente') return (clientContactName || clientName || 'Cliente').trim();
+    if (role === 'social_media') return (socialMediaName || 'Social Media').trim();
+    return 'Gestor';
+  };
+
+  const [senderNameInput, setSenderNameInput] = useState(() => getDefaultNameForRole(currentUserRole));
   const [showIdentifierConfig, setShowIdentifierConfig] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -88,10 +93,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
     }
   }, [post?.id, post?.title, post?.caption, post?.mediaUrl]);
 
+  // Sempre separa e atualiza o nome do remetente conforme o perfil ativo
   useEffect(() => {
-    if (clientWhatsapp && !authorPhoneInput) setAuthorPhoneInput(clientWhatsapp);
-    if (clientEmail && !authorEmailInput) setAuthorEmailInput(clientEmail);
-  }, [clientWhatsapp, clientEmail]);
+    setSenderNameInput(getDefaultNameForRole(currentUserRole));
+  }, [currentUserRole, socialMediaName, clientContactName, clientName]);
 
   // Scroll to bottom of chat when new comments arrive
   useEffect(() => {
@@ -199,6 +204,9 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
     setTimeout(() => setCopiedTokenUrl(false), 2200);
   };
 
+  // Determine current user display label (only name, strictly by profile)
+  const currentUserDisplayName = senderNameInput.trim() || getDefaultNameForRole(currentUserRole);
+
   // Prevents duplicate approval comments if already approved
   const handleToggleApprove = () => {
     if (post.status !== 'aprovado') {
@@ -212,9 +220,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
       if (!alreadyHasApproval) {
         onAddComment(post.id, '🎉 Projeto aprovado com sucesso!', {
-          authorPhone: authorPhoneInput.trim() || clientWhatsapp,
-          authorEmail: authorEmailInput.trim() || clientEmail,
-          authorName: currentUserRole === 'cliente' ? `${clientName || 'Cliente'} (Cliente)` : 'Social Media'
+          authorName: currentUserDisplayName,
+          authorRole: currentUserRole
         });
       }
 
@@ -228,18 +235,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
     if (!newComment.trim()) return;
 
     onAddComment(post.id, newComment.trim(), {
-      authorPhone: authorPhoneInput.trim() || clientWhatsapp,
-      authorEmail: authorEmailInput.trim() || clientEmail,
-      authorName: currentUserRole === 'cliente' ? `${clientName || 'Cliente'} (Cliente)` : 'Social Media'
+      authorName: currentUserDisplayName,
+      authorRole: currentUserRole
     });
 
     setNewComment('');
   };
-
-  // Determine current user display label
-  const currentUserDisplayName = 
-    currentUserRole === 'cliente' ? (clientName || 'Cliente') :
-    currentUserRole === 'social_media' ? 'Social Media' : 'Gestor';
 
   // Sanitize comments to deduplicate repeated approval messages from previous clicks
   const sanitizedComments = post.comments.filter((comment, index, arr) => {
@@ -672,24 +673,9 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
                           <div className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'} max-w-[85%]`}>
                             
-                            {/* IDENTIFICAÇÃO DO AUTOR COM WHATSAPP OU E-MAIL */}
+                            {/* IDENTIFICAÇÃO DO AUTOR (APENAS NOME E DATA/HORA) */}
                             <div className="text-[10px] text-slate-400 mb-1 flex flex-wrap items-center gap-1.5 font-medium">
                               <span className="text-white font-semibold">{comment.authorName}</span>
-                              
-                              {comment.authorPhone && (
-                                <span className="bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 px-1.5 py-0.2 rounded-md font-mono text-[9px] flex items-center gap-1">
-                                  <Phone className="w-2.5 h-2.5 text-emerald-400" />
-                                  {comment.authorPhone}
-                                </span>
-                              )}
-
-                              {comment.authorEmail && (
-                                <span className="bg-blue-950/80 border border-blue-500/30 text-blue-300 px-1.5 py-0.2 rounded-md font-mono text-[9px] flex items-center gap-1">
-                                  <Mail className="w-2.5 h-2.5 text-blue-400" />
-                                  {comment.authorEmail}
-                                </span>
-                              )}
-
                               <span>{comment.timestamp}</span>
                             </div>
 
@@ -720,22 +706,15 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Identificação de quem está comentando e input */}
+                {/* Identificação de quem está comentando (somente nome por perfil) e input */}
                 <div className="space-y-2 pt-2 border-t border-slate-800/80">
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <div className="flex items-center gap-1.5 truncate">
                       <User className="w-3 h-3 text-indigo-400 shrink-0" />
                       <span className="text-slate-300 font-semibold">{currentUserDisplayName}</span>
-                      {authorPhoneInput && (
-                        <span className="text-emerald-400 flex items-center gap-0.5 truncate text-[10px]">
-                          <Phone className="w-2.5 h-2.5" /> {authorPhoneInput}
-                        </span>
-                      )}
-                      {authorEmailInput && !authorPhoneInput && (
-                        <span className="text-blue-400 flex items-center gap-0.5 truncate text-[10px]">
-                          <Mail className="w-2.5 h-2.5" /> {authorEmailInput}
-                        </span>
-                      )}
+                      <span className="text-[10px] text-slate-500">
+                        ({currentUserRole === 'social_media' ? 'Social Media' : currentUserRole === 'gestor' ? 'Gestor' : 'Cliente'})
+                      </span>
                     </div>
 
                     <button
@@ -743,36 +722,23 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                       onClick={() => setShowIdentifierConfig(!showIdentifierConfig)}
                       className="text-indigo-400 hover:text-indigo-300 font-bold text-[10px] shrink-0"
                     >
-                      {showIdentifierConfig ? 'Fechar' : 'Alterar Contato'}
+                      {showIdentifierConfig ? 'Fechar' : 'Alterar Nome'}
                     </button>
                   </div>
 
-                  {/* Painel opcional para configurar WhatsApp ou E-mail do Comentador */}
+                  {/* Painel opcional para editar apenas o nome do remetente */}
                   {showIdentifierConfig && (
-                    <div className="p-2.5 bg-slate-950 border border-indigo-500/30 rounded-xl space-y-2 animate-fade-in text-xs">
-                      <span className="text-[10px] font-bold text-slate-300 block">Identificação para os Comentários:</span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="space-y-0.5">
-                          <label className="text-[10px] text-slate-400">WhatsApp que respondeu:</label>
-                          <input
-                            type="text"
-                            value={authorPhoneInput}
-                            onChange={(e) => setAuthorPhoneInput(e.target.value)}
-                            placeholder="Ex: (79) 99999-9999"
-                            className="w-full bg-slate-900 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none"
-                          />
-                        </div>
-                        <div className="space-y-0.5">
-                          <label className="text-[10px] text-slate-400">E-mail para identificação:</label>
-                          <input
-                            type="email"
-                            value={authorEmailInput}
-                            onChange={(e) => setAuthorEmailInput(e.target.value)}
-                            placeholder="Ex: contato@empresa.com"
-                            className="w-full bg-slate-900 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none"
-                          />
-                        </div>
-                      </div>
+                    <div className="p-2.5 bg-slate-950 border border-indigo-500/30 rounded-xl space-y-1.5 animate-fade-in text-xs">
+                      <label className="text-[10px] font-bold text-slate-300 block">
+                        Nome exibido no chat:
+                      </label>
+                      <input
+                        type="text"
+                        value={senderNameInput}
+                        onChange={(e) => setSenderNameInput(e.target.value)}
+                        placeholder="Digite seu nome..."
+                        className="w-full bg-slate-900 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none focus:border-indigo-500"
+                      />
                     </div>
                   )}
 
@@ -894,13 +860,18 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               </div>
             </div>
 
-            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-1.5">
+            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-2">
               <p>
                 Tem certeza de que deseja apagar o projeto <strong className="text-white">"{post.title}"</strong>?
               </p>
               <p className="text-[11px] text-slate-400">
-                Ele será removido permanentemente do sistema e do banco de dados.
+                Ele será removido permanentemente do mural e do banco de dados.
               </p>
+              {post.status === 'aprovado' && (
+                <div className="p-2.5 rounded-xl bg-amber-950/50 border border-amber-500/40 text-amber-200 text-[11px] leading-relaxed">
+                  <strong>Auditoria de Faturamento:</strong> Este projeto já possui registro oficial de aprovação, que permanecerá preservado para computação de faturamento.
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-1">

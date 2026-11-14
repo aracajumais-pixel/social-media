@@ -7,7 +7,8 @@ import {
 import { 
   ClientProject, PostItem, InspirationFile, BillingReceipt, 
   UserRole, PostStatus, WhatsAppNotificationPayload, SocialMediaUser, SaaSPaymentProof, SocialNetwork,
-  ClientTask, TaskStatus, Comment
+  ClientTask, TaskStatus, Comment, ApprovalRecord,
+  BirthdayBackground, BirthdayGroup, BirthdayMessage, BirthdayPerson, BirthdayAuditLog, BirthdayClientAuthSession
 } from './types';
 
 import { Header } from './components/Header';
@@ -27,9 +28,19 @@ import { MarketAnalysisView } from './components/MarketAnalysisView';
 import { ApprovalPublicModal } from './components/ApprovalPublicModal';
 import { ClientTasksSection } from './components/ClientTasksSection';
 import { ClientDetailsCardModal } from './components/ClientDetailsCardModal';
+import { BirthdaysSection } from './components/BirthdaysSection';
 import { Footer } from './components/Footer';
+import { createSampleTransparentFrameDataUrl, getDefaultElementSet } from './utils/birthdayCanvas';
 import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl } from './utils/token';
-import { auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase, syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase, syncReceiptToSupabase, getSupabaseClient } from './lib/supabase';
+import {
+  auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase,
+  syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, hasSupabaseCredentials,
+  fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase,
+  syncReceiptToSupabase, syncApprovalRecordToSupabase, fetchApprovalRecordsFromSupabase, getSupabaseClient,
+  fetchSocialMediasFromSupabase, syncTaskToSupabase, fetchTasksFromSupabase, deleteTaskFromSupabase,
+  syncInspirationToSupabase, fetchInspirationsFromSupabase, deleteInspirationFromSupabase, fetchReceiptsFromSupabase
+} from './lib/supabase';
+import { fetchSharedServerState, saveSharedServerStatePatch } from './lib/serverSync';
 import { openWhatsAppDirect } from './utils/whatsappHelper';
 
 import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight, Eye, Bell, ChevronRight, ClipboardCheck } from 'lucide-react';
@@ -140,39 +151,200 @@ export default function App() {
     }
   });
   const [convertingTask, setConvertingTask] = useState<ClientTask | null>(null);
-
-  // Initial data fetch from Supabase (with fallback to LocalStorage/Mock)
-  React.useEffect(() => {
-    async function loadDataFromSupabase() {
-      if (!isSupabaseConfigured) return;
-      try {
-        const [fetchedClients, fetchedPosts] = await Promise.all([
-          fetchClientsFromSupabase(),
-          fetchPostsFromSupabase()
-        ]);
-        if (fetchedClients && fetchedClients.length > 0) {
-          setClients(fetchedClients);
-        }
-        if (fetchedPosts && fetchedPosts.length > 0) {
-          setPosts(fetchedPosts);
-        }
-      } catch (err) {
-        console.warn('Erro ao carregar dados do Supabase na inicialização:', err);
-      }
+  const [approvalRecords, setApprovalRecords] = useState<ApprovalRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_approval_records');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
     }
-    loadDataFromSupabase();
+  });
+
+  // Estado do módulo Aniversariantes
+  const [birthdayBackgrounds, setBirthdayBackgrounds] = useState<BirthdayBackground[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_bday_backgrounds');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [birthdayGroups, setBirthdayGroups] = useState<BirthdayGroup[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_bday_groups');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [birthdayMessages, setBirthdayMessages] = useState<BirthdayMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_bday_messages');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [birthdayPeople, setBirthdayPeople] = useState<BirthdayPerson[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_bday_people');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [birthdayAuditLogs, setBirthdayAuditLogs] = useState<BirthdayAuditLog[]>(() => {
+    try {
+      const saved = localStorage.getItem('social_saas_bday_audit');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [birthdayClientSessions, setBirthdayClientSessions] = useState<Record<string, BirthdayClientAuthSession>>(() => {
+    try {
+      const saved = sessionStorage.getItem('social_saas_bday_client_sessions');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const isRemoteHydratedRef = React.useRef(false);
+  const [tasksTableMissingInSupabase, setTasksTableMissingInSupabase] = useState(false);
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+
+  // Carrega dados remotos (Supabase + Servidor compartilhado /api/sync-state) na inicialização e ao voltar foco
+  const loadRemoteData = React.useCallback(async () => {
+    setIsManualSyncing(true);
+    try {
+      const sbReady = hasSupabaseCredentials();
+      const [
+        serverState,
+        fetchedClients,
+        fetchedPosts,
+        fetchedSocialMedias,
+        fetchedTasksRes,
+        fetchedApprovals,
+        fetchedInspirations,
+        fetchedReceipts
+      ] = await Promise.all([
+        fetchSharedServerState(),
+        sbReady ? fetchClientsFromSupabase() : Promise.resolve(null),
+        sbReady ? fetchPostsFromSupabase() : Promise.resolve(null),
+        sbReady ? fetchSocialMediasFromSupabase() : Promise.resolve(null),
+        sbReady ? fetchTasksFromSupabase() : Promise.resolve({ tasks: null, missingTable: false }),
+        sbReady ? fetchApprovalRecordsFromSupabase() : Promise.resolve(null),
+        sbReady ? fetchInspirationsFromSupabase() : Promise.resolve(null),
+        sbReady ? fetchReceiptsFromSupabase() : Promise.resolve(null)
+      ]);
+
+      if (fetchedTasksRes?.missingTable) {
+        setTasksTableMissingInSupabase(true);
+      } else if (sbReady && fetchedTasksRes?.tasks !== null) {
+        setTasksTableMissingInSupabase(false);
+      }
+
+      if (fetchedClients && fetchedClients.length > 0) {
+        setClients(fetchedClients);
+      } else if (serverState?.clients && serverState.clients.length > 0) {
+        setClients(serverState.clients);
+      }
+
+      if (fetchedSocialMedias && fetchedSocialMedias.length > 0) {
+        setSocialMedias(fetchedSocialMedias);
+      } else if (serverState?.socialMedias && serverState.socialMedias.length > 0) {
+        setSocialMedias(serverState.socialMedias);
+      }
+
+      if (fetchedPosts && fetchedPosts.length > 0) {
+        setPosts(fetchedPosts);
+      } else if (serverState?.posts && serverState.posts.length > 0) {
+        setPosts(serverState.posts);
+      }
+
+      // Tarefas: prioriza tabela client_tasks do Supabase; se ausente/vazia e servidor tiver, usa servidor
+      if (fetchedTasksRes?.tasks && !fetchedTasksRes.missingTable) {
+        if (fetchedTasksRes.tasks.length > 0) {
+          setTasks(fetchedTasksRes.tasks);
+        } else if (serverState?.tasks && serverState.tasks.length > 0) {
+          setTasks(serverState.tasks);
+        }
+      } else if (serverState?.tasks && Array.isArray(serverState.tasks)) {
+        setTasks(serverState.tasks);
+      }
+
+      if (fetchedApprovals && fetchedApprovals.length > 0) {
+        setApprovalRecords(prev => {
+          const byPostId = new Map<string, ApprovalRecord>();
+          prev.forEach(r => byPostId.set(r.postId, r));
+          fetchedApprovals.forEach(r => byPostId.set(r.postId, r));
+          return Array.from(byPostId.values());
+        });
+      } else if (serverState?.approvalRecords && serverState.approvalRecords.length > 0) {
+        setApprovalRecords(serverState.approvalRecords);
+      }
+
+      if (fetchedInspirations && fetchedInspirations.length > 0) {
+        setInspirations(fetchedInspirations);
+      } else if (serverState?.inspirations && serverState.inspirations.length > 0) {
+        setInspirations(serverState.inspirations);
+      }
+
+      if (fetchedReceipts && fetchedReceipts.length > 0) {
+        setReceipts(fetchedReceipts);
+      } else if (serverState?.receipts && serverState.receipts.length > 0) {
+        setReceipts(serverState.receipts);
+      }
+
+      if (serverState?.birthdayBackgrounds && serverState.birthdayBackgrounds.length > 0) {
+        setBirthdayBackgrounds(serverState.birthdayBackgrounds);
+      }
+      if (serverState?.birthdayGroups && serverState.birthdayGroups.length > 0) {
+        setBirthdayGroups(serverState.birthdayGroups);
+      }
+      if (serverState?.birthdayMessages && serverState.birthdayMessages.length > 0) {
+        setBirthdayMessages(serverState.birthdayMessages);
+      }
+      if (serverState?.birthdayPeople && serverState.birthdayPeople.length > 0) {
+        setBirthdayPeople(serverState.birthdayPeople);
+      }
+      if (serverState?.birthdayAuditLogs && serverState.birthdayAuditLogs.length > 0) {
+        setBirthdayAuditLogs(serverState.birthdayAuditLogs);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar dados remotos na inicialização:', err);
+    } finally {
+      isRemoteHydratedRef.current = true;
+      setIsManualSyncing(false);
+    }
   }, []);
 
-  // Auto-save state to localStorage and sync to Supabase
+  React.useEffect(() => {
+    loadRemoteData();
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadRemoteData();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [loadRemoteData]);
+
+  // Auto-save state to localStorage + Servidor compartilhado (/api/sync-state) + Supabase (somente após hidratação inicial)
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_clients', JSON.stringify(clients)); } catch {}
-    if (isSupabaseConfigured) {
+    if (!isRemoteHydratedRef.current) return;
+    if (hasSupabaseCredentials()) {
       syncAllClientsToSupabase(clients);
     }
+    saveSharedServerStatePatch({ clients });
   }, [clients]);
 
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_social_medias', JSON.stringify(socialMedias)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ socialMedias });
   }, [socialMedias]);
 
   React.useEffect(() => {
@@ -184,21 +356,30 @@ export default function App() {
     if (currentUserRole !== 'gestor' && (activeTab === 'book' || activeTab === 'market' || activeTab === 'admin')) {
       setActiveTab('posts');
     }
+    if (currentUserRole === 'cliente' && (activeTab === 'metrics' || activeTab === 'billing' || activeTab === 'settings')) {
+      setActiveTab('posts');
+    }
   }, [currentUserRole, activeTab]);
 
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_posts', JSON.stringify(posts)); } catch {}
-    if (isSupabaseConfigured) {
+    if (!isRemoteHydratedRef.current) return;
+    if (hasSupabaseCredentials()) {
       syncAllPostsToSupabase(posts);
     }
+    saveSharedServerStatePatch({ posts });
   }, [posts]);
 
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_inspirations', JSON.stringify(inspirations)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ inspirations });
   }, [inspirations]);
 
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_receipts', JSON.stringify(receipts)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ receipts });
   }, [receipts]);
 
   React.useEffect(() => {
@@ -211,7 +392,150 @@ export default function App() {
 
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_tasks', JSON.stringify(tasks)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ tasks });
   }, [tasks]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_approval_records', JSON.stringify(approvalRecords)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ approvalRecords });
+  }, [approvalRecords]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_bday_backgrounds', JSON.stringify(birthdayBackgrounds)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ birthdayBackgrounds });
+  }, [birthdayBackgrounds]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_bday_groups', JSON.stringify(birthdayGroups)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ birthdayGroups });
+  }, [birthdayGroups]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_bday_messages', JSON.stringify(birthdayMessages)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ birthdayMessages });
+  }, [birthdayMessages]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_bday_people', JSON.stringify(birthdayPeople)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ birthdayPeople });
+  }, [birthdayPeople]);
+
+  React.useEffect(() => {
+    try { localStorage.setItem('social_saas_bday_audit', JSON.stringify(birthdayAuditLogs)); } catch {}
+    if (!isRemoteHydratedRef.current) return;
+    saveSharedServerStatePatch({ birthdayAuditLogs });
+  }, [birthdayAuditLogs]);
+
+  React.useEffect(() => {
+    try { sessionStorage.setItem('social_saas_bday_client_sessions', JSON.stringify(birthdayClientSessions)); } catch {}
+  }, [birthdayClientSessions]);
+
+  // Inicializa modelo de exemplo, grupos padrão (Adultos, Adolescentes, Crianças) e mensagens base por cliente se vazio
+  React.useEffect(() => {
+    if (!selectedClientId) return;
+    const hasBg = birthdayBackgrounds.some(b => b.clientProjectId === selectedClientId);
+    const hasGrp = birthdayGroups.some(g => g.clientProjectId === selectedClientId);
+    const hasMsg = birthdayMessages.some(m => m.clientProjectId === selectedClientId);
+
+    let defaultBgId = birthdayBackgrounds.find(b => b.clientProjectId === selectedClientId)?.id;
+    if (!hasBg) {
+      defaultBgId = `bg-init-${selectedClientId}`;
+      const cutout = { x: 22, y: 11, width: 56, height: 48 };
+      const sampleUrl = typeof document !== 'undefined' ? createSampleTransparentFrameDataUrl() : '';
+      if (sampleUrl) {
+        setBirthdayBackgrounds(prev => [
+          ...prev,
+          {
+            id: defaultBgId!,
+            clientProjectId: selectedClientId,
+            name: 'Moldura Modelo Padrão',
+            imageUrl: sampleUrl,
+            width: 900,
+            height: 900,
+            cutoutRect: cutout,
+            defaultElements: getDefaultElementSet(cutout),
+            aiAnalysisNotes: 'Moldura inicial transparente pronta para envio de fotos.',
+            createdAt: new Date().toISOString(),
+            createdByName: 'Sistema'
+          }
+        ]);
+      }
+    }
+
+    if (!hasMsg) {
+      setBirthdayMessages(prev => [
+        ...prev,
+        {
+          id: `msg-init-1-${selectedClientId}`,
+          clientProjectId: selectedClientId,
+          title: 'Bênçãos & Alegria',
+          text: 'Que Deus abençoe grandemente sua vida com muita saúde, paz, fé e alegrias todos os dias!',
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: `msg-init-2-${selectedClientId}`,
+          clientProjectId: selectedClientId,
+          title: 'Gratidão & Luz',
+          text: 'Celebramos hoje o dom da sua vida! Desejamos um novo ciclo repleto de realizações e felicidade.',
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    }
+
+    if (!hasGrp && defaultBgId) {
+      setBirthdayGroups(prev => [
+        ...prev,
+        { id: `grp-adultos-${selectedClientId}`, clientProjectId: selectedClientId, name: 'Adultos', backgroundId: defaultBgId!, createdAt: new Date().toISOString() },
+        { id: `grp-adolescentes-${selectedClientId}`, clientProjectId: selectedClientId, name: 'Adolescentes', backgroundId: defaultBgId!, createdAt: new Date().toISOString() },
+        { id: `grp-criancas-${selectedClientId}`, clientProjectId: selectedClientId, name: 'Crianças', backgroundId: defaultBgId!, createdAt: new Date().toISOString() }
+      ]);
+    }
+  }, [selectedClientId, birthdayBackgrounds, birthdayGroups, birthdayMessages]);
+
+  // Reconcilia posts já aprovados para garantir que tenham Registro Oficial de Aprovação para faturamento
+  React.useEffect(() => {
+    const approvedPosts = posts.filter(p => p.status === 'aprovado');
+    if (approvedPosts.length === 0) return;
+
+    setApprovalRecords(prev => {
+      const existingPostIds = new Set(prev.map(r => r.postId));
+      const missing = approvedPosts.filter(p => !existingPostIds.has(p.id));
+      if (missing.length === 0) return prev;
+
+      const newRecords: ApprovalRecord[] = missing.map(p => {
+        const clientObj = clients.find(c => c.id === p.clientProjectId);
+        const smObj = socialMedias.find(sm => sm.id === (p.socialMediaAuthorId || clientObj?.assignedSocialMediaId));
+        const approvalComment = [...(p.comments || [])].reverse().find(c => c.text?.toLowerCase().includes('aprovad'));
+        const rate = smObj?.customFeePerPost !== undefined ? smObj.customFeePerPost : feePerPost;
+
+        return {
+          id: `appr-${p.id}`,
+          postId: p.id,
+          postTitle: p.title,
+          clientProjectId: p.clientProjectId,
+          clientName: clientObj?.name || 'Cliente',
+          socialMediaId: smObj?.id || p.socialMediaAuthorId,
+          socialMediaName: smObj?.name || 'Social Media',
+          approvedAt: p.approvedAt || p.updatedAt || p.createdAt || new Date().toISOString(),
+          approvedByRole: approvalComment?.authorRole || 'cliente',
+          approvedByName: p.approvedBy || approvalComment?.authorName || `${clientObj?.contactName || 'Cliente'} (Cliente)`,
+          approvedByPhone: approvalComment?.authorPhone || clientObj?.whatsappNumber,
+          approvedByEmail: approvalComment?.authorEmail || clientObj?.email,
+          pricePerPostSnapshot: clientObj?.pricePerPost ?? 150,
+          feePerPostSnapshot: rate,
+          billingStatus: 'computado'
+        };
+      });
+
+      return [...newRecords, ...prev];
+    });
+  }, [posts, clients, socialMedias, feePerPost]);
 
   const handleAddSaasProof = (newProof: Omit<SaaSPaymentProof, 'id' | 'submittedAt' | 'status'>) => {
     const proofItem: SaaSPaymentProof = {
@@ -247,12 +571,16 @@ export default function App() {
     const clientParam = params.get('client');
     const smParam = params.get('sm');
     const token = params.get('token');
+    const savedRole = localStorage.getItem('social_saas_user_role') as UserRole | null;
+    const isTeamSession = savedRole === 'social_media' || savedRole === 'gestor';
 
     if (clientParam) {
       const matched = clients.find(c => c.id === clientParam);
       if (matched) {
         setSelectedClientId(matched.id);
-        setCurrentUserRole('cliente');
+        if (!isTeamSession) {
+          setCurrentUserRole('cliente');
+        }
         if (smParam) {
           setActiveSocialMediaId(smParam);
         } else if (matched.assignedSocialMediaId) {
@@ -267,7 +595,9 @@ export default function App() {
         setPublicApprovalPost(matched);
         if (matched.clientProjectId) {
           setSelectedClientId(matched.clientProjectId);
-          setCurrentUserRole('cliente');
+          if (!isTeamSession) {
+            setCurrentUserRole('cliente');
+          }
         }
       }
     }
@@ -344,7 +674,7 @@ export default function App() {
   });
   
   const filteredPosts = clientPosts.filter(p => {
-    const matchesStatus = statusFilter === 'todos' || p.status === statusFilter;
+    const matchesStatus = currentUserRole === 'cliente' || statusFilter === 'todos' || p.status === statusFilter;
     const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           p.caption.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesStatus && matchesSearch;
@@ -360,11 +690,53 @@ export default function App() {
   const clientTasks = tasks.filter(t => t.clientProjectId === selectedClientId);
   const pendingTasksCount = clientTasks.filter(t => t.status === 'novo' || t.status === 'em_andamento').length;
 
+  // Dados filtrados do módulo Aniversariantes para o cliente ativo
+  const clientBdayBackgrounds = birthdayBackgrounds.filter(b => b.clientProjectId === selectedClientId);
+  const clientBdayGroups = birthdayGroups.filter(g => g.clientProjectId === selectedClientId);
+  const clientBdayMessages = birthdayMessages.filter(m => m.clientProjectId === selectedClientId);
+  const clientBdayPeople = birthdayPeople.filter(p => p.clientProjectId === selectedClientId);
+  const clientBdayAuditLogs = birthdayAuditLogs.filter(a => a.clientProjectId === selectedClientId);
+
   // Handlers
   const handleUpdatePostStatus = (postId: string, newStatus: PostStatus) => {
+    const targetPost = posts.find(p => p.id === postId);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const approverName = currentUserRole === 'cliente' 
+      ? (selectedClient.contactName || selectedClient.name || 'Cliente') 
+      : currentUserRole === 'social_media' ? (responsibleSm?.name || 'Social Media') : 'Gestor';
+
+    if (newStatus === 'aprovado' && targetPost) {
+      const postClient = clients.find(c => c.id === targetPost.clientProjectId) || selectedClient;
+      const postSm = socialMedias.find(sm => sm.id === (targetPost.socialMediaAuthorId || postClient?.assignedSocialMediaId));
+      const effectiveRate = postSm?.customFeePerPost !== undefined ? postSm.customFeePerPost : feePerPost;
+
+      const alreadyRecorded = approvalRecords.some(r => r.postId === postId);
+      if (!alreadyRecorded) {
+        const record: ApprovalRecord = {
+          id: `appr-${Date.now()}-${postId}`,
+          postId: targetPost.id,
+          postTitle: targetPost.title,
+          clientProjectId: targetPost.clientProjectId,
+          clientName: postClient?.name || 'Cliente',
+          socialMediaId: postSm?.id || targetPost.socialMediaAuthorId,
+          socialMediaName: postSm?.name || 'Social Media',
+          approvedAt: nowIso,
+          approvedByRole: currentUserRole,
+          approvedByName: approverName,
+          approvedByPhone: currentUserRole === 'cliente' ? postClient?.whatsappNumber : postSm?.whatsapp,
+          approvedByEmail: currentUserRole === 'cliente' ? postClient?.email : postSm?.email,
+          pricePerPostSnapshot: postClient?.pricePerPost ?? 150,
+          feePerPostSnapshot: effectiveRate,
+          billingStatus: 'computado'
+        };
+        setApprovalRecords(prev => [record, ...prev]);
+        syncApprovalRecordToSupabase(record);
+      }
+    }
+
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
-        const now = new Date();
         const formattedTimestamp = now.toLocaleDateString('pt-BR', {
           day: '2-digit',
           month: '2-digit',
@@ -372,36 +744,40 @@ export default function App() {
           hour: '2-digit',
           minute: '2-digit'
         });
-        const approverName = currentUserRole === 'cliente' 
-          ? `${selectedClient.contactName || 'Cliente'} (Cliente)` 
-          : currentUserRole === 'social_media' ? 'Social Media' : 'Gestor';
 
         let updatedComments = p.comments;
 
-        // Se for aprovação, registra comentário oficial de aprovação com data e hora
+        // Se for aprovação, registra comentário oficial de aprovação com data e hora (sem duplicar)
         if (newStatus === 'aprovado') {
-          const approvalComment = {
-            id: `c-appr-${Date.now()}`,
-            authorRole: currentUserRole,
-            authorName: approverName,
-            text: '🎉 Post aprovado com sucesso! Este conteúdo será programado para postagem.',
-            timestamp: formattedTimestamp
-          };
-          updatedComments = [...p.comments, approvalComment];
+          const alreadyHasApprovalComment = p.comments.some(c =>
+            c.text.toLowerCase().includes('post aprovado com sucesso') ||
+            c.text.toLowerCase().includes('projeto aprovado')
+          );
 
-          // Auditoria no Supabase se configurado
-          auditPostCommentToSupabase({
-            id: approvalComment.id,
-            postId: p.id,
-            postTitle: p.title,
-            clientId: p.clientProjectId,
-            authorRole: currentUserRole,
-            authorName: approverName,
-            text: approvalComment.text
-          });
+          if (!alreadyHasApprovalComment) {
+            const approvalComment: Comment = {
+              id: `c-appr-${Date.now()}`,
+              authorRole: currentUserRole,
+              authorName: approverName,
+              text: '🎉 Post aprovado com sucesso! Este conteúdo será programado para postagem.',
+              timestamp: formattedTimestamp
+            };
+            updatedComments = [...p.comments, approvalComment];
+
+            // Auditoria no Supabase se configurado
+            auditPostCommentToSupabase({
+              id: approvalComment.id,
+              postId: p.id,
+              postTitle: p.title,
+              clientId: p.clientProjectId,
+              authorRole: currentUserRole,
+              authorName: approverName,
+              text: approvalComment.text
+            });
+          }
 
           // Mensagem de agradecimento e confirmação de agendamento
-          setApprovalToastMessage('🎉 Muito obrigado! O post foi aprovado com sucesso e será programado para postagem.');
+          setApprovalToastMessage('🎉 Muito obrigado! O post foi aprovado com sucesso e registrado para faturamento.');
           setTimeout(() => setApprovalToastMessage(null), 8000);
         }
 
@@ -409,7 +785,9 @@ export default function App() {
           ...p, 
           status: newStatus, 
           comments: updatedComments,
-          updatedAt: now.toISOString() 
+          approvedAt: newStatus === 'aprovado' ? (p.approvedAt || nowIso) : p.approvedAt,
+          approvedBy: newStatus === 'aprovado' ? (p.approvedBy || approverName) : p.approvedBy,
+          updatedAt: nowIso 
         };
 
         if (selectedPostForDetails?.id === postId) {
@@ -435,13 +813,14 @@ export default function App() {
 
     // Quando o social media postar (isPublished === true), a tarefa atrelada muda automaticamente para 'concluido'
     if (isPublished) {
+      const targetPost = posts.find(p => p.id === postId);
       setTasks(prev => prev.map(t => {
-        if (t.linkedPostId === postId) {
-          return { ...t, status: 'concluido', updatedAt: new Date().toISOString() };
-        }
-        const targetPost = posts.find(p => p.id === postId);
-        if (targetPost?.linkedTaskId && t.id === targetPost.linkedTaskId) {
-          return { ...t, status: 'concluido', updatedAt: new Date().toISOString() };
+        if (t.linkedPostId === postId || (targetPost?.linkedTaskId && t.id === targetPost.linkedTaskId)) {
+          const updatedTask: ClientTask = { ...t, status: 'concluido', updatedAt: new Date().toISOString() };
+          if (hasSupabaseCredentials()) {
+            syncTaskToSupabase(updatedTask);
+          }
+          return updatedTask;
         }
         return t;
       }));
@@ -477,21 +856,18 @@ export default function App() {
   const handleAddComment = (
     postId: string, 
     commentText: string,
-    metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string }
+    metadata?: { authorPhone?: string; authorEmail?: string; authorName?: string; authorRole?: UserRole }
   ) => {
-    const authorName = metadata?.authorName || (
-      currentUserRole === 'cliente' ? `${selectedClient.contactName || 'Cliente'} (Cliente)` :
-      currentUserRole === 'social_media' ? (responsibleSm?.name || 'Social Media') : 'Gestor'
+    const role = metadata?.authorRole || currentUserRole;
+    const authorName = metadata?.authorName?.trim() || (
+      role === 'cliente' ? (selectedClient.contactName || selectedClient.name || 'Cliente') :
+      role === 'social_media' ? (responsibleSm?.name || 'Social Media') : 'Gestor'
     );
-    const authorPhone = metadata?.authorPhone || (currentUserRole === 'cliente' ? selectedClient.whatsappNumber : responsibleSm?.whatsapp);
-    const authorEmail = metadata?.authorEmail || (currentUserRole === 'cliente' ? (selectedClient as any).email : responsibleSm?.email);
 
     const newCommentObj: Comment = {
       id: `c-${Date.now()}`,
-      authorRole: currentUserRole,
+      authorRole: role,
       authorName,
-      authorPhone,
-      authorEmail,
       text: commentText,
       timestamp: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
@@ -504,7 +880,7 @@ export default function App() {
       postId,
       postTitle: targetPost?.title,
       clientId: selectedClientId,
-      authorRole: currentUserRole,
+      authorRole: role,
       authorName,
       text: commentText
     });
@@ -517,6 +893,9 @@ export default function App() {
         };
         if (selectedPostForDetails?.id === postId) {
           setSelectedPostForDetails(updated);
+        }
+        if (publicApprovalPost?.id === postId) {
+          setPublicApprovalPost(updated);
         }
         return updated;
       }
@@ -556,7 +935,7 @@ export default function App() {
         {
           id: `c-${Date.now()}`,
           authorRole: currentUserRole,
-          authorName: currentUserRole === 'social_media' ? 'Social Media' : 'Gestor',
+          authorName: currentUserRole === 'social_media' ? (responsibleSm?.name || 'Social Media') : 'Gestor',
           text: newPostData.linkedTaskId 
             ? 'Projeto criado a partir de tarefa solicitada pelo cliente.'
             : 'Projeto criado para aprovação do cliente.',
@@ -571,12 +950,14 @@ export default function App() {
     if (newPostData.linkedTaskId) {
       setTasks(prev => prev.map(t => {
         if (t.id === newPostData.linkedTaskId) {
-          return {
+          const updatedTask: ClientTask = {
             ...t,
             status: 'em_andamento',
             linkedPostId: newPost.id,
             updatedAt: new Date().toISOString()
           };
+          syncTaskToSupabase(updatedTask);
+          return updatedTask;
         }
         return t;
       }));
@@ -595,33 +976,54 @@ export default function App() {
     ]);
   };
 
-  // Handlers para Tarefas Solicitadas pelo Cliente
-  const handleAddTask = (newTaskData: Omit<ClientTask, 'id' | 'createdAt' | 'updatedAt'>) => {
+  // Handlers para Tarefas Solicitadas pelo Cliente (gravando imediatamente no Supabase + Servidor)
+  const handleAddTask = async (newTaskData: Omit<ClientTask, 'id' | 'createdAt' | 'updatedAt'>) => {
     const newTask: ClientTask = {
       ...newTaskData,
       id: `task-${Date.now()}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    setTasks(prev => [newTask, ...prev]);
+    const nextTasks = [newTask, ...tasks];
+    setTasks(nextTasks);
+    saveSharedServerStatePatch({ tasks: nextTasks });
+    if (hasSupabaseCredentials()) {
+      const res = await syncTaskToSupabase(newTask);
+      if (res.missingTable) setTasksTableMissingInSupabase(true);
+      else if (res.success) setTasksTableMissingInSupabase(false);
+    }
   };
 
-  const handleUpdateTask = (updatedTask: ClientTask) => {
-    setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...updatedTask, updatedAt: new Date().toISOString() } : t));
+  const handleUpdateTask = async (updatedTask: ClientTask) => {
+    const timestampedTask: ClientTask = { ...updatedTask, updatedAt: new Date().toISOString() };
+    const nextTasks = tasks.map(t => t.id === updatedTask.id ? timestampedTask : t);
+    setTasks(nextTasks);
+    saveSharedServerStatePatch({ tasks: nextTasks });
+    if (hasSupabaseCredentials()) {
+      const res = await syncTaskToSupabase(timestampedTask);
+      if (res.missingTable) setTasksTableMissingInSupabase(true);
+      else if (res.success) setTasksTableMissingInSupabase(false);
+    }
   };
 
-  const handleDeleteTask = (taskId: string) => {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+  const handleDeleteTask = async (taskId: string) => {
+    const nextTasks = tasks.filter(t => t.id !== taskId);
+    setTasks(nextTasks);
+    saveSharedServerStatePatch({ tasks: nextTasks });
+    if (hasSupabaseCredentials()) {
+      await deleteTaskFromSupabase(taskId);
+    }
   };
 
-  const handleConvertTaskToPost = (task: ClientTask) => {
+  const handleConvertTaskToPost = async (task: ClientTask) => {
     // Ao transformar em rascunho, o status já muda para 'em_andamento'
-    setTasks(prev => prev.map(t => {
-      if (t.id === task.id) {
-        return { ...t, status: 'em_andamento' as TaskStatus, updatedAt: new Date().toISOString() };
-      }
-      return t;
-    }));
+    const updatedTask: ClientTask = { ...task, status: 'em_andamento' as TaskStatus, updatedAt: new Date().toISOString() };
+    const nextTasks = tasks.map(t => t.id === task.id ? updatedTask : t);
+    setTasks(nextTasks);
+    saveSharedServerStatePatch({ tasks: nextTasks });
+    if (hasSupabaseCredentials()) {
+      syncTaskToSupabase(updatedTask);
+    }
     setConvertingTask(task);
     setIsNewPostModalOpen(true);
   };
@@ -633,14 +1035,23 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
     setInspirations([created, ...inspirations]);
+    if (hasSupabaseCredentials()) {
+      syncInspirationToSupabase(created);
+    }
   };
 
   const handleDeleteInspiration = (id: string) => {
     setInspirations(inspirations.filter(i => i.id !== id));
+    if (hasSupabaseCredentials()) {
+      deleteInspirationFromSupabase(id);
+    }
   };
 
   const handleUpdateInspiration = (updatedInspiration: InspirationFile) => {
     setInspirations(prev => prev.map(i => i.id === updatedInspiration.id ? updatedInspiration : i));
+    if (hasSupabaseCredentials()) {
+      syncInspirationToSupabase(updatedInspiration);
+    }
   };
 
   const handleSaveReceipt = (savedReceipt: BillingReceipt) => {
@@ -652,6 +1063,16 @@ export default function App() {
     } else {
       setReceipts([...receipts, savedReceipt]);
     }
+    // Marca os registros de aprovação desse cliente como faturados quando o recibo é salvo
+    setApprovalRecords(prev => prev.map(rec => {
+      if (rec.clientProjectId === savedReceipt.clientProjectId && rec.billingStatus === 'computado') {
+        const updatedRec: ApprovalRecord = { ...rec, billingStatus: 'faturado' };
+        syncApprovalRecordToSupabase(updatedRec);
+        return updatedRec;
+      }
+      return rec;
+    }));
+
     // Sincroniza o recibo com o Supabase (incluindo URL da assinatura digitalizada)
     syncReceiptToSupabase(savedReceipt);
   };
@@ -728,11 +1149,32 @@ export default function App() {
   };
 
   const handleDeletePost = async (postId: string) => {
+    const deletedAt = new Date().toISOString();
+
+    // Preserva o Registro Oficial de Aprovação (caso o post já estivesse aprovado) para computação de faturamento
+    setApprovalRecords(prev => prev.map(rec => {
+      if (rec.postId === postId && !rec.postDeletedAt) {
+        const updatedRec: ApprovalRecord = { ...rec, postDeletedAt: deletedAt };
+        syncApprovalRecordToSupabase(updatedRec);
+        return updatedRec;
+      }
+      return rec;
+    }));
+
     // Remover do estado de posts
     setPosts(prev => prev.filter(p => p.id !== postId));
 
     // Desvincular post de tarefas se estiver vinculado
-    setTasks(prev => prev.map(t => t.linkedPostId === postId ? { ...t, linkedPostId: undefined } : t));
+    setTasks(prev => prev.map(t => {
+      if (t.linkedPostId === postId) {
+        const updatedTask: ClientTask = { ...t, linkedPostId: undefined, updatedAt: new Date().toISOString() };
+        if (hasSupabaseCredentials()) {
+          syncTaskToSupabase(updatedTask);
+        }
+        return updatedTask;
+      }
+      return t;
+    }));
 
     if (selectedPostForDetails?.id === postId) {
       setSelectedPostForDetails(null);
@@ -834,6 +1276,13 @@ export default function App() {
         socialMedias={socialMedias}
         activeSocialMediaId={activeSocialMediaId}
         onSelectSocialMedia={setActiveSocialMediaId}
+        searchQuery={searchQuery}
+        onSearchChange={(q) => {
+          setSearchQuery(q);
+          if (q.trim() && activeTab !== 'posts') {
+            setActiveTab('posts');
+          }
+        }}
       />
 
       {/* Navigation Tab Bar */}
@@ -846,6 +1295,7 @@ export default function App() {
         changesRequestedCount={changesRequestedCount}
         inspirationsCount={clientInspirations.length}
         pendingTasksCount={pendingTasksCount}
+        birthdaysCount={clientBdayPeople.length}
       />
 
       {/* Main Container Content */}
@@ -879,63 +1329,66 @@ export default function App() {
           <div className="space-y-6">
             
             {/* ============================================================ */}
-            {/* FORMATO ENXUTO: CARD 1 - CABEÇALHO DO CLIENTE & SOCIAL MEDIA */}
+            {/* FORMATO ENXUTO: CARD 1 - CABEÇALHO DO CLIENTE & SOCIAL MEDIA (Oculto na visualização do cliente) */}
             {/* ============================================================ */}
-            <div className="bg-gradient-to-r from-[#0c1024] via-[#0f142d] to-[#14102d] border border-indigo-900/60 rounded-3xl p-3 sm:p-4 shadow-xl flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div 
-                  onClick={() => setIsClientCardOpen(true)}
-                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-[#141b38] hover:bg-[#1a234a] border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer transition-all hover:scale-105 shadow-md group"
-                  title="Clique para visualizar o card de dados cadastrados do cliente"
+            {currentUserRole !== 'cliente' && (
+              <div className="bg-gradient-to-r from-[#0c1024] via-[#0f142d] to-[#14102d] border border-indigo-900/60 rounded-3xl p-3 sm:p-4 shadow-xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div 
+                    onClick={() => setIsClientCardOpen(true)}
+                    className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-[#141b38] hover:bg-[#1a234a] border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer transition-all hover:scale-105 shadow-md group"
+                    title="Clique para visualizar o card de dados cadastrados do cliente"
+                  >
+                    {selectedClient.logoUrl ? (
+                      <img src={selectedClient.logoUrl} alt={selectedClient.name} className="w-full h-full object-contain p-1" />
+                    ) : (
+                      <Building2 className="w-6 h-6 text-indigo-400 group-hover:scale-110 transition-transform" />
+                    )}
+                  </div>
+
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/50 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" /> ESPAÇO EXCLUSIVO DE ATENDIMENTO
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <h2 
+                        onClick={() => setIsClientCardOpen(true)}
+                        className="text-sm sm:text-base font-bold text-white cursor-pointer hover:text-indigo-300 transition-colors flex items-center gap-1.5"
+                        title="Clique para visualizar os dados cadastrados deste cliente"
+                      >
+                        <span>{selectedClient.name}</span>
+                      </h2>
+                      <span className="text-slate-500 text-xs hidden sm:inline">•</span>
+                      <span className="text-xs sm:text-sm text-slate-200 font-medium">
+                        Social Media: <strong className="text-white font-bold">{responsibleSm?.name || 'Social Media'}</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Botão de Atalho para Tarefas */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('tasks')}
+                  className="border border-amber-500/70 hover:border-amber-400 bg-amber-950/20 hover:bg-amber-950/40 text-amber-400 hover:text-amber-300 font-bold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl flex items-center gap-2 transition-all shadow-md shrink-0 hover:scale-[1.02] group"
+                  title="Acessar tarefas solicitadas pelo cliente"
                 >
-                  {selectedClient.logoUrl ? (
-                    <img src={selectedClient.logoUrl} alt={selectedClient.name} className="w-full h-full object-contain p-1" />
-                  ) : (
-                    <Building2 className="w-6 h-6 text-indigo-400 group-hover:scale-110 transition-transform" />
-                  )}
-                </div>
-
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/50 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" /> ESPAÇO EXCLUSIVO DE ATENDIMENTO
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <h2 
-                      onClick={() => setIsClientCardOpen(true)}
-                      className="text-sm sm:text-base font-bold text-white cursor-pointer hover:text-indigo-300 transition-colors flex items-center gap-1.5"
-                      title="Clique para visualizar os dados cadastrados deste cliente"
-                    >
-                      <span>{selectedClient.name}</span>
-                    </h2>
-                    <span className="text-slate-500 text-xs hidden sm:inline">•</span>
-                    <span className="text-xs sm:text-sm text-slate-200 font-medium">
-                      Social Media: <strong className="text-white font-bold">{responsibleSm?.name || 'Social Media'}</strong>
-                    </span>
-                  </div>
-                </div>
+                  <ClipboardCheck className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs sm:text-sm font-bold text-white">
+                    {clientTasks.length} {clientTasks.length === 1 ? 'Tarefa' : 'Tarefas'}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-amber-400" />
+                </button>
               </div>
-
-              {/* Botão de Atalho para Tarefas */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('tasks')}
-                className="border border-amber-500/70 hover:border-amber-400 bg-amber-950/20 hover:bg-amber-950/40 text-amber-400 hover:text-amber-300 font-bold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl flex items-center gap-2 transition-all shadow-md shrink-0 hover:scale-[1.02] group"
-                title="Acessar tarefas solicitadas pelo cliente"
-              >
-                <ClipboardCheck className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-                <span className="text-xs sm:text-sm font-bold text-white">
-                  {clientTasks.length} {clientTasks.length === 1 ? 'Tarefa' : 'Tarefas'}
-                </span>
-                <ChevronRight className="w-4 h-4 text-amber-400" />
-              </button>
-            </div>
+            )}
 
             {/* ============================================================ */}
-            {/* FORMATO ENXUTO: CARD 2 - BARRA DE BUSCA, FILTROS & AÇÕES   */}
+            {/* FORMATO ENXUTO: CARD 2 - BARRA DE BUSCA, FILTROS & AÇÕES (Oculto para Cliente, pois a busca fica no topo) */}
             {/* ============================================================ */}
+            {currentUserRole !== 'cliente' && (
             <div className="bg-[#0c1024] border border-indigo-900/60 rounded-3xl p-2.5 sm:p-3 shadow-xl flex flex-wrap items-center justify-between gap-2.5">
               
               {/* Campo de Pesquisa em Pill */}
@@ -950,77 +1403,77 @@ export default function App() {
                 />
               </div>
 
-              {/* Filtros em Pill e Botões de Ação */}
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                
-                {/* Todos */}
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('todos')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
-                    statusFilter === 'todos' 
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' 
-                      : 'bg-[#0a0f21] text-slate-300 hover:text-white border border-slate-800'
-                  }`}
-                >
-                  Todos ({clientPosts.length})
-                </button>
+              {/* Filtros em Pill e Botões de Ação (Exclusivos para Social Media e Gestor) */}
+              {(currentUserRole === 'social_media' || currentUserRole === 'gestor') && (
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  
+                  {/* Todos */}
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('todos')}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
+                      statusFilter === 'todos' 
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' 
+                        : 'bg-[#0a0f21] text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    Todos ({clientPosts.length})
+                  </button>
 
-                {/* Projeto */}
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('rascunho')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
-                    statusFilter === 'rascunho' 
-                      ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30' 
-                      : 'border-amber-500/70 text-amber-400 bg-amber-950/20 hover:bg-amber-950/40'
-                  }`}
-                >
-                  <span className="w-3.5 h-3.5 rounded-full border border-amber-400 text-amber-400 text-[10px] font-black flex items-center justify-center leading-none">!</span>
-                  <span>Projeto ({draftsCount})</span>
-                </button>
+                  {/* Projeto */}
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('rascunho')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                      statusFilter === 'rascunho' 
+                        ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30' 
+                        : 'border-amber-500/70 text-amber-400 bg-amber-950/20 hover:bg-amber-950/40'
+                    }`}
+                  >
+                    <span className="w-3.5 h-3.5 rounded-full border border-amber-400 text-amber-400 text-[10px] font-black flex items-center justify-center leading-none">!</span>
+                    <span>Projeto ({draftsCount})</span>
+                  </button>
 
-                {/* Alterar */}
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('alterar')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
-                    statusFilter === 'alterar' 
-                      ? 'bg-rose-600 text-white border-rose-500 shadow-md shadow-rose-600/30' 
-                      : 'border-rose-500/70 text-rose-400 bg-rose-950/20 hover:bg-rose-950/40'
-                  }`}
-                >
-                  <span className="w-3.5 h-3.5 rounded-full border border-rose-400 text-rose-400 text-[10px] font-black flex items-center justify-center leading-none">!</span>
-                  <span>Alterar ({changesRequestedCount})</span>
-                </button>
+                  {/* Alterar */}
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('alterar')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                      statusFilter === 'alterar' 
+                        ? 'bg-rose-600 text-white border-rose-500 shadow-md shadow-rose-600/30' 
+                        : 'border-rose-500/70 text-rose-400 bg-rose-950/20 hover:bg-rose-950/40'
+                    }`}
+                  >
+                    <span className="w-3.5 h-3.5 rounded-full border border-rose-400 text-rose-400 text-[10px] font-black flex items-center justify-center leading-none">!</span>
+                    <span>Alterar ({changesRequestedCount})</span>
+                  </button>
 
-                {/* Aprovado */}
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('aprovado')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
-                    statusFilter === 'aprovado' 
-                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30' 
-                      : 'border-emerald-500/70 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-950/40'
-                  }`}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Aprovado ({approvedCount})</span>
-                </button>
+                  {/* Aprovado */}
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('aprovado')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                      statusFilter === 'aprovado' 
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30' 
+                        : 'border-emerald-500/70 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-950/40'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Aprovado ({approvedCount})</span>
+                  </button>
 
-                {/* Enviar Mural via WhatsApp */}
-                <button
-                  type="button"
-                  onClick={handleSendEntireMuralWhatsApp}
-                  className="px-3.5 py-1.5 rounded-full border border-emerald-500/60 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/30 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm hover:scale-[1.02]"
-                  title="Enviar link completo do Mural para o WhatsApp do cliente"
-                >
-                  <Bell className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Enviar Mural via WhatsApp</span>
-                </button>
+                  {/* Enviar Mural via WhatsApp */}
+                  <button
+                    type="button"
+                    onClick={handleSendEntireMuralWhatsApp}
+                    className="px-3.5 py-1.5 rounded-full border border-emerald-500/60 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/30 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm hover:scale-[1.02]"
+                    title="Enviar link completo do Mural para o WhatsApp do cliente"
+                  >
+                    <Bell className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Enviar Mural via WhatsApp</span>
+                  </button>
 
-                {/* + Novo Projeto */}
-                {(currentUserRole === 'social_media' || currentUserRole === 'gestor') && (
+                  {/* + Novo Projeto */}
                   <button
                     type="button"
                     onClick={() => setIsNewPostModalOpen(true)}
@@ -1029,10 +1482,11 @@ export default function App() {
                     <Plus className="w-4 h-4" />
                     <span>Novo Projeto</span>
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
             </div>
+            )}
 
             {/* Posts Grid */}
             {filteredPosts.length === 0 ? (
@@ -1073,6 +1527,9 @@ export default function App() {
             onUpdateTask={handleUpdateTask}
             onDeleteTask={handleDeleteTask}
             onConvertTaskToPost={handleConvertTaskToPost}
+            tasksDbWarning={tasksTableMissingInSupabase}
+            onManualSync={loadRemoteData}
+            isSyncing={isManualSyncing}
             onOpenPostDetails={(postId) => {
               const target = posts.find(p => p.id === postId);
               if (target) setSelectedPostForDetails(target);
@@ -1092,6 +1549,74 @@ export default function App() {
           />
         )}
 
+        {/* TAB: ANIVERSARIANTES */}
+        {activeTab === 'birthdays' && (
+          <BirthdaysSection
+            client={selectedClient}
+            currentUserRole={currentUserRole}
+            responsibleSm={responsibleSm}
+            backgrounds={clientBdayBackgrounds}
+            groups={clientBdayGroups}
+            messages={clientBdayMessages}
+            people={clientBdayPeople}
+            auditLogs={clientBdayAuditLogs}
+            clientSession={birthdayClientSessions[selectedClient.id] || null}
+            onClientLogin={(session) =>
+              setBirthdayClientSessions(prev => ({ ...prev, [selectedClient.id]: session }))
+            }
+            onClientLogout={() =>
+              setBirthdayClientSessions(prev => {
+                const copy = { ...prev };
+                delete copy[selectedClient.id];
+                return copy;
+              })
+            }
+            onSaveBackground={(bg) => setBirthdayBackgrounds(prev => [bg, ...prev])}
+            onUpdateBackground={(bg) =>
+              setBirthdayBackgrounds(prev => prev.map(item => (item.id === bg.id ? bg : item)))
+            }
+            onDeleteBackground={(bgId) =>
+              setBirthdayBackgrounds(prev => prev.filter(item => item.id !== bgId))
+            }
+            onSaveGroup={(grp) => setBirthdayGroups(prev => [...prev, grp])}
+            onUpdateGroup={(grp) =>
+              setBirthdayGroups(prev => prev.map(item => (item.id === grp.id ? grp : item)))
+            }
+            onDeleteGroup={(grpId) =>
+              setBirthdayGroups(prev => prev.filter(item => item.id !== grpId))
+            }
+            onSaveMessage={(msg) => setBirthdayMessages(prev => [...prev, msg])}
+            onUpdateMessage={(msg) =>
+              setBirthdayMessages(prev => prev.map(item => (item.id === msg.id ? msg : item)))
+            }
+            onDeleteMessage={(msgId) =>
+              setBirthdayMessages(prev => prev.filter(item => item.id !== msgId))
+            }
+            onSavePerson={(person) => setBirthdayPeople(prev => [person, ...prev])}
+            onUpdatePerson={(person) =>
+              setBirthdayPeople(prev => prev.map(item => (item.id === person.id ? person : item)))
+            }
+            onDeletePerson={(personId) =>
+              setBirthdayPeople(prev => prev.filter(item => item.id !== personId))
+            }
+            onRecordAudit={(entry) =>
+              setBirthdayAuditLogs(prev => [
+                {
+                  ...entry,
+                  id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  clientProjectId: selectedClient.id,
+                  timestamp: new Date().toISOString()
+                },
+                ...prev
+              ])
+            }
+            onSendArtToMural={(postData) => {
+              handleCreatePost(postData);
+              setActiveTab('posts');
+            }}
+          />
+        )}
+
         {/* TAB 3: FECHAMENTO & RECIBO PDF (GESTOR & SOCIAL MEDIA) */}
         {activeTab === 'billing' && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
           <ReceiptGenerator
@@ -1100,6 +1625,8 @@ export default function App() {
             currentUserRole={currentUserRole}
             feePerPost={feePerPost}
             socialMedias={socialMedias}
+            posts={posts}
+            approvalRecords={approvalRecords}
             onSaveReceipt={handleSaveReceipt}
             onSendWhatsAppReceipt={handleSendWhatsAppReceipt}
             onAddSaasProof={handleAddSaasProof}
@@ -1144,6 +1671,7 @@ export default function App() {
             receipts={receipts}
             socialMedias={socialMedias}
             saasProofs={saasProofs}
+            approvalRecords={approvalRecords}
             onAddSocialMedia={handleAddSocialMedia}
             onUpdateSocialMedia={handleUpdateSocialMedia}
             onDeleteSocialMedia={handleDeleteSocialMedia}
@@ -1183,8 +1711,9 @@ export default function App() {
         onClose={() => setSelectedPostForDetails(null)}
         currentUserRole={currentUserRole}
         inspirations={clientInspirations}
-        clientWhatsapp={selectedClient.whatsappNumber}
         clientName={selectedClient.name}
+        clientContactName={selectedClient.contactName}
+        socialMediaName={responsibleSm?.name}
         onUpdateStatus={handleUpdatePostStatus}
         onUpdateSocialNetworks={handleUpdatePostSocialNetworks}
         onTogglePublished={handleTogglePublished}

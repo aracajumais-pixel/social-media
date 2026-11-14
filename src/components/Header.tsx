@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject, UserRole } from '../types';
-import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Eye } from 'lucide-react';
+import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Eye, Search, X } from 'lucide-react';
 
 interface HeaderProps {
   clients: ClientProject[];
@@ -16,6 +16,8 @@ interface HeaderProps {
   socialMedias?: import('../types').SocialMediaUser[];
   activeSocialMediaId?: string;
   onSelectSocialMedia?: (smId: string) => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,14 +28,25 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeUserRole,
   onOpenWhatsAppModal,
   onOpenDriveModal,
-  onOpenAddClientModal,
   onOpenClientCard,
   unreadNotificationsCount,
   socialMedias = [],
   activeSocialMediaId,
-  onSelectSocialMedia
+  onSelectSocialMedia,
+  searchQuery = '',
+  onSearchChange
 }) => {
   const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
+  const linkedSm = socialMedias.find(
+    sm => sm.id === (selectedClient?.assignedSocialMediaId || (selectedClient as any)?.createdBySocialMediaId || activeSocialMediaId)
+  ) || socialMedias[0];
+
+  const isClientLinkAccess =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).has('client') ||
+      new URLSearchParams(window.location.search).has('token'));
+
+  const isClientView = currentUserRole === 'cliente';
 
   return (
     <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 text-white shadow-lg">
@@ -41,16 +54,29 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between h-16 gap-4">
           
           {/* Logo & Brand */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center shadow-md shadow-indigo-500/20">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent leading-tight">
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent leading-tight truncate">
                 Social Media 5.0
               </h1>
-              <p className="text-xs text-slate-400 font-medium">Gestão & Aprovação Inteligente</p>
+              {!isClientView && (
+                <p className="text-xs text-slate-400 font-medium">Gestão & Aprovação Inteligente</p>
+              )}
             </div>
+
+            {/* Na visão do Cliente: exibe apenas o nome do Social Media vinculado junto ao topo */}
+            {isClientView && linkedSm?.name && (
+              <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 py-1.5 text-xs shrink-0">
+                <UserCheck className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <span className="text-slate-400 hidden sm:inline">Social Media:</span>
+                <span className="font-bold text-white truncate max-w-[160px] sm:max-w-[240px]">
+                  {linkedSm.name}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Social Media Active Identity Switcher (quando em perfil Social Media) */}
@@ -75,32 +101,32 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Client Selector Dropdown or Locked Space Badge */}
-          {currentUserRole === 'cliente' ? (
-            <button
-              type="button"
-              onClick={onOpenClientCard}
-              className="hidden md:flex items-center gap-2 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-500/40 rounded-xl px-3 py-1.5 shadow-md cursor-pointer transition-all text-left group"
-              title="Clique para abrir os dados cadastrados deste cliente"
-            >
-              <Building className="w-4 h-4 text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
-              <div className="flex flex-col">
-                <span className="text-[10px] text-emerald-300 font-extrabold uppercase tracking-wider flex items-center gap-1">
-                  Espaço Exclusivo:
-                  <span className="text-[9px] bg-emerald-800 text-emerald-200 px-1 py-0.2 rounded font-normal">Ver Dados</span>
-                </span>
-                <span className="text-xs font-bold text-white max-w-[200px] truncate group-hover:underline">{selectedClient?.name || 'Cliente'}</span>
-              </div>
-              {(() => {
-                const assignedSm = socialMedias.find(sm => sm.id === (selectedClient?.assignedSocialMediaId || (selectedClient as any)?.createdBySocialMediaId));
-                return assignedSm ? (
-                  <span className="ml-1 text-[10px] bg-emerald-900/70 text-emerald-200 border border-emerald-500/30 px-2 py-0.5 rounded-md font-semibold">
-                    SM: {assignedSm.name}
-                  </span>
-                ) : null;
-              })()}
-            </button>
-          ) : (
+          {/* Campo de Busca no topo (na visão do Cliente, entre Social Media 5.0 e o ícone de Cliente) */}
+          {isClientView && onSearchChange && (
+            <div className="hidden md:flex flex-1 max-w-md mx-2 relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar por título ou palavra-chave da legenda..."
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                className="w-full bg-slate-950/90 text-xs text-white pl-9 pr-8 py-2 rounded-full border border-slate-700/80 focus:outline-none focus:border-indigo-500 placeholder-slate-500 transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => onSearchChange('')}
+                  title="Limpar busca"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Client Selector Dropdown (apenas para Gestor e Social Media) */}
+          {!isClientView && (
             <div className="hidden md:flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/60 rounded-xl px-2.5 py-1.5">
               <Building className="w-4 h-4 text-indigo-400 shrink-0" />
               <span className="text-xs text-slate-400 font-medium">Cliente:</span>
@@ -141,105 +167,130 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* User Role Switcher & Action Buttons */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             
-            {/* Google Drive Link */}
-            <button
-              onClick={onOpenDriveModal}
-              title="Central do Google Drive"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/60 text-xs font-medium transition-colors"
-            >
-              <HardDrive className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">Drive do Cliente</span>
-            </button>
-
-            {/* WhatsApp Notification Trigger */}
-            <button
-              onClick={onOpenWhatsAppModal}
-              className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors"
-            >
-              <MessageSquare className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">Notificações WhatsApp</span>
-              {unreadNotificationsCount > 0 && (
-                <span className="bg-emerald-500 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
-                  {unreadNotificationsCount}
-                </span>
-              )}
-            </button>
-
-            {/* Role Switcher */}
-            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+            {/* Google Drive Link (Oculto para Cliente) */}
+            {!isClientView && (
               <button
-                onClick={() => onChangeUserRole('gestor')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
-                  currentUserRole === 'gestor'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Visão do Interlocutor / Gestor de Contas"
+                onClick={onOpenDriveModal}
+                title="Central do Google Drive"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/60 text-xs font-medium transition-colors"
               >
-                <Shield className="w-3.5 h-3.5" />
-                <span className="hidden lg:inline">Gestor</span>
+                <HardDrive className="w-4 h-4 text-emerald-400" />
+                <span className="hidden sm:inline">Drive do Cliente</span>
               </button>
+            )}
 
+            {/* WhatsApp Notification Trigger (Oculto para Cliente) */}
+            {!isClientView && (
               <button
-                onClick={() => onChangeUserRole('social_media')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
-                  currentUserRole === 'social_media'
-                    ? 'bg-purple-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Visão do Criador de Conteúdo"
+                onClick={onOpenWhatsAppModal}
+                className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors"
               >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span className="hidden lg:inline">Social Media</span>
+                <MessageSquare className="w-4 h-4 text-emerald-400" />
+                <span className="hidden sm:inline">Notificações WhatsApp</span>
+                {unreadNotificationsCount > 0 && (
+                  <span className="bg-emerald-500 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
               </button>
+            )}
 
-              <button
-                onClick={() => onChangeUserRole('cliente')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
-                  currentUserRole === 'cliente'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Visão Simplificada do Cliente"
-              >
-                <Building className="w-3.5 h-3.5" />
-                <span className="hidden lg:inline">Cliente</span>
-              </button>
-            </div>
+            {/* Role Switcher (Oculto quando acessado por link direto de cliente) */}
+            {!(isClientView && isClientLinkAccess) && (
+              <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => onChangeUserRole('gestor')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                    currentUserRole === 'gestor'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Visão do Interlocutor / Gestor de Contas"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">Gestor</span>
+                </button>
+
+                <button
+                  onClick={() => onChangeUserRole('social_media')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                    currentUserRole === 'social_media'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Visão do Criador de Conteúdo"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">Social Media</span>
+                </button>
+
+                <button
+                  onClick={() => onChangeUserRole('cliente')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                    currentUserRole === 'cliente'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Visão Simplificada do Cliente"
+                >
+                  <Building className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">Cliente</span>
+                </button>
+              </div>
+            )}
 
           </div>
 
         </div>
 
-        {/* Mobile Client Select Bar */}
-        <div className="md:hidden py-2 border-t border-slate-800/80 flex items-center justify-between">
-          {currentUserRole === 'cliente' ? (
-            <div className="flex items-center justify-between w-full text-xs">
-              <span className="text-slate-400">Espaço do Cliente:</span>
-              <span className="font-bold text-emerald-400">{selectedClient?.name}</span>
+        {/* Mobile Search Bar (apenas para Cliente) */}
+        {isClientView && onSearchChange && (
+          <div className="md:hidden py-2 border-t border-slate-800/80">
+            <div className="relative w-full">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar por título ou palavra-chave da legenda..."
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                className="w-full bg-slate-950 text-xs text-white pl-9 pr-8 py-1.5 rounded-full border border-slate-700/80 focus:outline-none focus:border-indigo-500 placeholder-slate-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => onSearchChange('')}
+                  title="Limpar busca"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-          ) : (
-            <>
-              <span className="text-xs text-slate-400">Cliente ativo:</span>
-              <select
-                value={selectedClientId}
-                onChange={(e) => onSelectClient(e.target.value)}
-                className="bg-slate-800 text-xs font-semibold text-white rounded-lg px-2 py-1 focus:outline-none max-w-[200px]"
-              >
-                {clients.map(client => {
-                  const assignedSm = socialMedias.find(sm => sm.id === (client.assignedSocialMediaId || (client as any).createdBySocialMediaId));
-                  return (
-                    <option key={client.id} value={client.id}>
-                      {client.name} {assignedSm ? `• (${assignedSm.name})` : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            </>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* Mobile Client Select Bar (apenas para Gestor e Social Media) */}
+        {!isClientView && (
+          <div className="md:hidden py-2 border-t border-slate-800/80 flex items-center justify-between">
+            <span className="text-xs text-slate-400">Cliente ativo:</span>
+            <select
+              value={selectedClientId}
+              onChange={(e) => onSelectClient(e.target.value)}
+              className="bg-slate-800 text-xs font-semibold text-white rounded-lg px-2 py-1 focus:outline-none max-w-[200px]"
+            >
+              {clients.map(client => {
+                const assignedSm = socialMedias.find(sm => sm.id === (client.assignedSocialMediaId || (client as any).createdBySocialMediaId));
+                return (
+                  <option key={client.id} value={client.id}>
+                    {client.name} {assignedSm ? `• (${assignedSm.name})` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
 
       </div>
     </header>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ClientProject, PostItem, BillingReceipt, SocialMediaUser, SaaSPaymentProof, SocialNetwork } from '../types';
+import { ClientProject, PostItem, BillingReceipt, SocialMediaUser, SaaSPaymentProof, SocialNetwork, ApprovalRecord } from '../types';
 import { 
-  ShieldAlert, DollarSign, TrendingUp, Users, HardDrive, 
+  ShieldAlert, ShieldCheck, DollarSign, TrendingUp, Users, HardDrive, 
   CheckCircle2, Plus, Sparkles, ExternalLink, Trash2, Mail, Phone, AlertTriangle, Layers,
   Lock, Unlock, Edit3, Code2, History, BookOpen, FileSpreadsheet, BarChart2, CheckSquare, Clock, Upload, Check, X,
   MessageSquare, Send, MousePointerClick, Database, UploadCloud, MapPin, Loader2, Search, AlertCircle
@@ -11,7 +11,8 @@ import {
 } from 'recharts';
 import { 
   getSupabaseCredentials, saveSupabaseCredentials, testSupabaseConnection, 
-  syncAllClientsToSupabase, syncAllPostsToSupabase, syncSocialMediaToSupabase 
+  syncAllClientsToSupabase, syncAllPostsToSupabase, syncSocialMediaToSupabase,
+  syncApprovalRecordToSupabase
 } from '../lib/supabase';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 import { fetchAddressByCep, formatCep, buildFormattedAddress } from '../utils/cepHelper';
@@ -22,6 +23,7 @@ interface AdminSaaSDashboardProps {
   receipts: BillingReceipt[];
   socialMedias: SocialMediaUser[];
   saasProofs?: SaaSPaymentProof[];
+  approvalRecords?: ApprovalRecord[];
   onAddSocialMedia: (newSm: Omit<SocialMediaUser, 'id' | 'totalPostsCreated'>) => void;
   onUpdateSocialMedia?: (updatedSm: SocialMediaUser) => void;
   onDeleteSocialMedia: (id: string) => void;
@@ -44,6 +46,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
   receipts,
   socialMedias,
   saasProofs = [],
+  approvalRecords = [],
   onAddSocialMedia,
   onUpdateSocialMedia,
   onDeleteSocialMedia,
@@ -275,6 +278,55 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
   const publicadosCount = posts.filter(p => p.isPublished).length;
   const totalPostsCount = posts.length;
 
+  // Reconcilia Registros Oficiais de Aprovação com posts atualmente marcados como aprovados
+  const effectiveApprovalRecords: ApprovalRecord[] = (() => {
+    const recordedPostIds = new Set(approvalRecords.map(r => r.postId));
+    const missingFromPosts: ApprovalRecord[] = posts
+      .filter(p => p.status === 'aprovado' && !recordedPostIds.has(p.id))
+      .map(p => {
+        const client = clients.find(c => c.id === p.clientProjectId);
+        const sm = socialMedias.find(
+          s => s.id === p.socialMediaAuthorId || s.id === client?.assignedSocialMediaId || (s.assignedClientIds || []).includes(p.clientProjectId)
+        );
+        const rate = sm?.customFeePerPost !== undefined ? sm.customFeePerPost : feePerPost;
+        return {
+          id: `apr-rec-${p.id}`,
+          postId: p.id,
+          postTitle: p.title,
+          clientProjectId: p.clientProjectId,
+          clientName: client?.name || 'Cliente',
+          socialMediaId: sm?.id || p.socialMediaAuthorId,
+          socialMediaName: sm?.name,
+          approvedAt: p.approvedAt || p.updatedAt || p.createdAt,
+          approvedByRole: 'cliente',
+          approvedByName: p.approvedBy || client?.contactName || 'Cliente',
+          approvedByPhone: client?.whatsappNumber,
+          approvedByEmail: client?.email,
+          pricePerPostSnapshot: client?.pricePerPost || 150,
+          feePerPostSnapshot: rate,
+          billingStatus: 'computado'
+        };
+      });
+
+    return [...approvalRecords, ...missingFromPosts].sort(
+      (a, b) => new Date(b.approvedAt).getTime() - new Date(a.approvedAt).getTime()
+    );
+  })();
+
+  const verifiedApprovalsTotalCount = effectiveApprovalRecords.length;
+  const deletedAfterApprovalTotalCount = effectiveApprovalRecords.filter(r => Boolean(r.postDeletedAt)).length;
+  const billedApprovalsTotalCount = effectiveApprovalRecords.filter(r => r.billingStatus === 'faturado').length;
+  const pendingBillingApprovalsTotalCount = effectiveApprovalRecords.filter(r => r.billingStatus === 'computado').length;
+
+  const totalVerifiedSaaSRevenue = effectiveApprovalRecords.reduce((acc, rec) => {
+    const client = clients.find(c => c.id === rec.clientProjectId);
+    const sm = socialMedias.find(
+      s => s.id === rec.socialMediaId || s.id === client?.assignedSocialMediaId || (s.assignedClientIds || []).includes(rec.clientProjectId)
+    );
+    const rate = sm?.customFeePerPost !== undefined ? sm.customFeePerPost : (rec.feePerPostSnapshot ?? feePerPost);
+    return acc + rate;
+  }, 0);
+
   // Receipts calculations considering individual rates or global default
   const totalReceiptItemsPostsCount = receipts.reduce((acc, r) => {
     const postCount = r.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -283,7 +335,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
 
   const totalSaaSRevenue = receipts.reduce((acc, r) => {
     const client = clients.find(c => c.id === r.clientProjectId);
-    const sm = socialMedias.find(s => s.assignedClientIds.includes(r.clientProjectId) || s.id === client?.assignedSocialMediaId);
+    const sm = socialMedias.find(s => (s.assignedClientIds || []).includes(r.clientProjectId) || s.id === client?.assignedSocialMediaId);
     const rate = sm?.customFeePerPost !== undefined ? sm.customFeePerPost : feePerPost;
     const postCount = r.items.reduce((sum, item) => sum + item.quantity, 0);
     return acc + (postCount * rate);
@@ -396,7 +448,12 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                   </button>
                 </div>
                 <div className="text-2xl font-black text-emerald-400 font-mono">R$ {feePerPost.toFixed(2)}</div>
-                <div className="text-[10px] text-slate-400">Total SaaS: <strong className="text-emerald-300 font-mono">R$ {totalSaaSRevenue.toFixed(2)}</strong> ({totalReceiptItemsPostsCount} posts)</div>
+                <div className="text-[10px] text-slate-400">
+                  Recibos: <strong className="text-emerald-300 font-mono">R$ {totalSaaSRevenue.toFixed(2)}</strong> ({totalReceiptItemsPostsCount} posts)
+                </div>
+                <div className="text-[10px] text-amber-300">
+                  Auditado (Aprovações): <strong className="font-mono">R$ {totalVerifiedSaaSRevenue.toFixed(2)}</strong> ({verifiedApprovalsTotalCount} aprov.)
+                </div>
               </div>
             </div>
 
@@ -686,6 +743,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                   <tr>
                     <th className="p-3.5 rounded-l-xl">Social Media</th>
                     <th className="p-3.5">Clientes Atendidos</th>
+                    <th className="p-3.5">Aprovações Verificadas</th>
                     <th className="p-3.5">Recibos Emitidos</th>
                     <th className="p-3.5">Posts Faturados</th>
                     <th className="p-3.5">Faturamento Bruto</th>
@@ -697,12 +755,19 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {socialMedias.map(sm => {
-                    const smClients = clients.filter(c => sm.assignedClientIds.includes(c.id));
-                    const smReceipts = receipts.filter(r => smClients.some(c => c.id === r.clientProjectId));
+                    const smClients = clients.filter(c => c.assignedSocialMediaId === sm.id || (sm.assignedClientIds || []).includes(c.id));
+                    const smClientIds = new Set(smClients.map(c => c.id));
+                    const smReceipts = receipts.filter(r => r.socialMediaId === sm.id || smClientIds.has(r.clientProjectId));
+                    const smApprovals = effectiveApprovalRecords.filter(
+                      r => r.socialMediaId === sm.id || smClientIds.has(r.clientProjectId)
+                    );
+                    const smDeletedAfterApproval = smApprovals.filter(r => Boolean(r.postDeletedAt)).length;
                     const smPostsInvoiced = smReceipts.reduce((acc, r) => acc + r.items.reduce((sum, item) => sum + item.quantity, 0), 0);
                     const smGrossBilling = smReceipts.reduce((acc, r) => acc + r.totalAmount, 0);
                     const effectiveFee = sm.customFeePerPost !== undefined ? sm.customFeePerPost : feePerPost;
-                    const smSaaSShare = smPostsInvoiced * effectiveFee;
+                    const smSaaSShare = smReceipts.length > 0 ? smPostsInvoiced * effectiveFee : 0;
+                    const smAuditedSaaSShare = smApprovals.length * effectiveFee;
+                    const hasBillingDivergence = smApprovals.length > smPostsInvoiced;
                     const isBlocked = sm.status === 'bloqueado';
 
                     return (
@@ -723,8 +788,23 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                             <span className="text-slate-500 italic">Nenhum</span>
                           )}
                         </td>
+                        <td className="p-3.5">
+                          <div className="font-bold text-emerald-400">{smApprovals.length} aprov.</div>
+                          {smDeletedAfterApproval > 0 && (
+                            <span className="inline-block mt-0.5 text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold">
+                              {smDeletedAfterApproval} excluído(s) pós-aprov.
+                            </span>
+                          )}
+                        </td>
                         <td className="p-3.5 font-bold text-slate-200">{smReceipts.length} recibos</td>
-                        <td className="p-3.5 font-bold text-amber-300">{smPostsInvoiced} posts</td>
+                        <td className="p-3.5">
+                          <div className="font-bold text-amber-300">{smPostsInvoiced} posts</div>
+                          {hasBillingDivergence && (
+                            <span className="inline-flex items-center gap-1 mt-0.5 text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-bold">
+                              <AlertTriangle className="w-2.5 h-2.5" /> Faltam {smApprovals.length - smPostsInvoiced}
+                            </span>
+                          )}
+                        </td>
                         <td className="p-3.5 font-bold text-emerald-400 font-mono">R$ {smGrossBilling.toFixed(2)}</td>
                         <td className="p-3.5">
                           <button
@@ -744,7 +824,14 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                             <Edit3 className="w-3 h-3 opacity-60 group-hover:opacity-100" />
                           </button>
                         </td>
-                        <td className="p-3.5 font-bold text-indigo-300 font-mono">R$ {smSaaSShare.toFixed(2)}</td>
+                        <td className="p-3.5 font-mono">
+                          <div className="font-bold text-indigo-300">R$ {Math.max(smSaaSShare, smAuditedSaaSShare).toFixed(2)}</div>
+                          {hasBillingDivergence && (
+                            <div className="text-[9px] text-amber-300 font-bold">
+                              Recibos: R$ {smSaaSShare.toFixed(2)}
+                            </div>
+                          )}
+                        </td>
                         <td className="p-3.5">
                           {isBlocked ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold text-[10px]">
@@ -776,6 +863,107 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Auditoria Imutável de Registros de Aprovação para Computação de Faturamento */}
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 space-y-5 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex flex-wrap items-center gap-2">
+                    <span>Auditoria de Registros de Aprovação (Computação de Faturamento)</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-extrabold uppercase border border-emerald-500/30">
+                      Anti-Drible Ativo
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Toda aprovação oficial permanece registrada mesmo que o card do projeto seja excluído do mural após a publicação, garantindo o cômputo real de faturamento e taxa SaaS.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0 text-[11px] font-bold">
+                <span className="px-3 py-1 rounded-full bg-slate-950 text-emerald-300 border border-emerald-500/30">
+                  {verifiedApprovalsTotalCount} Aprovações
+                </span>
+                <span className="px-3 py-1 rounded-full bg-slate-950 text-amber-300 border border-amber-500/30">
+                  {pendingBillingApprovalsTotalCount} Computadas
+                </span>
+                <span className="px-3 py-1 rounded-full bg-slate-950 text-indigo-300 border border-indigo-500/30">
+                  {billedApprovalsTotalCount} Faturadas
+                </span>
+                {deletedAfterApprovalTotalCount > 0 && (
+                  <span className="px-3 py-1 rounded-full bg-rose-950/60 text-rose-300 border border-rose-500/40">
+                    {deletedAfterApprovalTotalCount} Card(s) Excluído(s) pós-aprovação
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {effectiveApprovalRecords.length === 0 ? (
+              <div className="text-center py-8 text-slate-500 text-xs italic">
+                Nenhum registro oficial de aprovação computado até o momento.
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider font-bold sticky top-0">
+                    <tr>
+                      <th className="p-3 rounded-l-xl">Projeto Aprovado</th>
+                      <th className="p-3">Cliente</th>
+                      <th className="p-3">Social Media</th>
+                      <th className="p-3">Aprovação Oficial</th>
+                      <th className="p-3">Estado do Card</th>
+                      <th className="p-3">Faturamento</th>
+                      <th className="p-3 rounded-r-xl text-right">Bruto / Taxa SaaS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {effectiveApprovalRecords.map(rec => (
+                      <tr key={rec.id} className="hover:bg-slate-850/40 transition-colors">
+                        <td className="p-3 font-bold text-white max-w-[180px] truncate">{rec.postTitle}</td>
+                        <td className="p-3 text-slate-200">{rec.clientName}</td>
+                        <td className="p-3 text-indigo-300 font-semibold">{rec.socialMediaName || '—'}</td>
+                        <td className="p-3">
+                          <div className="font-semibold text-slate-200">{rec.approvedByName}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {new Date(rec.approvedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                            {rec.approvedByPhone ? ` • ${rec.approvedByPhone}` : ''}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          {rec.postDeletedAt ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                              Excluído pós-aprovação
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-semibold">
+                              Ativo no Mural
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                            rec.billingStatus === 'faturado'
+                              ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          }`}>
+                            {rec.billingStatus === 'faturado' ? 'Faturado' : 'Computado'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-mono">
+                          <div className="font-bold text-emerald-400">R$ {rec.pricePerPostSnapshot.toFixed(2)}</div>
+                          <div className="text-[10px] text-amber-300">Taxa: R$ {rec.feePerPostSnapshot.toFixed(2)}</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Central de Comprovantes de Pagamento do SaaS */}
@@ -1570,7 +1758,10 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                       for (const sm of socialMedias) {
                         await syncSocialMediaToSupabase(sm);
                       }
-                      alert('✓ Sincronização manual completa executada para Clientes, Posts e Social Medias no Supabase!');
+                      for (const rec of effectiveApprovalRecords) {
+                        await syncApprovalRecordToSupabase(rec);
+                      }
+                      alert('✓ Sincronização manual completa executada para Clientes, Projetos, Social Medias e Registros de Aprovação no Supabase!');
                     } catch (err) {
                       alert('Erro durante a sincronização manual com o Supabase. Verifique se o script SQL de tabelas foi rodado.');
                     }
@@ -1677,11 +1868,93 @@ CREATE TABLE IF NOT EXISTS social_medias (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. HABILITAR SEGURANÇA (RLS) E PERMISSÕES DE ACESSO
+-- 5. TABELA DE REGISTROS OFICIAIS DE APROVAÇÃO (AUDITORIA DE FATURAMENTO)
+CREATE TABLE IF NOT EXISTS approval_records (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  post_title TEXT NOT NULL,
+  client_project_id TEXT NOT NULL,
+  client_name TEXT,
+  social_media_id TEXT,
+  social_media_name TEXT,
+  approved_at TIMESTAMPTZ NOT NULL,
+  approved_by_role TEXT NOT NULL,
+  approved_by_name TEXT NOT NULL,
+  approved_by_phone TEXT,
+  approved_by_email TEXT,
+  price_per_post_snapshot NUMERIC(10,2) DEFAULT 150,
+  fee_per_post_snapshot NUMERIC(10,2) DEFAULT 0.50,
+  billing_status TEXT DEFAULT 'computado',
+  post_deleted_at TIMESTAMPTZ
+);
+
+-- 6. TABELA DE TAREFAS SOLICITADAS PELO CLIENTE
+CREATE TABLE IF NOT EXISTS client_tasks (
+  id TEXT PRIMARY KEY,
+  client_project_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  deadline TEXT,
+  status TEXT DEFAULT 'novo',
+  linked_post_id TEXT,
+  created_by_role TEXT DEFAULT 'cliente',
+  created_by_name TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. TABELA DE INSPIRAÇÕES E RECIBOS
+CREATE TABLE IF NOT EXISTS inspirations (
+  id TEXT PRIMARY KEY,
+  client_project_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  url TEXT NOT NULL,
+  type TEXT DEFAULT 'image',
+  uploaded_by_role TEXT DEFAULT 'cliente',
+  uploaded_by_name TEXT,
+  is_used BOOLEAN DEFAULT false,
+  used_at TIMESTAMPTZ,
+  retention_option TEXT,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS receipts (
+  id TEXT PRIMARY KEY,
+  receipt_number TEXT,
+  client_project_id TEXT NOT NULL,
+  period TEXT,
+  issue_date TEXT,
+  due_date TEXT,
+  items JSONB DEFAULT '[]'::jsonb,
+  subtotal NUMERIC(10,2) DEFAULT 0,
+  discount NUMERIC(10,2) DEFAULT 0,
+  total_amount NUMERIC(10,2) DEFAULT 0,
+  platform_fee_total NUMERIC(10,2) DEFAULT 0,
+  payment_method TEXT,
+  notes TEXT,
+  status TEXT DEFAULT 'rascunho',
+  city_state TEXT,
+  service_summary_text TEXT,
+  custom_receipt_text TEXT,
+  social_media_name TEXT,
+  social_media_pix TEXT,
+  social_media_bank TEXT,
+  social_media_cpf_cnpj TEXT,
+  social_media_signature_url TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. HABILITAR SEGURANÇA (RLS) E PERMISSÕES DE ACESSO
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE post_comments_audit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE social_medias ENABLE ROW LEVEL SECURITY;
+ALTER TABLE approval_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inspirations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receipts ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Permitir acesso total clientes" ON clients;
 CREATE POLICY "Permitir acesso total clientes" ON clients FOR ALL USING (true) WITH CHECK (true);
@@ -1693,7 +1966,19 @@ DROP POLICY IF EXISTS "Permitir acesso total audit" ON post_comments_audit;
 CREATE POLICY "Permitir acesso total audit" ON post_comments_audit FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Permitir acesso total social_medias" ON social_medias;
-CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);`;
+CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir acesso total approval_records" ON approval_records;
+CREATE POLICY "Permitir acesso total approval_records" ON approval_records FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir acesso total client_tasks" ON client_tasks;
+CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir acesso total inspirations" ON inspirations;
+CREATE POLICY "Permitir acesso total inspirations" ON inspirations FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts;
+CREATE POLICY "Permitir acesso total receipts" ON receipts FOR ALL USING (true) WITH CHECK (true);`;
                       navigator.clipboard.writeText(fullSql);
                       alert('Script SQL Completo do Supabase copiado! Cole no SQL Editor do seu Supabase e clique em "Run".');
                     }}
@@ -1712,7 +1997,7 @@ CREATE TABLE IF NOT EXISTS clients (
   drive_folder_url TEXT, logo_url TEXT, assigned_social_media_id TEXT, status TEXT DEFAULT 'ativo'
 );
 
--- 2. TABELA DE POSTS (RASCUNHOS & CONTEÚDOS)
+-- 2. TABELA DE POSTS (PROJETOS & CONTEÚDOS)
 CREATE TABLE IF NOT EXISTS posts (
   id TEXT PRIMARY KEY, client_project_id TEXT NOT NULL, title TEXT NOT NULL,
   caption TEXT, media_url TEXT, media_type TEXT DEFAULT 'image', social_networks JSONB DEFAULT '[]'::jsonb,
@@ -1721,16 +2006,20 @@ CREATE TABLE IF NOT EXISTS posts (
   social_media_author_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. AUDITORIA DE COMENTÁRIOS E SOCIAL MEDIAS
+-- 3. AUDITORIA, SOCIAL MEDIAS, APROVAÇÕES E TAREFAS DO CLIENTE
 CREATE TABLE IF NOT EXISTS post_comments_audit ( id TEXT PRIMARY KEY, post_id TEXT NOT NULL, post_title TEXT, client_id TEXT, author_role TEXT NOT NULL, author_name TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() );
 CREATE TABLE IF NOT EXISTS social_medias ( id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, whatsapp TEXT, social_profile TEXT, pix_key TEXT, custom_fee_per_post NUMERIC(10,2), status TEXT DEFAULT 'ativo', created_at TIMESTAMPTZ DEFAULT NOW() );
+CREATE TABLE IF NOT EXISTS approval_records ( id TEXT PRIMARY KEY, post_id TEXT NOT NULL, post_title TEXT NOT NULL, client_project_id TEXT NOT NULL, client_name TEXT, social_media_id TEXT, social_media_name TEXT, approved_at TIMESTAMPTZ NOT NULL, approved_by_role TEXT NOT NULL, approved_by_name TEXT NOT NULL, approved_by_phone TEXT, approved_by_email TEXT, price_per_post_snapshot NUMERIC(10,2) DEFAULT 150, fee_per_post_snapshot NUMERIC(10,2) DEFAULT 0.50, billing_status TEXT DEFAULT 'computado', post_deleted_at TIMESTAMPTZ );
+CREATE TABLE IF NOT EXISTS client_tasks ( id TEXT PRIMARY KEY, client_project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, deadline TEXT, status TEXT DEFAULT 'novo', linked_post_id TEXT, created_by_role TEXT DEFAULT 'cliente', created_by_name TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW() );
 
 -- 4. POLÍTICAS DE ACESSO (RLS - CRUCIAL PARA SALVAR SEM ERRO)
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY; ALTER TABLE posts ENABLE ROW LEVEL SECURITY; ALTER TABLE post_comments_audit ENABLE ROW LEVEL SECURITY; ALTER TABLE social_medias ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY; ALTER TABLE posts ENABLE ROW LEVEL SECURITY; ALTER TABLE post_comments_audit ENABLE ROW LEVEL SECURITY; ALTER TABLE social_medias ENABLE ROW LEVEL SECURITY; ALTER TABLE approval_records ENABLE ROW LEVEL SECURITY; ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Permitir acesso total clientes" ON clients FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Permitir acesso total posts" ON posts FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Permitir acesso total audit" ON post_comments_audit FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);`}
+CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir acesso total approval_records" ON approval_records FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);`}
                 </pre>
               </div>
             </div>

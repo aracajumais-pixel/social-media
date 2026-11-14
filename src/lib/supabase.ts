@@ -1,5 +1,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ClientProject, PostItem, UserRole, SupabaseUserRole, UserProfile, BillingReceipt } from '../types';
+import {
+  ClientProject, PostItem, UserRole, SupabaseUserRole, UserProfile,
+  BillingReceipt, ApprovalRecord, ClientTask, TaskStatus, SocialMediaUser, InspirationFile
+} from '../types';
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env || {};
 
@@ -39,7 +42,12 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 }
 
-export const isSupabaseConfigured = Boolean(getSupabaseCredentials().url && getSupabaseCredentials().key);
+export function hasSupabaseCredentials(): boolean {
+  const { url, key } = getSupabaseCredentials();
+  return Boolean(url && key);
+}
+
+export const isSupabaseConfigured = hasSupabaseCredentials();
 
 export const supabase = getSupabaseClient();
 
@@ -710,3 +718,348 @@ export async function syncReceiptToSupabase(receipt: BillingReceipt) {
     return null;
   }
 }
+
+/**
+ * Sincroniza um Registro Oficial de Aprovação na tabela `approval_records` do Supabase
+ * para auditoria e computação de faturamento (anti-drible mesmo se o post for excluído).
+ */
+export async function syncApprovalRecordToSupabase(record: ApprovalRecord) {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !record.id) return null;
+
+  try {
+    const payload = {
+      id: record.id,
+      post_id: record.postId,
+      post_title: record.postTitle,
+      client_project_id: record.clientProjectId,
+      client_name: record.clientName,
+      social_media_id: record.socialMediaId || null,
+      social_media_name: record.socialMediaName || null,
+      approved_at: record.approvedAt,
+      approved_by_role: record.approvedByRole,
+      approved_by_name: record.approvedByName,
+      approved_by_phone: record.approvedByPhone || null,
+      approved_by_email: record.approvedByEmail || null,
+      price_per_post_snapshot: record.pricePerPostSnapshot,
+      fee_per_post_snapshot: record.feePerPostSnapshot,
+      billing_status: record.billingStatus,
+      post_deleted_at: record.postDeletedAt || null
+    };
+
+    const { data, error } = await clientDb
+      .from('approval_records')
+      .upsert([payload]);
+
+    if (error) {
+      console.warn('Aviso ao sincronizar registro de aprovação (tabela approval_records):', error.message);
+    } else {
+      console.log('✓ Registro de aprovação auditado no Supabase:', record.id);
+    }
+    return data;
+  } catch (err) {
+    console.warn('Falha ao conectar com Supabase ao salvar registro de aprovação:', err);
+    return null;
+  }
+}
+
+/**
+ * Busca os registros oficiais de aprovação no Supabase para computação de faturamento.
+ */
+export async function fetchApprovalRecordsFromSupabase(): Promise<ApprovalRecord[] | null> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) return null;
+  try {
+    const { data, error } = await clientDb.from('approval_records').select('*');
+    if (error) {
+      console.warn('Aviso ao buscar registros de aprovação no Supabase:', error.message);
+      return null;
+    }
+    if (data && data.length > 0) {
+      return data.map((row: any) => ({
+        id: row.id,
+        postId: row.post_id,
+        postTitle: row.post_title || 'Projeto',
+        clientProjectId: row.client_project_id || '',
+        clientName: row.client_name || '',
+        socialMediaId: row.social_media_id || undefined,
+        socialMediaName: row.social_media_name || undefined,
+        approvedAt: row.approved_at || new Date().toISOString(),
+        approvedByRole: (row.approved_by_role as UserRole) || 'cliente',
+        approvedByName: row.approved_by_name || 'Cliente',
+        approvedByPhone: row.approved_by_phone || undefined,
+        approvedByEmail: row.approved_by_email || undefined,
+        pricePerPostSnapshot: Number(row.price_per_post_snapshot || 150),
+        feePerPostSnapshot: Number(row.fee_per_post_snapshot || 0.50),
+        billingStatus: row.billing_status === 'faturado' ? 'faturado' : 'computado',
+        postDeletedAt: row.post_deleted_at || undefined
+      }));
+    }
+    return [];
+  } catch (err) {
+    console.warn('Falha ao consultar approval_records no Supabase:', err);
+    return null;
+  }
+}
+
+/**
+ * Busca todos os Social Medias salvos na tabela `social_medias` do Supabase.
+ */
+export async function fetchSocialMediasFromSupabase(): Promise<SocialMediaUser[] | null> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) return null;
+  try {
+    const { data, error } = await clientDb.from('social_medias').select('*');
+    if (error) {
+      console.warn('Aviso ao buscar social_medias no Supabase:', error.message);
+      return null;
+    }
+    if (!data) return [];
+    return data.map((row: any) => ({
+      id: row.id,
+      name: row.name || 'Social Media',
+      email: row.email || '',
+      whatsapp: row.whatsapp || '',
+      socialProfile: row.social_profile || '',
+      pixKey: row.pix_key || '',
+      assignedClientIds: [],
+      totalPostsCreated: 0,
+      status: row.status === 'bloqueado' ? 'bloqueado' : 'ativo',
+      customFeePerPost: row.custom_fee_per_post !== null && row.custom_fee_per_post !== undefined
+        ? Number(row.custom_fee_per_post)
+        : undefined,
+      signatureUrl: row.signature_url || undefined,
+      bankInfo: row.bank_info || undefined
+    }));
+  } catch (err) {
+    console.warn('Falha ao consultar social_medias no Supabase:', err);
+    return null;
+  }
+}
+
+function isMissingRelationError(error: any): boolean {
+  const msg = String(error?.message || '').toLowerCase();
+  const code = String(error?.code || '');
+  return (
+    code === '42P01' ||
+    code === 'PGRST205' ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find the table') ||
+    msg.includes('schema cache')
+  );
+}
+
+/**
+ * Sincroniza uma Tarefa Solicitada pelo Cliente na tabela `client_tasks` do Supabase.
+ */
+export async function syncTaskToSupabase(task: ClientTask): Promise<{ success: boolean; missingTable?: boolean; error?: string }> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !task.id) return { success: false };
+
+  try {
+    const payload = {
+      id: task.id,
+      client_project_id: task.clientProjectId,
+      title: task.title,
+      description: task.description || '',
+      deadline: task.deadline || '',
+      status: task.status || 'novo',
+      linked_post_id: task.linkedPostId || null,
+      created_by_role: task.createdByRole || 'cliente',
+      created_by_name: task.createdByName || 'Cliente',
+      created_at: task.createdAt || new Date().toISOString(),
+      updated_at: task.updatedAt || new Date().toISOString()
+    };
+
+    const { error } = await clientDb.from('client_tasks').upsert([payload]);
+    if (error) {
+      console.warn('Erro ao sincronizar Tarefa no Supabase (tabela client_tasks):', error.message);
+      return {
+        success: false,
+        missingTable: isMissingRelationError(error),
+        error: error.message
+      };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.warn('Falha ao conectar com Supabase ao salvar tarefa:', err);
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function syncAllTasksToSupabase(tasksList: ClientTask[]): Promise<{ missingTable?: boolean }> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || tasksList.length === 0) return {};
+  let missingTable = false;
+  for (const t of tasksList) {
+    const res = await syncTaskToSupabase(t);
+    if (res.missingTable) {
+      missingTable = true;
+      break;
+    }
+  }
+  return { missingTable };
+}
+
+/**
+ * Busca todas as Tarefas Solicitadas pelo Cliente na tabela `client_tasks` do Supabase.
+ */
+export async function fetchTasksFromSupabase(): Promise<{ tasks: ClientTask[] | null; missingTable?: boolean }> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) return { tasks: null };
+
+  try {
+    const { data, error } = await clientDb
+      .from('client_tasks')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Aviso ao buscar tarefas no Supabase (client_tasks):', error.message);
+      return { tasks: null, missingTable: isMissingRelationError(error) };
+    }
+
+    if (!data) return { tasks: [] };
+    return {
+      tasks: data.map((row: any) => ({
+        id: row.id,
+        clientProjectId: row.client_project_id || '',
+        title: row.title || 'Tarefa sem título',
+        description: row.description || '',
+        deadline: row.deadline || '',
+        status: (row.status as TaskStatus) || 'novo',
+        linkedPostId: row.linked_post_id || undefined,
+        createdByRole: (row.created_by_role as UserRole) || 'cliente',
+        createdByName: row.created_by_name || undefined,
+        createdAt: row.created_at || new Date().toISOString(),
+        updatedAt: row.updated_at || undefined
+      }))
+    };
+  } catch (err) {
+    console.warn('Falha ao consultar client_tasks no Supabase:', err);
+    return { tasks: null };
+  }
+}
+
+/**
+ * Remove uma tarefa da tabela `client_tasks` do Supabase pelo ID.
+ */
+export async function deleteTaskFromSupabase(taskId: string): Promise<boolean> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !taskId) return false;
+  try {
+    const { error } = await clientDb.from('client_tasks').delete().eq('id', taskId);
+    if (error) {
+      console.warn('Erro ao deletar tarefa no Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Falha ao conectar com Supabase para excluir tarefa:', err);
+    return false;
+  }
+}
+
+/**
+ * Sincroniza uma Inspiração na tabela `inspirations` do Supabase.
+ */
+export async function syncInspirationToSupabase(insp: InspirationFile) {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !insp.id) return null;
+  try {
+    const { data, error } = await clientDb.from('inspirations').upsert([{
+      id: insp.id,
+      client_project_id: insp.clientProjectId,
+      title: insp.title,
+      description: insp.description || '',
+      url: insp.url,
+      type: insp.type,
+      uploaded_by_role: insp.uploadedByRole,
+      uploaded_by_name: insp.uploadedByName,
+      is_used: Boolean(insp.isUsed),
+      used_at: insp.usedAt || null,
+      retention_option: insp.retentionOption || null,
+      expires_at: insp.expiresAt || null,
+      created_at: insp.createdAt || new Date().toISOString()
+    }]);
+    if (error) console.warn('Aviso ao sincronizar inspiração no Supabase:', error.message);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchInspirationsFromSupabase(): Promise<InspirationFile[] | null> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) return null;
+  try {
+    const { data, error } = await clientDb.from('inspirations').select('*');
+    if (error) return null;
+    if (!data) return [];
+    return data.map((row: any) => ({
+      id: row.id,
+      clientProjectId: row.client_project_id || '',
+      title: row.title || 'Inspiração',
+      description: row.description || undefined,
+      url: row.url || '',
+      type: row.type || 'image',
+      uploadedByRole: (row.uploaded_by_role as UserRole) || 'cliente',
+      uploadedByName: row.uploaded_by_name || 'Cliente',
+      createdAt: row.created_at || new Date().toISOString(),
+      isUsed: Boolean(row.is_used),
+      usedAt: row.used_at || undefined,
+      retentionOption: row.retention_option || undefined,
+      expiresAt: row.expires_at || undefined
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteInspirationFromSupabase(id: string): Promise<boolean> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !id) return false;
+  try {
+    const { error } = await clientDb.from('inspirations').delete().eq('id', id);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchReceiptsFromSupabase(): Promise<BillingReceipt[] | null> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb) return null;
+  try {
+    const { data, error } = await clientDb.from('receipts').select('*');
+    if (error) return null;
+    if (!data) return [];
+    return data.map((row: any) => ({
+      id: row.id,
+      receiptNumber: row.receipt_number || '',
+      clientProjectId: row.client_project_id || '',
+      period: row.period || '',
+      issueDate: row.issue_date || '',
+      dueDate: row.due_date || '',
+      items: Array.isArray(row.items) ? row.items : [],
+      subtotal: Number(row.subtotal || 0),
+      discount: Number(row.discount || 0),
+      totalAmount: Number(row.total_amount || 0),
+      platformFeeTotal: Number(row.platform_fee_total || 0),
+      paymentMethod: row.payment_method || 'Pix',
+      notes: row.notes || '',
+      status: row.status || 'rascunho',
+      cityState: row.city_state || undefined,
+      serviceSummaryText: row.service_summary_text || undefined,
+      customReceiptText: row.custom_receipt_text || undefined,
+      socialMediaName: row.social_media_name || undefined,
+      socialMediaPix: row.social_media_pix || undefined,
+      socialMediaBank: row.social_media_bank || undefined,
+      socialMediaCpfCnpj: row.social_media_cpf_cnpj || undefined,
+      socialMediaSignatureUrl: row.social_media_signature_url || undefined
+    }));
+  } catch {
+    return null;
+  }
+}
+
