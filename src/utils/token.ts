@@ -51,7 +51,23 @@ export function getTimeRemainingText(tokenExpiresAt?: string): { text: string; i
 }
 
 export function buildApprovalUrl(token: string): string {
+  const cleanToken = encodeURIComponent((token || '').trim());
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
-  return `${origin}${pathname}?token=${token}#approval`;
+  return origin ? `${origin}/p/${cleanToken}` : `/p/${cleanToken}`;
 }
+
+export function extractApprovalTokenFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  const pathMatch = window.location.pathname.match(/^\/p\/([^/?#]+)/i);
+  if (pathMatch?.[1]) {
+    try {
+      return decodeURIComponent(pathMatch[1]).trim();
+    } catch {
+      return pathMatch[1].trim();
+    }
+  }
+  const params = new URLSearchParams(window.location.search);
+  const queryToken = params.get('token') || params.get('approvalToken');
+  return queryToken ? queryToken.trim() : null;
+}
+

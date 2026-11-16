@@ -290,6 +290,11 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       cep: modalForm.cep.trim()
     }) || modalForm.address.trim() || 'Endereço Comercial';
 
+    const resolvedSmId =
+      currentUserRole === 'social_media' && activeSocialMediaId
+        ? activeSocialMediaId
+        : (modalForm.assignedSocialMediaId || activeSocialMediaId || undefined);
+
     if (editingClient) {
       // Edit Existing Client
       const updated: ClientProject = {
@@ -312,7 +317,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
-        assignedSocialMediaId: modalForm.assignedSocialMediaId || undefined,
+        assignedSocialMediaId: resolvedSmId,
+        createdBySocialMediaId: editingClient.createdBySocialMediaId || resolvedSmId,
         additionalInfo: modalForm.additionalInfo.trim() || undefined
       };
 
@@ -344,8 +350,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
-        assignedSocialMediaId: modalForm.assignedSocialMediaId || activeSocialMediaId || undefined,
-        createdBySocialMediaId: modalForm.assignedSocialMediaId || activeSocialMediaId || undefined,
+        assignedSocialMediaId: resolvedSmId,
+        createdBySocialMediaId: resolvedSmId,
         status: 'ativo',
         additionalInfo: modalForm.additionalInfo.trim() || undefined,
         driveStorageUsedGB: 0.5,
@@ -546,19 +552,30 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     }
   };
 
+  const activeSmObj = socialMedias.find(sm => sm.id === activeSocialMediaId);
+
   // Clientes filtrados por escopo de papel (Social Media só visualiza seus próprios clientes)
   const roleScopedClients = currentUserRole === 'social_media' && activeSocialMediaId
-    ? clients.filter(c => c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId)
+    ? clients.filter(c =>
+        c.assignedSocialMediaId === activeSocialMediaId ||
+        (c as any).createdBySocialMediaId === activeSocialMediaId ||
+        (activeSmObj?.assignedClientIds || []).includes(c.id)
+      )
     : currentUserRole === 'cliente'
       ? clients.filter(c => c.id === client.id)
       : clients;
+
+  // Social Medias visíveis conforme o perfil (Social Media só vê o próprio perfil)
+  const roleScopedSocialMedias = currentUserRole === 'social_media' && activeSocialMediaId
+    ? socialMedias.filter(sm => sm.id === activeSocialMediaId)
+    : socialMedias;
 
   // Determine list of displayed clients
   const displayedClients = searchQuery.trim()
     ? (supabaseSearchResults !== null
         ? supabaseSearchResults.filter(c => 
             currentUserRole === 'social_media' && activeSocialMediaId
-              ? (c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId)
+              ? (c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId || (activeSmObj?.assignedClientIds || []).includes(c.id))
               : true
           )
         : roleScopedClients.filter(c => {
@@ -640,7 +657,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Equipe Social Media ({socialMedias.length})</span>
+            <span>{currentUserRole === 'social_media' ? 'Meu Perfil Social Media' : `Equipe Social Media (${roleScopedSocialMedias.length})`}</span>
           </button>
         </div>
 
@@ -657,7 +674,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   {isSearchingSupabase ? (
                     <span className="text-indigo-400 animate-pulse">Pesquisando no banco de dados Supabase...</span>
                   ) : (
-                    <span>Exibindo {displayedClients.length} de {clients.length} cliente(s)</span>
+                    <span>Exibindo {displayedClients.length} de {roleScopedClients.length} cliente(s)</span>
                   )}
                 </span>
               </label>
@@ -808,7 +825,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               <div>
                 <h3 className="font-bold text-white text-sm flex items-center gap-2">
                   <UserCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Profissionais Social Media ({socialMedias.length})</span>
+                  <span>{currentUserRole === 'social_media' ? 'Meu Perfil Social Media' : `Profissionais Social Media (${roleScopedSocialMedias.length})`}</span>
                 </h3>
                 <p className="text-slate-400 text-xs">Gestão de colaboradores, assinaturas digitalizadas aplicadas nos recibos e edição de cadastro</p>
               </div>
@@ -825,9 +842,9 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               )}
             </div>
 
-            {socialMedias.length > 0 ? (
+            {roleScopedSocialMedias.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {socialMedias.map(sm => (
+                {roleScopedSocialMedias.map(sm => (
                   <div
                     key={sm.id}
                     className="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 transition-all flex flex-col justify-between gap-3"
@@ -1317,6 +1334,35 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   </div>
                 </div>
 
+                {/* Social Media Responsável (Garante vínculo exclusivo Social Media <-> Cliente no Banco) */}
+                <div className="bg-slate-950 p-3.5 rounded-xl border border-purple-500/30 space-y-1.5">
+                  <label className="block text-purple-300 font-bold flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Social Media Responsável (Acesso Exclusivo):</span>
+                  </label>
+                  {currentUserRole === 'social_media' ? (
+                    <div className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 text-xs font-semibold flex items-center justify-between">
+                      <span>{activeSmObj?.name || 'Social Media Ativo'}</span>
+                      <span className="text-[10px] text-purple-300 bg-purple-950/60 border border-purple-500/30 px-2 py-0.5 rounded-full">
+                        Vinculado ao seu perfil
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      value={modalForm.assignedSocialMediaId}
+                      onChange={(e) => setModalForm({ ...modalForm, assignedSocialMediaId: e.target.value })}
+                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-purple-500 text-xs font-semibold"
+                    >
+                      <option value="">Sem vínculo específico</option>
+                      {socialMedias.map(sm => (
+                        <option key={sm.id} value={sm.id}>
+                          {sm.name} {sm.companyName ? `(${sm.companyName})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
                 {/* Campo de Informações Adicionais */}
                 <div>
                   <label className="block text-slate-300 font-bold mb-1">
@@ -1733,11 +1779,11 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                 </div>
 
                 {/* Clientes Vinculados Inicialmente */}
-                {clients.length > 0 && (
+                {roleScopedClients.length > 0 && (
                   <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
                     <label className="block text-slate-300 font-bold">Clientes Atribuídos Inicialmente (Opcional):</label>
                     <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
-                      {clients.map(c => {
+                      {roleScopedClients.map(c => {
                         const isChecked = smForm.assignedClientIds.includes(c.id);
                         return (
                           <label key={c.id} className="flex items-center justify-between text-xs text-slate-300 cursor-pointer p-1.5 hover:bg-slate-900 rounded-lg">

@@ -31,9 +31,9 @@ import { ClientDetailsCardModal } from './components/ClientDetailsCardModal';
 import { BirthdaysSection } from './components/BirthdaysSection';
 import { Footer } from './components/Footer';
 import { createSampleTransparentFrameDataUrl, getDefaultElementSet } from './utils/birthdayCanvas';
-import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl } from './utils/token';
+import { generateApprovalToken, calculateTokenExpirationDays, buildApprovalUrl, extractApprovalTokenFromLocation } from './utils/token';
 import {
-  auditPostCommentToSupabase, syncSocialMediaToSupabase, syncClientToSupabase, syncAllClientsToSupabase,
+  auditPostCommentToSupabase, syncSocialMediaToSupabase, syncAllSocialMediasToSupabase, syncClientToSupabase, syncAllClientsToSupabase,
   syncPostToSupabase, syncAllPostsToSupabase, isSupabaseConfigured, hasSupabaseCredentials,
   fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase,
   syncReceiptToSupabase, syncApprovalRecordToSupabase, fetchApprovalRecordsFromSupabase, getSupabaseClient,
@@ -246,13 +246,43 @@ export default function App() {
       }
 
       if (fetchedClients && fetchedClients.length > 0) {
-        setClients(fetchedClients);
+        const serverById = new Map((serverState?.clients || []).map(c => [c.id, c]));
+        const mergedClients = fetchedClients.map(fc => {
+          const sc = serverById.get(fc.id);
+          if (!sc) return fc;
+          return {
+            ...sc,
+            ...fc,
+            assignedSocialMediaId: fc.assignedSocialMediaId || sc.assignedSocialMediaId,
+            createdBySocialMediaId: fc.createdBySocialMediaId || sc.createdBySocialMediaId,
+            activeSocialNetworks: (sc.activeSocialNetworks && sc.activeSocialNetworks.length > 0)
+              ? sc.activeSocialNetworks
+              : fc.activeSocialNetworks,
+            logoUrl: fc.logoUrl || sc.logoUrl || '',
+            googleDriveFolderUrl: fc.googleDriveFolderUrl || sc.googleDriveFolderUrl || ''
+          };
+        });
+        setClients(mergedClients);
       } else if (serverState?.clients && serverState.clients.length > 0) {
         setClients(serverState.clients);
       }
 
       if (fetchedSocialMedias && fetchedSocialMedias.length > 0) {
-        setSocialMedias(fetchedSocialMedias);
+        const serverSmById = new Map((serverState?.socialMedias || []).map(sm => [sm.id, sm]));
+        const mergedSms = fetchedSocialMedias.map(fsm => {
+          const ssm = serverSmById.get(fsm.id);
+          if (!ssm) return fsm;
+          return {
+            ...ssm,
+            ...fsm,
+            assignedClientIds: (ssm.assignedClientIds && ssm.assignedClientIds.length > 0)
+              ? ssm.assignedClientIds
+              : fsm.assignedClientIds,
+            signatureUrl: fsm.signatureUrl || ssm.signatureUrl,
+            bankInfo: fsm.bankInfo || ssm.bankInfo
+          };
+        });
+        setSocialMedias(mergedSms);
       } else if (serverState?.socialMedias && serverState.socialMedias.length > 0) {
         setSocialMedias(serverState.socialMedias);
       }
@@ -344,6 +374,9 @@ export default function App() {
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_social_medias', JSON.stringify(socialMedias)); } catch {}
     if (!isRemoteHydratedRef.current) return;
+    if (hasSupabaseCredentials()) {
+      syncAllSocialMediasToSupabase(socialMedias);
+    }
     saveSharedServerStatePatch({ socialMedias });
   }, [socialMedias]);
 
@@ -436,67 +469,7 @@ export default function App() {
     try { sessionStorage.setItem('social_saas_bday_client_sessions', JSON.stringify(birthdayClientSessions)); } catch {}
   }, [birthdayClientSessions]);
 
-  // Inicializa modelo de exemplo, grupos padrão (Adultos, Adolescentes, Crianças) e mensagens base por cliente se vazio
-  React.useEffect(() => {
-    if (!selectedClientId) return;
-    const hasBg = birthdayBackgrounds.some(b => b.clientProjectId === selectedClientId);
-    const hasGrp = birthdayGroups.some(g => g.clientProjectId === selectedClientId);
-    const hasMsg = birthdayMessages.some(m => m.clientProjectId === selectedClientId);
-
-    let defaultBgId = birthdayBackgrounds.find(b => b.clientProjectId === selectedClientId)?.id;
-    if (!hasBg) {
-      defaultBgId = `bg-init-${selectedClientId}`;
-      const cutout = { x: 22, y: 11, width: 56, height: 48 };
-      const sampleUrl = typeof document !== 'undefined' ? createSampleTransparentFrameDataUrl() : '';
-      if (sampleUrl) {
-        setBirthdayBackgrounds(prev => [
-          ...prev,
-          {
-            id: defaultBgId!,
-            clientProjectId: selectedClientId,
-            name: 'Moldura Modelo Padrão',
-            imageUrl: sampleUrl,
-            width: 900,
-            height: 900,
-            cutoutRect: cutout,
-            defaultElements: getDefaultElementSet(cutout),
-            aiAnalysisNotes: 'Moldura inicial transparente pronta para envio de fotos.',
-            createdAt: new Date().toISOString(),
-            createdByName: 'Sistema'
-          }
-        ]);
-      }
-    }
-
-    if (!hasMsg) {
-      setBirthdayMessages(prev => [
-        ...prev,
-        {
-          id: `msg-init-1-${selectedClientId}`,
-          clientProjectId: selectedClientId,
-          title: 'Bênçãos & Alegria',
-          text: 'Que Deus abençoe grandemente sua vida com muita saúde, paz, fé e alegrias todos os dias!',
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: `msg-init-2-${selectedClientId}`,
-          clientProjectId: selectedClientId,
-          title: 'Gratidão & Luz',
-          text: 'Celebramos hoje o dom da sua vida! Desejamos um novo ciclo repleto de realizações e felicidade.',
-          createdAt: new Date().toISOString()
-        }
-      ]);
-    }
-
-    if (!hasGrp && defaultBgId) {
-      setBirthdayGroups(prev => [
-        ...prev,
-        { id: `grp-adultos-${selectedClientId}`, clientProjectId: selectedClientId, name: 'Adultos', backgroundId: defaultBgId!, createdAt: new Date().toISOString() },
-        { id: `grp-adolescentes-${selectedClientId}`, clientProjectId: selectedClientId, name: 'Adolescentes', backgroundId: defaultBgId!, createdAt: new Date().toISOString() },
-        { id: `grp-criancas-${selectedClientId}`, clientProjectId: selectedClientId, name: 'Crianças', backgroundId: defaultBgId!, createdAt: new Date().toISOString() }
-      ]);
-    }
-  }, [selectedClientId, birthdayBackgrounds, birthdayGroups, birthdayMessages]);
+  // (Inicialização de modelo padrão de Aniversariantes movida para após definição de scopedClientId)
 
   // Reconcilia posts já aprovados para garantir que tenham Registro Oficial de Aprovação para faturamento
   React.useEffect(() => {
@@ -570,7 +543,7 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const clientParam = params.get('client');
     const smParam = params.get('sm');
-    const token = params.get('token');
+    const token = extractApprovalTokenFromLocation();
     const savedRole = localStorage.getItem('social_saas_user_role') as UserRole | null;
     const isTeamSession = savedRole === 'social_media' || savedRole === 'gestor';
 
@@ -598,6 +571,9 @@ export default function App() {
           if (!isTeamSession) {
             setCurrentUserRole('cliente');
           }
+        }
+        if (matched.socialMediaAuthorId && !isTeamSession) {
+          setActiveSocialMediaId(matched.socialMediaAuthorId);
         }
       }
     }
@@ -636,39 +612,146 @@ export default function App() {
     }
   }, [activeSocialMediaId]);
 
+  // Garante que activeSocialMediaId sempre aponte para um Social Media válido existente na lista
+  React.useEffect(() => {
+    if (socialMedias.length > 0 && !socialMedias.some(sm => sm.id === activeSocialMediaId)) {
+      setActiveSocialMediaId(socialMedias[0].id);
+    }
+  }, [socialMedias, activeSocialMediaId]);
+
+  const activeSmObj = socialMedias.find(sm => sm.id === activeSocialMediaId);
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const urlClientParam = urlParams?.get('client') || null;
+  const urlSmParam = urlParams?.get('sm') || null;
+
   // Clientes acessíveis conforme o perfil atual:
   // Se for Social Media, só visualiza a lista dos clientes que ele próprio cadastrou ou atrelou a ele!
   // Se for Cliente, fica restrito estritamente ao seu próprio espaço de cliente!
   // Se for Gestor, tem visão geral de todos os clientes.
   const userAccessibleClients = currentUserRole === 'social_media'
-    ? clients.filter(c => c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId)
+    ? clients.filter(c =>
+        c.assignedSocialMediaId === activeSocialMediaId ||
+        (c as any).createdBySocialMediaId === activeSocialMediaId ||
+        (activeSmObj?.assignedClientIds || []).includes(c.id)
+      )
     : currentUserRole === 'cliente'
       ? clients.filter(c => c.id === selectedClientId)
       : clients;
 
-  // Sincroniza selectedClientId caso o cliente selecionado não pertença ao social media logado
+  // Sincroniza selectedClientId caso o cliente selecionado não pertença ao perfil/social media logado
   React.useEffect(() => {
     if (currentUserRole === 'social_media') {
       const isCurrentValid = userAccessibleClients.some(c => c.id === selectedClientId);
       if (!isCurrentValid && userAccessibleClients.length > 0) {
         setSelectedClientId(userAccessibleClients[0].id);
       }
+    } else if (currentUserRole === 'gestor') {
+      const isCurrentValid = clients.some(c => c.id === selectedClientId);
+      if (!isCurrentValid && clients.length > 0) {
+        setSelectedClientId(clients[0].id);
+      }
+    } else if (currentUserRole === 'cliente' && !urlClientParam) {
+      const isCurrentValid = clients.some(c => c.id === selectedClientId);
+      if (!isCurrentValid && clients.length > 0) {
+        setSelectedClientId(clients[0].id);
+      }
     }
-  }, [currentUserRole, activeSocialMediaId, userAccessibleClients, selectedClientId]);
+  }, [currentUserRole, activeSocialMediaId, userAccessibleClients, clients, selectedClientId, urlClientParam]);
 
-  // Active Client
-  const selectedClient = clients.find(c => c.id === selectedClientId) || userAccessibleClients[0] || clients[0] || defaultEmptyClient;
+  // Verifica se há um cliente válido dentro do escopo permitido para o perfil atual (evita vazamento entre Social Medias)
+  const matchedAccessibleClient = userAccessibleClients.find(c => c.id === selectedClientId)
+    || (currentUserRole === 'social_media' ? userAccessibleClients[0] : (currentUserRole === 'gestor' ? clients[0] : undefined));
 
-  // Social media responsável pelo cliente ativo
-  const responsibleSm = socialMedias.find(sm => sm.id === (selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId || activeSocialMediaId));
+  const hasValidSelectedClient = Boolean(matchedAccessibleClient);
+  const selectedClient: ClientProject = matchedAccessibleClient || {
+    ...defaultEmptyClient,
+    id: '',
+    name: currentUserRole === 'social_media' ? 'Nenhum cliente vinculado' : 'Cliente não encontrado'
+  };
+  const scopedClientId = matchedAccessibleClient ? matchedAccessibleClient.id : '';
+
+  // Social media responsável pelo cliente ativo (sem fallback aleatório para outro SM)
+  const responsibleSmId = currentUserRole === 'social_media'
+    ? activeSocialMediaId
+    : (urlSmParam || selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId);
+  const responsibleSm = responsibleSmId ? socialMedias.find(sm => sm.id === responsibleSmId) : undefined;
+
+  // Inicializa modelo de exemplo, grupos padrão (Adultos, Adolescentes, Crianças) e mensagens base por cliente válido
+  React.useEffect(() => {
+    if (!hasValidSelectedClient || !scopedClientId || scopedClientId === 'novo-cliente') return;
+    const hasBg = birthdayBackgrounds.some(b => b.clientProjectId === scopedClientId);
+    const hasGrp = birthdayGroups.some(g => g.clientProjectId === scopedClientId);
+    const hasMsg = birthdayMessages.some(m => m.clientProjectId === scopedClientId);
+
+    let defaultBgId = birthdayBackgrounds.find(b => b.clientProjectId === scopedClientId)?.id;
+    if (!hasBg) {
+      defaultBgId = `bg-init-${scopedClientId}`;
+      const cutout = { x: 22, y: 11, width: 56, height: 48 };
+      const sampleUrl = typeof document !== 'undefined' ? createSampleTransparentFrameDataUrl() : '';
+      if (sampleUrl) {
+        setBirthdayBackgrounds(prev => [
+          ...prev,
+          {
+            id: defaultBgId!,
+            clientProjectId: scopedClientId,
+            name: 'Moldura Modelo Padrão',
+            imageUrl: sampleUrl,
+            width: 900,
+            height: 900,
+            cutoutRect: cutout,
+            defaultElements: getDefaultElementSet(cutout),
+            aiAnalysisNotes: 'Moldura inicial transparente pronta para envio de fotos.',
+            createdAt: new Date().toISOString(),
+            createdByName: 'Sistema'
+          }
+        ]);
+      }
+    }
+
+    if (!hasMsg) {
+      setBirthdayMessages(prev => [
+        ...prev,
+        {
+          id: `msg-init-1-${scopedClientId}`,
+          clientProjectId: scopedClientId,
+          title: 'Bênçãos & Alegria',
+          text: 'Que Deus abençoe grandemente sua vida com muita saúde, paz, fé e alegrias todos os dias!',
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: `msg-init-2-${scopedClientId}`,
+          clientProjectId: scopedClientId,
+          title: 'Gratidão & Luz',
+          text: 'Celebramos hoje o dom da sua vida! Desejamos um novo ciclo repleto de realizações e felicidade.',
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    }
+
+    if (!hasGrp && defaultBgId) {
+      setBirthdayGroups(prev => [
+        ...prev,
+        { id: `grp-adultos-${scopedClientId}`, clientProjectId: scopedClientId, name: 'Adultos', backgroundId: defaultBgId!, createdAt: new Date().toISOString() },
+        { id: `grp-adolescentes-${scopedClientId}`, clientProjectId: scopedClientId, name: 'Adolescentes', backgroundId: defaultBgId!, createdAt: new Date().toISOString() },
+        { id: `grp-criancas-${scopedClientId}`, clientProjectId: scopedClientId, name: 'Crianças', backgroundId: defaultBgId!, createdAt: new Date().toISOString() }
+      ]);
+    }
+  }, [hasValidSelectedClient, scopedClientId, birthdayBackgrounds, birthdayGroups, birthdayMessages]);
 
   // Filtered Posts for Active Client:
-  // O cliente só vai enxergar os rascunhos do social media que enviou o link.
-  // Se houver múltiplos social medias atendendo clientes com o mesmo nome, os rascunhos ficam 100% isolados por clientProjectId e authorId.
+  // O cliente só vai enxergar os rascunhos do social media vinculado ao seu atendimento.
+  // O social media só vai enxergar os rascunhos dos clientes vinculados a ele e criados por ele.
   const clientPosts = posts.filter(p => {
-    if (p.clientProjectId !== selectedClientId) return false;
-    if (selectedClient?.assignedSocialMediaId && p.socialMediaAuthorId && p.socialMediaAuthorId !== selectedClient.assignedSocialMediaId) {
-      return false;
+    if (!scopedClientId || p.clientProjectId !== scopedClientId) return false;
+    if (currentUserRole === 'social_media') {
+      if (p.socialMediaAuthorId && p.socialMediaAuthorId !== activeSocialMediaId) {
+        return false;
+      }
+    } else if (currentUserRole === 'cliente') {
+      const expectedSmId = urlSmParam || selectedClient?.assignedSocialMediaId;
+      if (expectedSmId && p.socialMediaAuthorId && p.socialMediaAuthorId !== expectedSmId) {
+        return false;
+      }
     }
     return true;
   });
@@ -681,21 +764,25 @@ export default function App() {
   });
 
   // Filtered Inspirations for Active Client
-  const clientInspirations = inspirations.filter(i => i.clientProjectId === selectedClientId);
+  const clientInspirations = scopedClientId
+    ? inspirations.filter(i => i.clientProjectId === scopedClientId)
+    : [];
 
   // Counts for Badges
   const draftsCount = clientPosts.filter(p => p.status === 'rascunho').length;
   const changesRequestedCount = clientPosts.filter(p => p.status === 'alterar').length;
   const approvedCount = clientPosts.filter(p => p.status === 'aprovado').length;
-  const clientTasks = tasks.filter(t => t.clientProjectId === selectedClientId);
+  const clientTasks = scopedClientId
+    ? tasks.filter(t => t.clientProjectId === scopedClientId)
+    : [];
   const pendingTasksCount = clientTasks.filter(t => t.status === 'novo' || t.status === 'em_andamento').length;
 
   // Dados filtrados do módulo Aniversariantes para o cliente ativo
-  const clientBdayBackgrounds = birthdayBackgrounds.filter(b => b.clientProjectId === selectedClientId);
-  const clientBdayGroups = birthdayGroups.filter(g => g.clientProjectId === selectedClientId);
-  const clientBdayMessages = birthdayMessages.filter(m => m.clientProjectId === selectedClientId);
-  const clientBdayPeople = birthdayPeople.filter(p => p.clientProjectId === selectedClientId);
-  const clientBdayAuditLogs = birthdayAuditLogs.filter(a => a.clientProjectId === selectedClientId);
+  const clientBdayBackgrounds = scopedClientId ? birthdayBackgrounds.filter(b => b.clientProjectId === scopedClientId) : [];
+  const clientBdayGroups = scopedClientId ? birthdayGroups.filter(g => g.clientProjectId === scopedClientId) : [];
+  const clientBdayMessages = scopedClientId ? birthdayMessages.filter(m => m.clientProjectId === scopedClientId) : [];
+  const clientBdayPeople = scopedClientId ? birthdayPeople.filter(p => p.clientProjectId === scopedClientId) : [];
+  const clientBdayAuditLogs = scopedClientId ? birthdayAuditLogs.filter(a => a.clientProjectId === scopedClientId) : [];
 
   // Handlers
   const handleUpdatePostStatus = (postId: string, newStatus: PostStatus) => {
@@ -879,7 +966,7 @@ export default function App() {
       id: newCommentObj.id,
       postId,
       postTitle: targetPost?.title,
-      clientId: selectedClientId,
+      clientId: targetPost?.clientProjectId || scopedClientId,
       authorRole: role,
       authorName,
       text: commentText
@@ -920,6 +1007,9 @@ export default function App() {
   };
 
   const handleCreatePost = (newPostData: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => {
+    const targetClientId = newPostData.clientProjectId || scopedClientId;
+    if (!targetClientId) return;
+
     const authorSmId = currentUserRole === 'social_media' 
       ? activeSocialMediaId 
       : (selectedClient.assignedSocialMediaId || activeSocialMediaId);
@@ -927,7 +1017,7 @@ export default function App() {
     const newPost: PostItem = {
       ...newPostData,
       id: `post-${Date.now()}`,
-      clientProjectId: selectedClientId,
+      clientProjectId: targetClientId,
       socialMediaAuthorId: authorSmId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -1077,12 +1167,16 @@ export default function App() {
     syncReceiptToSupabase(savedReceipt);
   };
 
-  // Envio direto do alerta via WhatsApp (sem histórico desnecessário)
+  // Envio direto do alerta via WhatsApp (garante sincronização prévia no servidor para gerar o card rico de preview)
   const handleSendWhatsAppAlert = (postId: string, messageText: string) => {
     const targetPost = posts.find(p => p.id === postId);
+    const targetClient = targetPost
+      ? (clients.find(c => c.id === targetPost.clientProjectId) || selectedClient)
+      : selectedClient;
+    saveSharedServerStatePatch({ posts, clients });
     const tokenUrl = targetPost ? buildApprovalUrl(targetPost.approvalToken || 'token') : '';
-    const textToSend = messageText.trim() || `Olá! Temos um projeto de post ("${targetPost?.title || 'Novo Post'}") da ${selectedClient.name} pronto para sua aprovação:\n\n🔗 Acesse para ver a prévia, aprovar ou solicitar ajustes:\n${tokenUrl}`;
-    openWhatsAppDirect(selectedClient.whatsappNumber, textToSend);
+    const textToSend = messageText.trim() || `Olá ${targetClient.contactName || targetClient.name}! 🎨\n\nConfira a prévia da publicação "${targetPost?.title || 'Novo Post'}" para aprovação:\n\n${tokenUrl}`;
+    openWhatsAppDirect(targetClient.whatsappNumber, textToSend);
   };
 
   // Envio direto do recibo via WhatsApp
@@ -1093,43 +1187,77 @@ export default function App() {
 
   // Envio da tela completa do Mural de Posts e Aprovações para o WhatsApp com isolamento de projetos
   const handleSendEntireMuralWhatsApp = () => {
+    if (!hasValidSelectedClient || !scopedClientId) return;
+    saveSharedServerStatePatch({ posts, clients });
     const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    const authorSmId = selectedClient.assignedSocialMediaId || activeSocialMediaId;
+    const authorSmId = currentUserRole === 'social_media'
+      ? activeSocialMediaId
+      : (selectedClient.assignedSocialMediaId || activeSocialMediaId);
     const authorSm = socialMedias.find(sm => sm.id === authorSmId);
-    const muralUrl = `${currentOrigin}/?client=${selectedClient.id}&sm=${authorSmId}`;
+    const muralUrl = `${currentOrigin}/?client=${scopedClientId}&sm=${authorSmId}`;
     const smName = authorSm?.name ? ` com ${authorSm.name}` : '';
-    const text = `Olá ${selectedClient.contactName || selectedClient.name}!\n\nSegue o link do seu Mural Exclusivo de Posts & Aprovações da ${selectedClient.name}${smName}:\n\n🔗 ${muralUrl}\n\nAcesse pelo link acima para visualizar todas as publicações, conferir legendas e realizar aprovações online com facilidade!`;
+    const text = `Olá ${selectedClient.contactName || selectedClient.name}!\n\nSegue o link do seu Mural Exclusivo de Posts & Aprovações da ${selectedClient.name}${smName}:\n\n${muralUrl}\n\nAcesse pelo cartão acima para visualizar todas as publicações, conferir legendas e aprovar online!`;
     openWhatsAppDirect(selectedClient.whatsappNumber, text);
   };
 
+  const syncClientAssignmentInSocialMedias = (clientId: string, smId?: string) => {
+    setSocialMedias(prev => prev.map(sm => {
+      const currentIds = sm.assignedClientIds || [];
+      if (smId && sm.id === smId) {
+        return currentIds.includes(clientId) ? sm : { ...sm, assignedClientIds: [...currentIds, clientId] };
+      }
+      if (currentIds.includes(clientId)) {
+        return { ...sm, assignedClientIds: currentIds.filter(id => id !== clientId) };
+      }
+      return sm;
+    }));
+  };
+
   const handleUpdateClient = (updatedClient: ClientProject) => {
-    setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
-    syncClientToSupabase(updatedClient);
+    const resolvedSmId = currentUserRole === 'social_media'
+      ? (updatedClient.assignedSocialMediaId || activeSocialMediaId)
+      : updatedClient.assignedSocialMediaId;
+    const normalizedClient: ClientProject = {
+      ...updatedClient,
+      assignedSocialMediaId: resolvedSmId
+    };
+    setClients(prev => prev.map(c => c.id === normalizedClient.id ? normalizedClient : c));
+    syncClientAssignmentInSocialMedias(normalizedClient.id, resolvedSmId);
+    syncClientToSupabase(normalizedClient);
   };
 
   const handleAddClient = (newClient: ClientProject) => {
+    const resolvedSmId = currentUserRole === 'social_media'
+      ? activeSocialMediaId
+      : (newClient.assignedSocialMediaId || activeSocialMediaId || undefined);
     const clientWithAuthor: ClientProject = {
       ...newClient,
-      assignedSocialMediaId: currentUserRole === 'social_media' ? activeSocialMediaId : (newClient.assignedSocialMediaId || activeSocialMediaId),
-      createdBySocialMediaId: currentUserRole === 'social_media' ? activeSocialMediaId : (newClient.createdBySocialMediaId || activeSocialMediaId)
+      assignedSocialMediaId: resolvedSmId,
+      createdBySocialMediaId: currentUserRole === 'social_media' ? activeSocialMediaId : (newClient.createdBySocialMediaId || resolvedSmId)
     };
     setClients(prev => {
       const exists = prev.some(c => c.id === clientWithAuthor.id);
       if (exists) return prev.map(c => c.id === clientWithAuthor.id ? clientWithAuthor : c);
       return [...prev, clientWithAuthor];
     });
+    syncClientAssignmentInSocialMedias(clientWithAuthor.id, resolvedSmId);
     setSelectedClientId(clientWithAuthor.id);
     syncClientToSupabase(clientWithAuthor);
   };
 
   const handleDeleteClient = async (clientId: string) => {
-    // Remover da lista de clientes
+    // Remover da lista de clientes e limpar vínculo em socialMedias
     setClients(prev => prev.filter(c => c.id !== clientId));
+    setSocialMedias(prev => prev.map(sm =>
+      (sm.assignedClientIds || []).includes(clientId)
+        ? { ...sm, assignedClientIds: (sm.assignedClientIds || []).filter(id => id !== clientId) }
+        : sm
+    ));
 
-    // Se o cliente deletado for o cliente selecionado atualmente, trocar para outro cliente
+    // Se o cliente deletado for o cliente selecionado atualmente, trocar para outro cliente acessível
     if (selectedClientId === clientId) {
-      const remaining = clients.filter(c => c.id !== clientId);
-      setSelectedClientId(remaining[0]?.id || 'novo-cliente');
+      const remaining = userAccessibleClients.filter(c => c.id !== clientId);
+      setSelectedClientId(remaining[0]?.id || '');
     }
 
     // Remover posts vinculados a esse cliente
@@ -1203,16 +1331,48 @@ export default function App() {
       id: `sm-${Date.now()}`
     };
     setSocialMedias(prev => [...prev, created]);
+    if (created.assignedClientIds && created.assignedClientIds.length > 0) {
+      setClients(prev => prev.map(c =>
+        created.assignedClientIds.includes(c.id) && !c.assignedSocialMediaId
+          ? { ...c, assignedSocialMediaId: created.id }
+          : c
+      ));
+    }
     syncSocialMediaToSupabase(created);
   };
 
   const handleUpdateSocialMedia = (updatedSm: SocialMediaUser) => {
     setSocialMedias(prev => prev.map(sm => sm.id === updatedSm.id ? updatedSm : sm));
+    const assignedIds = updatedSm.assignedClientIds || [];
+    setClients(prev => prev.map(c => {
+      if (assignedIds.includes(c.id)) {
+        if (c.assignedSocialMediaId !== updatedSm.id) {
+          const updatedClient = { ...c, assignedSocialMediaId: updatedSm.id };
+          syncClientToSupabase(updatedClient);
+          return updatedClient;
+        }
+        return c;
+      }
+      if (c.assignedSocialMediaId === updatedSm.id) {
+        const updatedClient = { ...c, assignedSocialMediaId: undefined };
+        syncClientToSupabase(updatedClient);
+        return updatedClient;
+      }
+      return c;
+    }));
     syncSocialMediaToSupabase(updatedSm);
   };
 
   const handleDeleteSocialMedia = async (smId: string) => {
     setSocialMedias(prev => prev.filter(sm => sm.id !== smId));
+    setClients(prev => prev.map(c => {
+      if (c.assignedSocialMediaId === smId) {
+        const updatedClient = { ...c, assignedSocialMediaId: undefined };
+        syncClientToSupabase(updatedClient);
+        return updatedClient;
+      }
+      return c;
+    }));
     if (isSupabaseConfigured) {
       try {
         const clientDb = getSupabaseClient();
@@ -1329,15 +1489,15 @@ export default function App() {
           <div className="space-y-6">
             
             {/* ============================================================ */}
-            {/* FORMATO ENXUTO: CARD 1 - CABEÇALHO DO CLIENTE & SOCIAL MEDIA (Oculto na visualização do cliente) */}
+            {/* FORMATO ENXUTO: CARD 1 - CABEÇALHO DO CLIENTE & SOCIAL MEDIA (Visível em TODAS as visualizações: Gestor, Social Media e Cliente) */}
             {/* ============================================================ */}
-            {currentUserRole !== 'cliente' && (
+            {hasValidSelectedClient ? (
               <div className="bg-gradient-to-r from-[#0c1024] via-[#0f142d] to-[#14102d] border border-indigo-900/60 rounded-3xl p-3 sm:p-4 shadow-xl flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div 
                     onClick={() => setIsClientCardOpen(true)}
                     className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-[#141b38] hover:bg-[#1a234a] border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer transition-all hover:scale-105 shadow-md group"
-                    title="Clique para visualizar o card de dados cadastrados do cliente"
+                    title="Clique para visualizar os dados cadastrados"
                   >
                     {selectedClient.logoUrl ? (
                       <img src={selectedClient.logoUrl} alt={selectedClient.name} className="w-full h-full object-contain p-1" />
@@ -1359,11 +1519,12 @@ export default function App() {
                         className="text-sm sm:text-base font-bold text-white cursor-pointer hover:text-indigo-300 transition-colors flex items-center gap-1.5"
                         title="Clique para visualizar os dados cadastrados deste cliente"
                       >
+                        <span className="text-emerald-400 text-xs font-semibold">Cliente:</span>
                         <span>{selectedClient.name}</span>
                       </h2>
                       <span className="text-slate-500 text-xs hidden sm:inline">•</span>
-                      <span className="text-xs sm:text-sm text-slate-200 font-medium">
-                        Social Media: <strong className="text-white font-bold">{responsibleSm?.name || 'Social Media'}</strong>
+                      <span className="text-xs sm:text-sm text-purple-300 font-medium">
+                        Social Media: <strong className="text-white font-bold">{responsibleSm?.name || 'Não vinculado'}</strong>
                       </span>
                     </div>
                   </div>
@@ -1383,12 +1544,36 @@ export default function App() {
                   <ChevronRight className="w-4 h-4 text-amber-400" />
                 </button>
               </div>
+            ) : (
+              <div className="bg-slate-900 border border-purple-500/40 rounded-3xl p-6 text-center space-y-3 shadow-xl">
+                <Building2 className="w-10 h-10 text-purple-400 mx-auto" />
+                <h3 className="text-base font-bold text-white">
+                  {currentUserRole === 'social_media'
+                    ? `Nenhum cliente vinculado a ${responsibleSm?.name || 'este Social Media'}`
+                    : 'Nenhum cliente selecionado ou encontrado'}
+                </h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  {currentUserRole === 'social_media'
+                    ? 'Por segurança e privacidade, você visualiza apenas os clientes vinculados ao seu perfil. Cadastre um novo cliente ou solicite ao Gestor a vinculação.'
+                    : 'Verifique o link de acesso exclusivo enviado pelo seu Social Media.'}
+                </p>
+                {currentUserRole !== 'cliente' && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('settings')}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Cadastrar / Vincular Cliente</span>
+                  </button>
+                )}
+              </div>
             )}
 
             {/* ============================================================ */}
             {/* FORMATO ENXUTO: CARD 2 - BARRA DE BUSCA, FILTROS & AÇÕES (Oculto para Cliente, pois a busca fica no topo) */}
             {/* ============================================================ */}
-            {currentUserRole !== 'cliente' && (
+            {currentUserRole !== 'cliente' && hasValidSelectedClient && (
             <div className="bg-[#0c1024] border border-indigo-900/60 rounded-3xl p-2.5 sm:p-3 shadow-xl flex flex-wrap items-center justify-between gap-2.5">
               
               {/* Campo de Pesquisa em Pill */}
@@ -1506,6 +1691,7 @@ export default function App() {
                     onQuickApprove={(id) => handleUpdatePostStatus(id, 'aprovado')}
                     onQuickRequestChange={(id) => handleUpdatePostStatus(id, 'alterar')}
                     onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
+                    onShareWhatsApp={(p) => handleSendWhatsAppAlert(p.id, '')}
                     onDeletePost={handleDeletePost}
                     onPublishPost={(id) => handleTogglePublished(id, true)}
                   />
@@ -1518,131 +1704,192 @@ export default function App() {
 
         {/* TAB: TAREFAS DO CLIENTE */}
         {activeTab === 'tasks' && (
-          <ClientTasksSection
-            tasks={tasks}
-            client={selectedClient}
-            currentUserRole={currentUserRole}
-            posts={clientPosts}
-            onAddTask={handleAddTask}
-            onUpdateTask={handleUpdateTask}
-            onDeleteTask={handleDeleteTask}
-            onConvertTaskToPost={handleConvertTaskToPost}
-            tasksDbWarning={tasksTableMissingInSupabase}
-            onManualSync={loadRemoteData}
-            isSyncing={isManualSyncing}
-            onOpenPostDetails={(postId) => {
-              const target = posts.find(p => p.id === postId);
-              if (target) setSelectedPostForDetails(target);
-            }}
-          />
+          !hasValidSelectedClient ? (
+            <div className="bg-slate-900 border border-purple-500/40 rounded-3xl p-8 text-center space-y-3 shadow-xl">
+              <Building2 className="w-10 h-10 text-purple-400 mx-auto" />
+              <h3 className="text-base font-bold text-white">Nenhum cliente vinculado ao seu atendimento</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Por segurança e privacidade, você visualiza apenas as tarefas dos seus próprios clientes. Cadastre ou vincule um cliente na aba Clientes.
+              </p>
+              {currentUserRole !== 'cliente' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('settings')}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Ir para Clientes</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <ClientTasksSection
+              tasks={clientTasks}
+              client={selectedClient}
+              currentUserRole={currentUserRole}
+              posts={clientPosts}
+              onAddTask={handleAddTask}
+              onUpdateTask={handleUpdateTask}
+              onDeleteTask={handleDeleteTask}
+              onConvertTaskToPost={handleConvertTaskToPost}
+              tasksDbWarning={tasksTableMissingInSupabase}
+              onManualSync={loadRemoteData}
+              isSyncing={isManualSyncing}
+              onOpenPostDetails={(postId) => {
+                const target = clientPosts.find(p => p.id === postId) || posts.find(p => p.id === postId);
+                if (target) setSelectedPostForDetails(target);
+              }}
+            />
+          )
         )}
 
         {/* TAB 2: INSPIRAÇÕES & MODELOS */}
         {activeTab === 'inspirations' && (
-          <InspirationSection
-            inspirations={clientInspirations}
-            currentUserRole={currentUserRole}
-            clientProjectId={selectedClientId}
-            onAddInspiration={handleAddInspiration}
-            onDeleteInspiration={handleDeleteInspiration}
-            onUpdateInspiration={handleUpdateInspiration}
-          />
+          !hasValidSelectedClient ? (
+            <div className="bg-slate-900 border border-purple-500/40 rounded-3xl p-8 text-center space-y-3 shadow-xl">
+              <Building2 className="w-10 h-10 text-purple-400 mx-auto" />
+              <h3 className="text-base font-bold text-white">Nenhum cliente vinculado ao seu atendimento</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Cadastre ou vincule um cliente para gerenciar inspirações e referências exclusivas.
+              </p>
+            </div>
+          ) : (
+            <InspirationSection
+              inspirations={clientInspirations}
+              currentUserRole={currentUserRole}
+              clientProjectId={scopedClientId}
+              onAddInspiration={handleAddInspiration}
+              onDeleteInspiration={handleDeleteInspiration}
+              onUpdateInspiration={handleUpdateInspiration}
+            />
+          )
         )}
 
         {/* TAB: ANIVERSARIANTES */}
         {activeTab === 'birthdays' && (
-          <BirthdaysSection
-            client={selectedClient}
-            currentUserRole={currentUserRole}
-            responsibleSm={responsibleSm}
-            backgrounds={clientBdayBackgrounds}
-            groups={clientBdayGroups}
-            messages={clientBdayMessages}
-            people={clientBdayPeople}
-            auditLogs={clientBdayAuditLogs}
-            clientSession={birthdayClientSessions[selectedClient.id] || null}
-            onClientLogin={(session) =>
-              setBirthdayClientSessions(prev => ({ ...prev, [selectedClient.id]: session }))
-            }
-            onClientLogout={() =>
-              setBirthdayClientSessions(prev => {
-                const copy = { ...prev };
-                delete copy[selectedClient.id];
-                return copy;
-              })
-            }
-            onSaveBackground={(bg) => setBirthdayBackgrounds(prev => [bg, ...prev])}
-            onUpdateBackground={(bg) =>
-              setBirthdayBackgrounds(prev => prev.map(item => (item.id === bg.id ? bg : item)))
-            }
-            onDeleteBackground={(bgId) =>
-              setBirthdayBackgrounds(prev => prev.filter(item => item.id !== bgId))
-            }
-            onSaveGroup={(grp) => setBirthdayGroups(prev => [...prev, grp])}
-            onUpdateGroup={(grp) =>
-              setBirthdayGroups(prev => prev.map(item => (item.id === grp.id ? grp : item)))
-            }
-            onDeleteGroup={(grpId) =>
-              setBirthdayGroups(prev => prev.filter(item => item.id !== grpId))
-            }
-            onSaveMessage={(msg) => setBirthdayMessages(prev => [...prev, msg])}
-            onUpdateMessage={(msg) =>
-              setBirthdayMessages(prev => prev.map(item => (item.id === msg.id ? msg : item)))
-            }
-            onDeleteMessage={(msgId) =>
-              setBirthdayMessages(prev => prev.filter(item => item.id !== msgId))
-            }
-            onSavePerson={(person) => setBirthdayPeople(prev => [person, ...prev])}
-            onUpdatePerson={(person) =>
-              setBirthdayPeople(prev => prev.map(item => (item.id === person.id ? person : item)))
-            }
-            onDeletePerson={(personId) =>
-              setBirthdayPeople(prev => prev.filter(item => item.id !== personId))
-            }
-            onRecordAudit={(entry) =>
-              setBirthdayAuditLogs(prev => [
-                {
-                  ...entry,
-                  id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                  clientProjectId: selectedClient.id,
-                  timestamp: new Date().toISOString()
-                },
-                ...prev
-              ])
-            }
-            onSendArtToMural={(postData) => {
-              handleCreatePost(postData);
-              setActiveTab('posts');
-            }}
-          />
+          !hasValidSelectedClient ? (
+            <div className="bg-slate-900 border border-purple-500/40 rounded-3xl p-8 text-center space-y-3 shadow-xl">
+              <Building2 className="w-10 h-10 text-purple-400 mx-auto" />
+              <h3 className="text-base font-bold text-white">Nenhum cliente vinculado ao seu atendimento</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Cadastre ou vincule um cliente para acessar o módulo exclusivo de Aniversariantes.
+              </p>
+            </div>
+          ) : (
+            <BirthdaysSection
+              client={selectedClient}
+              currentUserRole={currentUserRole}
+              responsibleSm={responsibleSm}
+              backgrounds={clientBdayBackgrounds}
+              groups={clientBdayGroups}
+              messages={clientBdayMessages}
+              people={clientBdayPeople}
+              auditLogs={clientBdayAuditLogs}
+              clientSession={birthdayClientSessions[selectedClient.id] || null}
+              onClientLogin={(session) =>
+                setBirthdayClientSessions(prev => ({ ...prev, [selectedClient.id]: session }))
+              }
+              onClientLogout={() =>
+                setBirthdayClientSessions(prev => {
+                  const copy = { ...prev };
+                  delete copy[selectedClient.id];
+                  return copy;
+                })
+              }
+              onSaveBackground={(bg) => setBirthdayBackgrounds(prev => [bg, ...prev])}
+              onUpdateBackground={(bg) =>
+                setBirthdayBackgrounds(prev => prev.map(item => (item.id === bg.id ? bg : item)))
+              }
+              onDeleteBackground={(bgId) =>
+                setBirthdayBackgrounds(prev => prev.filter(item => item.id !== bgId))
+              }
+              onSaveGroup={(grp) => setBirthdayGroups(prev => [...prev, grp])}
+              onUpdateGroup={(grp) =>
+                setBirthdayGroups(prev => prev.map(item => (item.id === grp.id ? grp : item)))
+              }
+              onDeleteGroup={(grpId) =>
+                setBirthdayGroups(prev => prev.filter(item => item.id !== grpId))
+              }
+              onSaveMessage={(msg) => setBirthdayMessages(prev => [...prev, msg])}
+              onUpdateMessage={(msg) =>
+                setBirthdayMessages(prev => prev.map(item => (item.id === msg.id ? msg : item)))
+              }
+              onDeleteMessage={(msgId) =>
+                setBirthdayMessages(prev => prev.filter(item => item.id !== msgId))
+              }
+              onSavePerson={(person) => setBirthdayPeople(prev => [person, ...prev])}
+              onUpdatePerson={(person) =>
+                setBirthdayPeople(prev => prev.map(item => (item.id === person.id ? person : item)))
+              }
+              onDeletePerson={(personId) =>
+                setBirthdayPeople(prev => prev.filter(item => item.id !== personId))
+              }
+              onRecordAudit={(entry) =>
+                setBirthdayAuditLogs(prev => [
+                  {
+                    ...entry,
+                    id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    clientProjectId: selectedClient.id,
+                    timestamp: new Date().toISOString()
+                  },
+                  ...prev
+                ])
+              }
+              onSendArtToMural={(postData) => {
+                handleCreatePost(postData);
+                setActiveTab('posts');
+              }}
+            />
+          )
         )}
 
         {/* TAB 3: FECHAMENTO & RECIBO PDF (GESTOR & SOCIAL MEDIA) */}
         {activeTab === 'billing' && (currentUserRole === 'gestor' || currentUserRole === 'social_media') && (
-          <ReceiptGenerator
-            receipts={receipts}
-            selectedClient={selectedClient}
-            currentUserRole={currentUserRole}
-            feePerPost={feePerPost}
-            socialMedias={socialMedias}
-            posts={posts}
-            approvalRecords={approvalRecords}
-            onSaveReceipt={handleSaveReceipt}
-            onSendWhatsAppReceipt={handleSendWhatsAppReceipt}
-            onAddSaasProof={handleAddSaasProof}
-          />
+          !hasValidSelectedClient ? (
+            <div className="bg-slate-900 border border-purple-500/40 rounded-3xl p-8 text-center space-y-3 shadow-xl">
+              <Building2 className="w-10 h-10 text-purple-400 mx-auto" />
+              <h3 className="text-base font-bold text-white">Nenhum cliente vinculado ao seu atendimento</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Cadastre ou vincule um cliente para emitir recibos e acompanhar o fechamento financeiro.
+              </p>
+            </div>
+          ) : (
+            <ReceiptGenerator
+              receipts={receipts}
+              selectedClient={selectedClient}
+              currentUserRole={currentUserRole}
+              feePerPost={feePerPost}
+              socialMedias={socialMedias}
+              posts={clientPosts}
+              approvalRecords={approvalRecords}
+              activeSocialMediaId={activeSocialMediaId}
+              onSaveReceipt={handleSaveReceipt}
+              onSendWhatsAppReceipt={handleSendWhatsAppReceipt}
+              onAddSaasProof={handleAddSaasProof}
+            />
+          )
         )}
 
         {/* TAB 4: MÉTRICAS META / GOOGLE ANALYTICS */}
         {activeTab === 'metrics' && (
-          <MetricsDashboard
-            client={selectedClient}
-            metrics={MOCK_METRICS}
-            channels={MOCK_CHANNELS}
-            currentUserRole={currentUserRole}
-            onChangeMetricsAccess={handleChangeMetricsAccess}
-            posts={posts}
-          />
+          !hasValidSelectedClient ? (
+            <div className="bg-slate-900 border border-purple-500/40 rounded-3xl p-8 text-center space-y-3 shadow-xl">
+              <Building2 className="w-10 h-10 text-purple-400 mx-auto" />
+              <h3 className="text-base font-bold text-white">Nenhum cliente vinculado ao seu atendimento</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Cadastre ou vincule um cliente para visualizar os indicadores de desempenho.
+              </p>
+            </div>
+          ) : (
+            <MetricsDashboard
+              client={selectedClient}
+              metrics={MOCK_METRICS}
+              channels={MOCK_CHANNELS}
+              currentUserRole={currentUserRole}
+              onChangeMetricsAccess={handleChangeMetricsAccess}
+              posts={clientPosts}
+            />
+          )
         )}
 
         {/* TAB 5: CLIENTES & EQUIPE */}
@@ -1705,49 +1952,67 @@ export default function App() {
       <Footer />
 
       {/* MODALS */}
-      <PostDetailModal
-        post={selectedPostForDetails}
-        isOpen={!!selectedPostForDetails}
-        onClose={() => setSelectedPostForDetails(null)}
-        currentUserRole={currentUserRole}
-        inspirations={clientInspirations}
-        clientName={selectedClient.name}
-        clientContactName={selectedClient.contactName}
-        socialMediaName={responsibleSm?.name}
-        onUpdateStatus={handleUpdatePostStatus}
-        onUpdateSocialNetworks={handleUpdatePostSocialNetworks}
-        onTogglePublished={handleTogglePublished}
-        onConfirmPreviewCleanup={handleConfirmPreviewCleanup}
-        onAddComment={handleAddComment}
-        onSendWhatsAppAlert={handleSendWhatsAppAlert}
-        onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
-        onRenewToken={handleRenewToken}
-        onUpdatePostFields={handleUpdatePostFields}
-        onDeletePost={handleDeletePost}
-      />
+      {(() => {
+        const detailPostClient = selectedPostForDetails
+          ? (clients.find(c => c.id === selectedPostForDetails.clientProjectId) || selectedClient)
+          : selectedClient;
+        const detailPostSm = selectedPostForDetails
+          ? (socialMedias.find(sm => sm.id === (selectedPostForDetails.socialMediaAuthorId || detailPostClient?.assignedSocialMediaId)) || responsibleSm)
+          : responsibleSm;
+        return (
+          <PostDetailModal
+            post={selectedPostForDetails}
+            isOpen={!!selectedPostForDetails}
+            onClose={() => setSelectedPostForDetails(null)}
+            currentUserRole={currentUserRole}
+            inspirations={clientInspirations}
+            clientName={detailPostClient?.name}
+            clientContactName={detailPostClient?.contactName}
+            socialMediaName={detailPostSm?.name}
+            onUpdateStatus={handleUpdatePostStatus}
+            onUpdateSocialNetworks={handleUpdatePostSocialNetworks}
+            onTogglePublished={handleTogglePublished}
+            onConfirmPreviewCleanup={handleConfirmPreviewCleanup}
+            onAddComment={handleAddComment}
+            onSendWhatsAppAlert={handleSendWhatsAppAlert}
+            onOpenPublicApprovalLink={(p) => setPublicApprovalPost(p)}
+            onRenewToken={handleRenewToken}
+            onUpdatePostFields={handleUpdatePostFields}
+            onDeletePost={handleDeletePost}
+          />
+        );
+      })()}
 
-      <ApprovalPublicModal
-        post={publicApprovalPost}
-        client={selectedClient}
-        authorSocialMedia={socialMedias.find(sm => sm.id === (publicApprovalPost?.socialMediaAuthorId || selectedClient.assignedSocialMediaId))}
-        isOpen={!!publicApprovalPost}
-        onClose={() => setPublicApprovalPost(null)}
-        onApprove={(postId) => handleUpdatePostStatus(postId, 'aprovado')}
-        onRequestChange={(postId, text, metadata) => {
-          handleUpdatePostStatus(postId, 'alterar');
-          handleAddComment(postId, `[Instrução de Ajuste]: ${text}`, metadata);
-        }}
-        onAddComment={handleAddComment}
-        onRenewToken={handleRenewToken}
-      />
+      {(() => {
+        const approvalClient = publicApprovalPost
+          ? (clients.find(c => c.id === publicApprovalPost.clientProjectId) || selectedClient)
+          : selectedClient;
+        const approvalSm = socialMedias.find(sm => sm.id === (publicApprovalPost?.socialMediaAuthorId || approvalClient?.assignedSocialMediaId || responsibleSm?.id));
+        return (
+          <ApprovalPublicModal
+            post={publicApprovalPost}
+            client={approvalClient}
+            authorSocialMedia={approvalSm}
+            isOpen={!!publicApprovalPost}
+            onClose={() => setPublicApprovalPost(null)}
+            onApprove={(postId) => handleUpdatePostStatus(postId, 'aprovado')}
+            onRequestChange={(postId, text, metadata) => {
+              handleUpdatePostStatus(postId, 'alterar');
+              handleAddComment(postId, `[Instrução de Ajuste]: ${text}`, metadata);
+            }}
+            onAddComment={handleAddComment}
+            onRenewToken={handleRenewToken}
+          />
+        );
+      })()}
 
       <NewPostModal
-        isOpen={isNewPostModalOpen}
+        isOpen={isNewPostModalOpen && Boolean(scopedClientId)}
         onClose={() => {
           setIsNewPostModalOpen(false);
           setConvertingTask(null);
         }}
-        clientProjectId={selectedClientId}
+        clientProjectId={scopedClientId}
         inspirations={clientInspirations}
         onCreatePost={handleCreatePost}
         initialTitle={convertingTask?.title || ''}
@@ -1755,15 +2020,22 @@ export default function App() {
         initialLinkedTaskId={convertingTask?.id}
       />
 
-      <WhatsAppNotificationModal
-        isOpen={isWhatsAppModalOpen}
-        onClose={() => setIsWhatsAppModalOpen(false)}
-        selectedClient={selectedClient}
-        notificationHistory={notificationHistory}
-        onTriggerNotification={(payload) => setNotificationHistory([payload, ...notificationHistory])}
-        approvalToken={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.approvalToken}
-        defaultPostTitle={(clientPosts.find(p => p.status === 'rascunho') || clientPosts[0])?.title}
-      />
+      {(() => {
+        const defaultPreviewPost = clientPosts.find(p => p.status === 'rascunho') || clientPosts[0];
+        return (
+          <WhatsAppNotificationModal
+            isOpen={isWhatsAppModalOpen}
+            onClose={() => setIsWhatsAppModalOpen(false)}
+            selectedClient={selectedClient}
+            notificationHistory={notificationHistory}
+            onTriggerNotification={(payload) => setNotificationHistory([payload, ...notificationHistory])}
+            approvalToken={defaultPreviewPost?.approvalToken}
+            defaultPostTitle={defaultPreviewPost?.title}
+            defaultPostCaption={defaultPreviewPost?.caption}
+            defaultPostMediaUrl={defaultPreviewPost?.mediaUrl}
+          />
+        );
+      })()}
 
       <StorageDriveModal
         isOpen={isDriveModalOpen}

@@ -3,7 +3,7 @@ import { PostItem, UserRole } from '../types';
 import { 
   CheckCircle, AlertCircle, Clock, MessageSquare, 
   Video, Layers, Calendar, Key, ShieldCheck,
-  Trash2, AlertTriangle, Share2
+  Trash2, AlertTriangle, Share2, MessageCircle
 } from 'lucide-react';
 import { getTimeRemainingText, isTokenExpired } from '../utils/token';
 import { DriveImage } from './DriveImage';
@@ -16,6 +16,7 @@ interface PostCardProps {
   onQuickApprove?: (postId: string) => void;
   onQuickRequestChange?: (postId: string) => void;
   onOpenPublicApprovalLink?: (post: PostItem) => void;
+  onShareWhatsApp?: (post: PostItem) => void;
   onDeletePost?: (postId: string) => void | Promise<void>;
   onPublishPost?: (postId: string) => void;
 }
@@ -27,6 +28,7 @@ export const PostCard: React.FC<PostCardProps> = ({
   onQuickApprove,
   onQuickRequestChange,
   onOpenPublicApprovalLink,
+  onShareWhatsApp,
   onDeletePost,
   onPublishPost
 }) => {
@@ -174,26 +176,43 @@ export const PostCard: React.FC<PostCardProps> = ({
             </div>
           )}
 
-          {/* Token Hash Expiration Badge (Última informação do card abaixo do chat) */}
-          <div className="flex items-center justify-between bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800/80 text-[11px]">
-            <span className="text-slate-400 font-medium flex items-center gap-1.5">
+          {/* Token Hash Expiration Badge + Botão rápido WhatsApp */}
+          <div className="flex items-center justify-between gap-2 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800/80 text-[11px]">
+            <span className="text-slate-400 font-medium flex items-center gap-1.5 shrink-0">
               <Key className="w-3 h-3 text-indigo-400" /> Token 5d:
             </span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onOpenPublicApprovalLink) onOpenPublicApprovalLink(post);
-                else onOpenDetails(post);
-              }}
-              className={`font-bold hover:underline flex items-center gap-1 ${
-                expired ? 'text-rose-400' : 'text-emerald-400'
-              }`}
-              title="Abrir Link Público de Aprovação"
-            >
-              <ShieldCheck className="w-3 h-3" />
-              <span>{timeInfo.text}</span>
-            </button>
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onOpenPublicApprovalLink) onOpenPublicApprovalLink(post);
+                  else onOpenDetails(post);
+                }}
+                className={`font-bold hover:underline flex items-center gap-1 truncate ${
+                  expired ? 'text-rose-400' : 'text-emerald-400'
+                }`}
+                title="Abrir Link Público de Aprovação"
+              >
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span className="truncate">{timeInfo.text}</span>
+              </button>
+
+              {onShareWhatsApp && currentUserRole !== 'cliente' && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShareWhatsApp(post);
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 font-bold text-[10px] flex items-center gap-1 transition-colors shrink-0"
+                  title="Enviar link com imagem e descrição no WhatsApp"
+                >
+                  <MessageCircle className="w-3 h-3" />
+                  <span>WhatsApp</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -437,26 +437,54 @@ export async function syncSocialMediaToSupabase(sm: {
 }) {
   const clientDb = getSupabaseClient();
   if (!clientDb) return null;
+  const basePayload = {
+    id: sm.id,
+    name: sm.name,
+    email: sm.email || 'socialmedia@agencia.com',
+    whatsapp: sm.whatsapp || '',
+    social_profile: sm.socialProfile || '',
+    pix_key: sm.pixKey || '',
+    custom_fee_per_post: sm.customFeePerPost ?? null,
+    status: sm.status || 'ativo'
+  };
   try {
     const { data, error } = await clientDb
       .from('social_medias')
       .upsert([{
-        id: sm.id,
-        name: sm.name,
-        email: sm.email,
-        whatsapp: sm.whatsapp,
-        social_profile: sm.socialProfile,
-        pix_key: sm.pixKey,
-        custom_fee_per_post: sm.customFeePerPost ?? null,
-        status: sm.status || 'ativo',
+        ...basePayload,
         signature_url: sm.signatureUrl || null,
         bank_info: sm.bankInfo || null
       }]);
-    if (error) console.warn('Erro ao sincronizar Social Media no Supabase:', error.message);
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (error.code === 'PGRST204' || msg.includes('column') || msg.includes('signature_url') || msg.includes('bank_info')) {
+        const retry = await clientDb.from('social_medias').upsert([basePayload]);
+        if (retry.error) {
+          console.warn('Erro ao sincronizar Social Media no Supabase (retry):', retry.error.message);
+        } else {
+          console.log('✓ Social Media sincronizado no Supabase (colunas base)!', sm.id);
+        }
+        return retry.data;
+      }
+      console.warn('Erro ao sincronizar Social Media no Supabase:', error.message);
+    } else {
+      console.log('✓ Social Media sincronizado no Supabase com sucesso!', sm.id);
+    }
     return data;
   } catch (err) {
     console.warn('Falha ao conectar com Supabase:', err);
     return null;
+  }
+}
+
+/**
+ * Sincroniza todos os Social Medias ativos para o Supabase.
+ */
+export async function syncAllSocialMediasToSupabase(smList: SocialMediaUser[]) {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || smList.length === 0) return;
+  for (const sm of smList) {
+    await syncSocialMediaToSupabase(sm);
   }
 }
 

@@ -589,7 +589,13 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
               type="button"
-              onClick={() => setIsAddingClientModal(true)}
+              onClick={() => {
+                setNewClientForm(prev => ({
+                  ...prev,
+                  assignedSocialMediaId: prev.assignedSocialMediaId || socialMedias[0]?.id || ''
+                }));
+                setIsAddingClientModal(true);
+              }}
               className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/25 transition-all"
             >
               <Plus className="w-4 h-4" />
@@ -1865,6 +1871,8 @@ CREATE TABLE IF NOT EXISTS social_medias (
   pix_key TEXT,
   custom_fee_per_post NUMERIC(10,2),
   status TEXT DEFAULT 'ativo',
+  signature_url TEXT,
+  bank_info TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -2008,7 +2016,7 @@ CREATE TABLE IF NOT EXISTS posts (
 
 -- 3. AUDITORIA, SOCIAL MEDIAS, APROVAÇÕES E TAREFAS DO CLIENTE
 CREATE TABLE IF NOT EXISTS post_comments_audit ( id TEXT PRIMARY KEY, post_id TEXT NOT NULL, post_title TEXT, client_id TEXT, author_role TEXT NOT NULL, author_name TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() );
-CREATE TABLE IF NOT EXISTS social_medias ( id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, whatsapp TEXT, social_profile TEXT, pix_key TEXT, custom_fee_per_post NUMERIC(10,2), status TEXT DEFAULT 'ativo', created_at TIMESTAMPTZ DEFAULT NOW() );
+CREATE TABLE IF NOT EXISTS social_medias ( id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, whatsapp TEXT, social_profile TEXT, pix_key TEXT, custom_fee_per_post NUMERIC(10,2), status TEXT DEFAULT 'ativo', signature_url TEXT, bank_info TEXT, created_at TIMESTAMPTZ DEFAULT NOW() );
 CREATE TABLE IF NOT EXISTS approval_records ( id TEXT PRIMARY KEY, post_id TEXT NOT NULL, post_title TEXT NOT NULL, client_project_id TEXT NOT NULL, client_name TEXT, social_media_id TEXT, social_media_name TEXT, approved_at TIMESTAMPTZ NOT NULL, approved_by_role TEXT NOT NULL, approved_by_name TEXT NOT NULL, approved_by_phone TEXT, approved_by_email TEXT, price_per_post_snapshot NUMERIC(10,2) DEFAULT 150, fee_per_post_snapshot NUMERIC(10,2) DEFAULT 0.50, billing_status TEXT DEFAULT 'computado', post_deleted_at TIMESTAMPTZ );
 CREATE TABLE IF NOT EXISTS client_tasks ( id TEXT PRIMARY KEY, client_project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, deadline TEXT, status TEXT DEFAULT 'novo', linked_post_id TEXT, created_by_role TEXT DEFAULT 'cliente', created_by_name TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW() );
 

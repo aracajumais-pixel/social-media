@@ -4,7 +4,7 @@ import {
   X, CheckCircle, Copy, Send, 
   MessageSquare, Trash2, Pencil, Check, Paperclip, Link2, 
   AlertTriangle, Image as ImageIcon, Sparkles, UploadCloud, Loader2,
-  HardDrive, Eye, EyeOff, Calendar, User
+  HardDrive, Eye, EyeOff, Calendar, User, MessageCircle
 } from 'lucide-react';
 import { buildApprovalUrl } from '../utils/token';
 import { DriveImage } from './DriveImage';
@@ -47,6 +47,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onTogglePublished,
   onConfirmPreviewCleanup,
   onAddComment,
+  onSendWhatsAppAlert,
   onUpdatePostFields,
   onDeletePost
 }) => {
@@ -57,6 +58,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showMediaPreview, setShowMediaPreview] = useState(true);
+  const [showWhatsAppCardPreview, setShowWhatsAppCardPreview] = useState(false);
   const [approvalThanksFeedback, setApprovalThanksFeedback] = useState(false);
 
   // Editable Title & Caption
@@ -317,20 +319,30 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 group">
-                    <h2 className="text-base sm:text-lg font-black text-white tracking-tight truncate">
-                      {post.title}
-                    </h2>
-                    {onUpdatePostFields && (
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingTitle(true)}
-                        className="p-1 text-slate-500 hover:text-white transition-colors rounded-lg"
-                        title="Editar título"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                  <div>
+                    <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-500/40 text-[10px] font-bold text-emerald-300">
+                        Cliente: <strong className="text-white">{clientName || 'Não identificado'}</strong>
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-950/70 border border-purple-500/40 text-[10px] font-bold text-purple-300">
+                        Social Media: <strong className="text-white">{socialMediaName || 'Não vinculado'}</strong>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 group">
+                      <h2 className="text-base sm:text-lg font-black text-white tracking-tight truncate">
+                        {post.title}
+                      </h2>
+                      {onUpdatePostFields && (
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingTitle(true)}
+                          className="p-1 text-slate-500 hover:text-white transition-colors rounded-lg"
+                          title="Editar título"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -775,32 +787,73 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
           </div>
 
         {/* ============================================================ */}
-        {/* CARD 4 (RODAPÉ): LINK PÚBLICO E OS 2 BOTÕES (COPIAR E APROVADO) */}
+        {/* CARD 4 (RODAPÉ): LINK PÚBLICO COM PREVIEW WHATSAPP E BOTÕES  */}
         {/* ============================================================ */}
-        <div className="p-4 sm:p-5 pt-3 border-t border-slate-800/80 bg-[#090d18] shrink-0">
+        <div className="p-4 sm:p-5 pt-3 border-t border-slate-800/80 bg-[#090d18] shrink-0 space-y-2.5">
+          {showWhatsAppCardPreview && (
+            <div className="bg-[#0b141a] border border-emerald-500/35 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+              <div className="w-full max-w-[300px] bg-[#1f2c34] rounded-xl overflow-hidden border border-white/10 shadow-lg">
+                <div className="aspect-video w-full bg-slate-950 overflow-hidden">
+                  <DriveImage src={post.mediaUrl} alt={post.title} className="w-full h-full object-cover" />
+                </div>
+                <div className="p-2.5 space-y-1">
+                  <div className="text-xs font-bold text-white line-clamp-1">
+                    {clientName ? `${clientName}: "${post.title}"` : post.title}
+                  </div>
+                  <p className="text-[11px] text-slate-300 line-clamp-2 leading-snug">
+                    {post.caption || 'Clique para visualizar a arte, comentar ou aprovar.'}
+                  </p>
+                  <div className="pt-1 flex items-center justify-between gap-2 border-t border-white/10 text-[10px] text-slate-300">
+                    <span className="truncate font-mono flex items-center gap-1">
+                      <Link2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                      {typeof window !== 'undefined' ? window.location.host : 'socialmedia5.app'}
+                    </span>
+                    <img src="/favicon.jpg" alt="Ícone" className="w-4 h-4 rounded object-cover shrink-0" />
+                  </div>
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-300 space-y-1 flex-1">
+                <p className="font-bold text-emerald-300">Prévia do cartão no WhatsApp</p>
+                <p className="text-slate-400 leading-relaxed">
+                  Ao colar ou enviar este link no WhatsApp, o cliente verá automaticamente a imagem em destaque, o título, a legenda e o cartão clicável igual ao Instagram.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="bg-[#0c1224] border border-indigo-500/30 rounded-2xl p-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
             
             {/* Link público de aprovação */}
-            <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            <div className="flex items-center gap-2.5 w-full sm:w-auto min-w-0">
               <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shrink-0">
                 <Link2 className="w-4 h-4 text-indigo-400" />
               </div>
-              <div className="min-w-0">
-                <span className="text-xs font-bold text-white block">
-                  Link público de aprovação
-                </span>
-                <span className="text-[10px] text-slate-400 block truncate max-w-[200px] sm:max-w-xs font-mono">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white">
+                    Link público de aprovação
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowWhatsAppCardPreview((v) => !v)}
+                    className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                  >
+                    {showWhatsAppCardPreview ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    <span>{showWhatsAppCardPreview ? 'Ocultar card' : 'Ver card WhatsApp'}</span>
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-400 block truncate max-w-[220px] sm:max-w-xs font-mono">
                   {approvalUrl}
                 </span>
               </div>
             </div>
 
-            {/* Os 2 Botões: Copiar Link e Aprovado */}
-            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+            {/* Botões: Copiar Link, Enviar WhatsApp e Aprovado */}
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto justify-end">
               <button
                 type="button"
                 onClick={handleCopyApprovalLink}
-                className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-full flex items-center justify-center gap-2 shadow-md shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-full flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 {copiedTokenUrl ? (
                   <>
@@ -815,10 +868,22 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                 )}
               </button>
 
+              {onSendWhatsAppAlert && (
+                <button
+                  type="button"
+                  onClick={() => onSendWhatsAppAlert(post.id, '')}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/50 font-bold text-xs rounded-full flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  title="Enviar link com imagem e descrição no WhatsApp"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>WhatsApp</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={handleToggleApprove}
-                className={`flex-1 sm:flex-none px-6 py-2.5 font-bold text-xs rounded-full flex items-center justify-center gap-2 transition-all shadow-md ${
+                className={`flex-1 sm:flex-none px-5 py-2.5 font-bold text-xs rounded-full flex items-center justify-center gap-2 transition-all shadow-md ${
                   post.status === 'aprovado'
                     ? 'bg-[#10b981] hover:bg-emerald-400 text-white shadow-emerald-500/30 cursor-default'
                     : 'bg-[#10b981] hover:bg-emerald-400 text-white shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98]'

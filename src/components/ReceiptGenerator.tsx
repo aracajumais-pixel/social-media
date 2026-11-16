@@ -18,6 +18,7 @@ interface ReceiptGeneratorProps {
   socialMedias?: SocialMediaUser[];
   posts?: PostItem[];
   approvalRecords?: ApprovalRecord[];
+  activeSocialMediaId?: string;
   onSaveReceipt: (receipt: BillingReceipt) => void;
   onSendWhatsAppReceipt: (receipt: BillingReceipt) => void;
   onAddSaasProof?: (newProof: Omit<SaaSPaymentProof, 'id' | 'submittedAt' | 'status'>) => void;
@@ -31,6 +32,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
   socialMedias = [],
   posts = [],
   approvalRecords = [],
+  activeSocialMediaId,
   onSaveReceipt,
   onSendWhatsAppReceipt,
   onAddSaasProof
@@ -54,7 +56,11 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     return new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-  const assignedSm = socialMedias.find(sm => sm.id === selectedClient.assignedSocialMediaId) || socialMedias[0];
+  const targetSmId =
+    currentUserRole === 'social_media' && activeSocialMediaId
+      ? activeSocialMediaId
+      : (selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId);
+  const assignedSm = (targetSmId ? socialMedias.find(sm => sm.id === targetSmId) : undefined) || socialMedias[0];
 
   const [period, setPeriod] = useState(existingReceipt?.period || '');
   // Regra solicitada: Manter data sempre no dia atual
@@ -89,7 +95,11 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
   // Sincroniza e garante data no dia atual ao alternar clientes
   useEffect(() => {
     setIssueDate(getTodayDateString());
-    const sm = socialMedias.find(s => s.id === selectedClient.assignedSocialMediaId) || socialMedias[0];
+    const resolvedSmId =
+      currentUserRole === 'social_media' && activeSocialMediaId
+        ? activeSocialMediaId
+        : (selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId);
+    const sm = (resolvedSmId ? socialMedias.find(s => s.id === resolvedSmId) : undefined) || socialMedias[0];
 
     if (existingReceipt) {
       setPeriod(existingReceipt.period || '');

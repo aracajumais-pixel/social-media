@@ -136,14 +136,14 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-extrabold text-white truncate">
-                  {client?.name || 'Aprovação de Conteúdo'}
+                  Cliente: {client?.name || 'Não identificado'}
                 </h2>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold uppercase shrink-0">
                   Seguro
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 truncate">
-                {authorSocialMedia?.name ? `Social Media: ${authorSocialMedia.name}` : 'Social Media 5.0'}
+              <p className="text-[11px] text-purple-300 truncate">
+                Social Media: <strong className="text-white">{authorSocialMedia?.name || 'Não vinculado'}</strong>
               </p>
             </div>
           </div>
@@ -183,10 +183,10 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
           </div>
         ) : !isChatOpen ? (
 
-          /* VIEW 1: IMAGEM REDUZIDA DO PROJETO COM DESCRIÇÃO ABAIXO E BOTÕES APROVAR E AJUSTAR NO FINAL */
-          <div className="p-4 sm:p-6 space-y-4">
+          /* VIEW 1: LAYOUT LIMPO — IMAGEM EM CIMA, DESCRIÇÃO E BOTÕES APROVAR E COMENTAR LOGO ABAIXO */
+          <div className="p-4 sm:p-5 space-y-3.5">
             
-            {/* 1. IMAGEM REDUZIDA DO PROJETO COM SINALIZAÇÃO DE APROVADO */}
+            {/* 1. IMAGEM DO PROJETO COM SINALIZAÇÃO DE APROVADO */}
             <div className="relative group">
               <div 
                 className={`rounded-2xl overflow-hidden bg-slate-950 aspect-video max-h-64 sm:max-h-72 w-full relative flex items-center justify-center transition-all duration-300 ${
@@ -204,13 +204,11 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
                 {/* SINALIZAÇÃO NO PREVIEW DO PROJETO QUANDO APROVADO */}
                 {isApproved && (
                   <>
-                    {/* Badge flutuante no topo direito */}
                     <div className="absolute top-3 right-3 z-10 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white text-xs font-black px-3.5 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 border border-emerald-300/40 animate-fade-in">
                       <CheckCircle className="w-4 h-4 text-emerald-100" />
                       <span>PROJETO APROVADO</span>
                     </div>
 
-                    {/* Faixa inferior de sinalização sobre o preview */}
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-emerald-950/95 via-emerald-950/80 to-transparent p-3 pt-6 flex items-center justify-between text-xs text-emerald-200">
                       <span className="font-bold flex items-center gap-1.5 text-white">
                         <Check className="w-4 h-4 text-emerald-400" />
@@ -225,31 +223,20 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
               </div>
             </div>
 
-            {/* 2. DESCRIÇÃO ABAIXO DO PROJETO */}
+            {/* 2. TÍTULO E DESCRIÇÃO ABAIXO DA IMAGEM */}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-base sm:text-lg font-black text-white leading-snug">
+                <h3 className="text-base font-black text-white leading-snug">
                   {post.title}
                 </h3>
-                <span className="text-[10px] text-indigo-300 font-bold uppercase bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-800/40 shrink-0">
-                  {post.socialNetworks.join(', ')}
+                <span className="text-[11px] text-slate-400 flex items-center gap-1 shrink-0">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                  {new Date(post.scheduledDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
 
-              {/* Legenda / Briefing Proposto */}
               <div className="bg-[#0c1224] p-3.5 rounded-2xl border border-slate-800 text-xs sm:text-sm text-slate-200 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto">
                 {post.caption || 'Sem descrição cadastrada para esta publicação.'}
-              </div>
-
-              {/* Data da Publicação Agendada */}
-              <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 pt-1">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                  Publicação Agendada:
-                </span>
-                <span className="font-semibold text-slate-200">
-                  {new Date(post.scheduledDate).toLocaleString('pt-BR')}
-                </span>
               </div>
             </div>
 
@@ -261,15 +248,15 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
               </div>
             )}
 
-            {/* 3. NO FINAL: OS DOIS BOTÕES: APROVAR E AJUSTAR */}
-            <div className="pt-2 flex items-center gap-3">
+            {/* 3. LOGO ABAIXO DA DESCRIÇÃO: OS DOIS BOTÕES — APROVAR E COMENTAR */}
+            <div className="pt-1 grid grid-cols-2 gap-3">
               
               {/* Botão Aprovar */}
               <button
                 type="button"
                 onClick={handleApprove}
                 disabled={post.status === 'aprovado' || approvedFeedback}
-                className={`flex-1 py-3 px-4 font-bold text-xs sm:text-sm rounded-full flex items-center justify-center gap-2 transition-all shadow-lg ${
+                className={`w-full py-3 px-4 font-bold text-xs sm:text-sm rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg ${
                   isApproved
                     ? 'bg-[#10b981] text-white shadow-emerald-500/30 cursor-default'
                     : 'bg-[#10b981] hover:bg-emerald-400 text-white shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98]'
@@ -277,18 +264,23 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
                 title={isApproved ? 'Este projeto já está aprovado' : 'Aprovar publicação'}
               >
                 <CheckCircle className="w-4 h-4" />
-                <span>{isApproved ? '✓ Projeto Aprovado' : 'Aprovar'}</span>
+                <span>{isApproved ? 'Aprovado' : 'Aprovar'}</span>
               </button>
 
-              {/* Botão Ajustar (Abre a janela do chat / debate) */}
+              {/* Botão Comentar (Abre a janela do chat / debate) */}
               <button
                 type="button"
                 onClick={() => setIsChatOpen(true)}
-                className="flex-1 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm rounded-full flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                title="Abrir chat para debater e solicitar ajustes"
+                className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                title="Abrir comentários para debater e solicitar ajustes"
               >
                 <MessageSquare className="w-4 h-4" />
-                <span>Ajustar</span>
+                <span>Comentar</span>
+                {sanitizedComments.length > 0 && (
+                  <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                    {sanitizedComments.length}
+                  </span>
+                )}
               </button>
 
             </div>
@@ -296,7 +288,7 @@ export const ApprovalPublicModal: React.FC<ApprovalPublicModalProps> = ({
           </div>
         ) : (
 
-          /* VIEW 2: JANELA DO CHAT (DEBATE) AO CLICAR EM AJUSTAR */
+          /* VIEW 2: JANELA DO CHAT (DEBATE) AO CLICAR EM COMENTAR */
           <div className="p-4 sm:p-5 flex flex-col space-y-4 animate-fade-in">
             
             {/* Top Bar do Chat: Voltar ao Projeto e Miniatura */}
