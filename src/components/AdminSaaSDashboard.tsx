@@ -2823,7 +2823,8 @@ CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING
                 <div>
                   <label className="block text-slate-300 font-bold mb-1">E-mail do Cliente:</label>
                   <input
-                    type="email"
+                    type="text"
+                    inputMode="email"
                     value={newClientForm.email}
                     onChange={(e) => setNewClientForm({ ...newClientForm, email: e.target.value })}
                     placeholder="contato@cliente.com"
@@ -2983,7 +2984,7 @@ CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING
               <div>
                 <label className="block text-slate-300 font-bold mb-1">Link da Logomarca (Drive ou Imagem Direct):</label>
                 <input
-                  type="url"
+                  type="text"
                   value={newClientForm.logoUrl}
                   onChange={(e) => setNewClientForm({ ...newClientForm, logoUrl: e.target.value })}
                   placeholder="https://drive.google.com/file/d/... ou https://..."
@@ -2994,7 +2995,7 @@ CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING
               <div>
                 <label className="block text-slate-300 font-bold mb-1">URL Pasta Google Drive:</label>
                 <input
-                  type="url"
+                  type="text"
                   value={newClientForm.googleDriveFolderUrl}
                   onChange={(e) => setNewClientForm({ ...newClientForm, googleDriveFolderUrl: e.target.value })}
                   placeholder="https://drive.google.com/drive/folders/..."

@@ -59,7 +59,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   // Modal state (used for BOTH adding new client AND editing an existing client)
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientProject | null>(null); // null = new mode, ClientProject = edit mode
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [clientSavedBanner, setClientSavedBanner] = useState<{ name: string; isEdit: boolean } | null>(null);
   const [isGeneratingDriveFolder, setIsGeneratingDriveFolder] = useState(false);
   const [driveGenError, setDriveGenError] = useState<string | null>(null);
   const [driveGenSuccess, setDriveGenSuccess] = useState(false);
@@ -174,7 +174,6 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   // Open modal in CREATE mode
   const handleOpenCreateModal = () => {
     setEditingClient(null);
-    setSavedSuccess(false);
     setDriveGenError(null);
     setDriveGenSuccess(false);
     setCepStatusMessage(null);
@@ -207,7 +206,6 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   // Open modal in EDIT mode
   const handleOpenEditModal = (targetClient: ClientProject) => {
     setEditingClient(targetClient);
-    setSavedSuccess(false);
     setDriveGenError(null);
     setDriveGenSuccess(false);
     setCepStatusMessage(null);
@@ -240,11 +238,16 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   const handleCloseModal = () => {
     setIsClientModalOpen(false);
     setEditingClient(null);
-    setSavedSuccess(false);
     setDriveGenError(null);
     setDriveGenSuccess(false);
     setCepStatusMessage(null);
   };
+
+  useEffect(() => {
+    if (!clientSavedBanner) return;
+    const timer = setTimeout(() => setClientSavedBanner(null), 5000);
+    return () => clearTimeout(timer);
+  }, [clientSavedBanner]);
 
   const handleQuickGenerateDriveFolder = async () => {
     if (!modalForm.name.trim()) {
@@ -364,7 +367,10 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       if (onSelectClient) onSelectClient(newId);
     }
 
-    setSavedSuccess(true);
+    const savedName = modalForm.name.trim();
+    const isEditMode = Boolean(editingClient);
+    handleCloseModal();
+    setClientSavedBanner({ name: savedName, isEdit: isEditMode });
   };
 
   // Open modal in Social Media CREATE mode
@@ -592,7 +598,26 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      
+      {clientSavedBanner && (
+        <div className="bg-emerald-950/80 border border-emerald-500/40 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-xs text-emerald-200 shadow-lg animate-fade-in">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              {clientSavedBanner.isEdit ? 'Cliente atualizado com sucesso: ' : 'Novo cliente cadastrado com sucesso: '}
+              <strong className="text-white">{clientSavedBanner.name}</strong>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setClientSavedBanner(null)}
+            className="text-emerald-300 hover:text-white p-1"
+            title="Fechar aviso"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* SEÇÃO PRINCIPAL DE GERENCIAMENTO E BUSCA */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
         
@@ -948,8 +973,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
 
       {/* UNIFIED MODAL DE CADASTRO / EDIÇÃO DE CLIENTE COM OPÇÃO DE FECHAR */}
       {isClientModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 space-y-5 shadow-2xl my-8 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto relative">
             
             {/* Header do Modal com Botão Fechar ✕ */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
@@ -977,33 +1002,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
               </button>
             </div>
 
-            {/* Tela de Sucesso ou Formulário */}
-            {savedSuccess ? (
-              <div className="bg-slate-950 border border-emerald-500/40 rounded-2xl p-6 text-center space-y-4 animate-fade-in">
-                <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/40">
-                  <Check className="w-6 h-6" />
-                </div>
-                <div>
-                  <h4 className="text-lg font-bold text-white">
-                    {editingClient ? 'Cliente Atualizado com Sucesso!' : 'Cliente Cadastrado com Sucesso!'}
-                  </h4>
-                  <p className="text-xs text-slate-300 mt-1">
-                    As informações do cliente <strong className="text-emerald-400">{modalForm.name}</strong> foram salvas e sincronizadas com sucesso.
-                  </p>
-                </div>
-
-                <div className="pt-2 flex justify-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleCloseModal}
-                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-emerald-600/20 transition-all"
-                  >
-                    Concluir e Fechar
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleSaveClientSubmit} className="space-y-4 text-xs">
+            <form onSubmit={handleSaveClientSubmit} className="space-y-4 text-xs">
                 <div>
                   <label className="block text-slate-300 font-bold mb-1">Nome Fantasia do Cliente *:</label>
                   <input
@@ -1066,7 +1065,8 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   <div>
                     <label className="block text-slate-300 font-bold mb-1">E-mail do Cliente:</label>
                     <input
-                      type="email"
+                      type="text"
+                      inputMode="email"
                       value={modalForm.email}
                       onChange={(e) => setModalForm({ ...modalForm, email: e.target.value })}
                       placeholder="contato@cliente.com"
@@ -1251,7 +1251,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   <div>
                     <label className="block text-slate-400 text-[10px] font-bold mb-1">Ou informe o link da imagem (Drive ou URL externa):</label>
                     <input
-                      type="url"
+                      type="text"
                       value={modalForm.logoUrl}
                       onChange={(e) => {
                         const converted = e.target.value.trim() ? getEmbeddableMediaUrl(e.target.value) : e.target.value;
@@ -1288,7 +1288,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   </div>
 
                   <input
-                    type="url"
+                    type="text"
                     value={modalForm.googleDriveFolderUrl}
                     onChange={(e) => setModalForm({ ...modalForm, googleDriveFolderUrl: e.target.value })}
                     placeholder="https://drive.google.com/drive/folders/..."
@@ -1409,7 +1409,6 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   </div>
                 </div>
               </form>
-            )}
 
           </div>
         </div>
