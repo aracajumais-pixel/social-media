@@ -541,7 +541,10 @@ export default function App() {
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const clientParam = params.get('client');
+    const muralPathMatch = window.location.pathname.match(/^\/mural\/([^/?#]+)/i);
+    const clientParam =
+      (muralPathMatch?.[1] ? decodeURIComponent(muralPathMatch[1]).trim() : '') ||
+      params.get('client');
     const smParam = params.get('sm');
     const token = extractApprovalTokenFromLocation();
     const savedRole = localStorage.getItem('social_saas_user_role') as UserRole | null;
@@ -1034,7 +1037,12 @@ export default function App() {
       ]
     };
 
-    setPosts([newPost, ...posts]);
+    const nextPosts = [newPost, ...posts];
+    setPosts(nextPosts);
+    saveSharedServerStatePatch({ posts: nextPosts });
+    if (hasSupabaseCredentials()) {
+      syncPostToSupabase(newPost);
+    }
     
     // Se o post foi gerado a partir de uma tarefa solicitada pelo cliente, vincula o ID do post à tarefa e atualiza para 'em_andamento'
     if (newPostData.linkedTaskId) {
@@ -1167,13 +1175,17 @@ export default function App() {
     syncReceiptToSupabase(savedReceipt);
   };
 
-  // Envio direto do alerta via WhatsApp (garante sincronização prévia no servidor para gerar o card rico de preview)
+  // Envio direto do alerta via WhatsApp (garante sincronização prévia no Supabase e servidor para o card rico de preview)
   const handleSendWhatsAppAlert = (postId: string, messageText: string) => {
     const targetPost = posts.find(p => p.id === postId);
     const targetClient = targetPost
       ? (clients.find(c => c.id === targetPost.clientProjectId) || selectedClient)
       : selectedClient;
     saveSharedServerStatePatch({ posts, clients });
+    if (hasSupabaseCredentials()) {
+      if (targetClient?.id) syncClientToSupabase(targetClient);
+      if (targetPost) syncPostToSupabase(targetPost);
+    }
     const tokenUrl = targetPost ? buildApprovalUrl(targetPost.approvalToken || 'token') : '';
     const textToSend = messageText.trim() || `Olá ${targetClient.contactName || targetClient.name}! 🎨\n\nConfira a prévia da publicação "${targetPost?.title || 'Novo Post'}" para aprovação:\n\n${tokenUrl}`;
     openWhatsAppDirect(targetClient.whatsappNumber, textToSend);
@@ -1189,12 +1201,15 @@ export default function App() {
   const handleSendEntireMuralWhatsApp = () => {
     if (!hasValidSelectedClient || !scopedClientId) return;
     saveSharedServerStatePatch({ posts, clients });
+    if (hasSupabaseCredentials() && selectedClient?.id) {
+      syncClientToSupabase(selectedClient);
+    }
     const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
     const authorSmId = currentUserRole === 'social_media'
       ? activeSocialMediaId
       : (selectedClient.assignedSocialMediaId || activeSocialMediaId);
     const authorSm = socialMedias.find(sm => sm.id === authorSmId);
-    const muralUrl = `${currentOrigin}/?client=${scopedClientId}&sm=${authorSmId}`;
+    const muralUrl = `${currentOrigin}/mural/${encodeURIComponent(scopedClientId)}?sm=${encodeURIComponent(authorSmId)}`;
     const smName = authorSm?.name ? ` com ${authorSm.name}` : '';
     const text = `Olá ${selectedClient.contactName || selectedClient.name}!\n\nSegue o link do seu Mural Exclusivo de Posts & Aprovações da ${selectedClient.name}${smName}:\n\n${muralUrl}\n\nAcesse pelo cartão acima para visualizar todas as publicações, conferir legendas e aprovar online!`;
     openWhatsAppDirect(selectedClient.whatsappNumber, text);

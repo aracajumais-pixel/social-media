@@ -419,7 +419,12 @@ function injectOpenGraphMetaTags(
   return out.replace(/<head>/i, `<head>\n    ${block}`);
 }
 
-async function buildEnrichedHtmlForRequest(baseHtml: string, req: express.Request, explicitToken?: string): Promise<string> {
+async function buildEnrichedHtmlForRequest(
+  baseHtml: string,
+  req: express.Request,
+  explicitToken?: string,
+  explicitClientId?: string
+): Promise<string> {
   const origin = getRequestOrigin(req);
   const queryToken =
     typeof req.query.token === 'string'
@@ -466,13 +471,14 @@ async function buildEnrichedHtmlForRequest(baseHtml: string, req: express.Reques
     });
   }
 
-  const clientParam = typeof req.query.client === 'string' ? req.query.client.trim() : '';
+  const queryClientParam = typeof req.query.client === 'string' ? req.query.client.trim() : '';
+  const clientParam = (explicitClientId || queryClientParam || '').trim();
   if (clientParam) {
     const mural = await findClientMuralById(clientParam);
     const smParam = typeof req.query.sm === 'string' ? req.query.sm.trim() : '';
     const querySuffix = smParam
-      ? `/?client=${encodeURIComponent(clientParam)}&sm=${encodeURIComponent(smParam)}`
-      : `/?client=${encodeURIComponent(clientParam)}`;
+      ? `/mural/${encodeURIComponent(clientParam)}?sm=${encodeURIComponent(smParam)}`
+      : `/mural/${encodeURIComponent(clientParam)}`;
     const shareUrl = origin ? `${origin}${querySuffix}` : querySuffix;
     const ogImage = origin
       ? `${origin}/api/og-client-image/${encodeURIComponent(clientParam)}.jpg`
@@ -826,11 +832,17 @@ Inspect the PNG carefully and return the safest open coordinates (xPct, yPct, wi
       appType: 'spa',
     });
 
-    const serveDevWithOg = async (req: express.Request, res: express.Response, next: express.NextFunction, explicitToken?: string) => {
+    const serveDevWithOg = async (
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+      explicitToken?: string,
+      explicitClientId?: string
+    ) => {
       try {
         const baseHtml = await fs.readFile(path.join(__dirname, 'index.html'), 'utf8');
         const transformed = await vite.transformIndexHtml('/', baseHtml);
-        const enriched = await buildEnrichedHtmlForRequest(transformed, req, explicitToken);
+        const enriched = await buildEnrichedHtmlForRequest(transformed, req, explicitToken, explicitClientId);
         return res.status(200).set({ 'Content-Type': 'text/html' }).end(enriched);
       } catch (err) {
         console.error('Error injecting dev OG tags:', err);
@@ -839,15 +851,22 @@ Inspect the PNG carefully and return the safest open coordinates (xPct, yPct, wi
     };
 
     app.get('/p/:token', (req, res, next) => serveDevWithOg(req, res, next, String(req.params.token || '').trim()));
+    app.get('/mural/:clientId', (req, res, next) => serveDevWithOg(req, res, next, undefined, String(req.params.clientId || '').trim()));
     app.get('/', (req, res, next) => serveDevWithOg(req, res, next));
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
 
-    const serveProdWithOg = async (req: express.Request, res: express.Response, next: express.NextFunction, explicitToken?: string) => {
+    const serveProdWithOg = async (
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+      explicitToken?: string,
+      explicitClientId?: string
+    ) => {
       try {
         const baseHtml = await fs.readFile(path.join(distPath, 'index.html'), 'utf8');
-        const enriched = await buildEnrichedHtmlForRequest(baseHtml, req, explicitToken);
+        const enriched = await buildEnrichedHtmlForRequest(baseHtml, req, explicitToken, explicitClientId);
         return res.status(200).set({ 'Content-Type': 'text/html' }).end(enriched);
       } catch (err) {
         console.error('Error injecting prod OG tags:', err);
@@ -856,6 +875,7 @@ Inspect the PNG carefully and return the safest open coordinates (xPct, yPct, wi
     };
 
     app.get('/p/:token', (req, res, next) => serveProdWithOg(req, res, next, String(req.params.token || '').trim()));
+    app.get('/mural/:clientId', (req, res, next) => serveProdWithOg(req, res, next, undefined, String(req.params.clientId || '').trim()));
     app.get('/', (req, res, next) => serveProdWithOg(req, res, next));
     app.use(express.static(distPath));
     app.get('*', (req, res, next) => serveProdWithOg(req, res, next));

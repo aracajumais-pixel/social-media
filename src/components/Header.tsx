@@ -49,16 +49,13 @@ export const Header: React.FC<HeaderProps> = ({
       ? activeSocialMediaId
       : (urlSmParam || selectedClient?.assignedSocialMediaId || (selectedClient as any)?.createdBySocialMediaId);
   const linkedSm = targetSmId ? socialMedias.find(sm => sm.id === targetSmId) : undefined;
-  const validActiveSmId = socialMedias.some(sm => sm.id === activeSocialMediaId)
-    ? activeSocialMediaId
-    : (socialMedias[0]?.id || '');
 
   const isClientLinkAccess =
     typeof window !== 'undefined' &&
     (new URLSearchParams(window.location.search).has('client') ||
       new URLSearchParams(window.location.search).has('token') ||
       new URLSearchParams(window.location.search).has('approvalToken') ||
-      /^\/p\/[^/]+/i.test(window.location.pathname));
+      /^\/(p|mural)\/[^/]+/i.test(window.location.pathname));
 
   const isClientView = currentUserRole === 'cliente';
 
@@ -104,30 +101,6 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
           </div>
-
-          {/* Social Media Active Identity Switcher (quando em perfil Social Media) */}
-          {currentUserRole === 'social_media' && socialMedias.length > 0 && (
-            <div className="hidden sm:flex items-center gap-1.5 bg-purple-950/60 border border-purple-500/40 rounded-xl px-2.5 py-1 text-xs shadow-md shrink-0">
-              <UserCheck className="w-4 h-4 text-purple-400 shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[9px] text-purple-300 font-bold uppercase tracking-wider leading-none">
-                  Social Media:
-                </span>
-                <select
-                  value={validActiveSmId}
-                  onChange={(e) => onSelectSocialMedia && onSelectSocialMedia(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer pr-1 max-w-[155px] truncate"
-                  title="Selecione qual perfil de Social Media está ativo no momento"
-                >
-                  {socialMedias.map(sm => (
-                    <option key={sm.id} value={sm.id} className="bg-slate-900 text-slate-200">
-                      {sm.name} {sm.companyName ? `(${sm.companyName})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
 
           {/* Campo de Busca no topo (na visão do Cliente, entre Social Media 5.0 e o ícone de Cliente) */}
           {isClientView && onSearchChange && (
@@ -332,20 +305,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Mobile Client Select Bar (apenas para Gestor e Social Media) */}
         {!isClientView && (
-          <div className="md:hidden py-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
-            {currentUserRole === 'social_media' && socialMedias.length > 0 && (
-              <select
-                value={validActiveSmId}
-                onChange={(e) => onSelectSocialMedia && onSelectSocialMedia(e.target.value)}
-                className="sm:hidden bg-purple-950/70 border border-purple-500/40 text-xs font-bold text-white rounded-lg px-2 py-1 focus:outline-none max-w-[140px] truncate"
-              >
-                {socialMedias.map(sm => (
-                  <option key={sm.id} value={sm.id}>
-                    SM: {sm.name}
-                  </option>
-                ))}
-              </select>
-            )}
+          <div className="md:hidden py-2 border-t border-slate-800/80 flex items-center justify-end gap-2">
             <div className="flex items-center gap-1.5 ml-auto">
               <span className="text-xs text-slate-400">Cliente:</span>
               <select

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { buildApprovalUrl } from '../utils/token';
 import { DriveImage } from './DriveImage';
-import { uploadMediaToSupabase } from '../lib/supabase';
+import { uploadMediaToSupabase, syncPostToSupabase, hasSupabaseCredentials } from '../lib/supabase';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 
 interface PostDetailModalProps {
@@ -201,6 +201,9 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const approvalUrl = buildApprovalUrl(activeToken);
 
   const handleCopyApprovalLink = () => {
+    if (post && hasSupabaseCredentials()) {
+      syncPostToSupabase(post);
+    }
     navigator.clipboard.writeText(approvalUrl);
     setCopiedTokenUrl(true);
     setTimeout(() => setCopiedTokenUrl(false), 2200);

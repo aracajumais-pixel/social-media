@@ -1,0 +1,29 @@
+{
+  "functions": {
+    "api/*.ts": {
+      "includeFiles": "{dist/index.html,public/og-default.jpg,public/favicon.jpg}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/og-image/:token",
+      "destination": "/api/og-image?token=:token"
+    },
+    {
+      "source": "/api/og-client-image/:clientId",
+      "destination": "/api/og-image?clientId=:clientId"
+    },
+    {
+      "source": "/p/:token",
+      "destination": "/api/og-html?token=:token"
+    },
+    {
+      "source": "/mural/:clientId",
+      "destination": "/api/og-html?client=:clientId"
+    },
+    {
+      "source": "/((?!api/|assets/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
