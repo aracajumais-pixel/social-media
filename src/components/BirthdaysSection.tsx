@@ -222,6 +222,47 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   }, [currentUserRole, clientSession, client, responsibleSm]);
 
   // ============================================================
+  // DADOS DERIVADOS DO ESTÚDIO VISUAL (declarados antes de qualquer return)
+  // ============================================================
+  const filteredPeople = useMemo(() => {
+    if (activeGroupFilter === 'todos') return people;
+    return people.filter((p) => p.groupId === activeGroupFilter);
+  }, [people, activeGroupFilter]);
+
+  const activePerson = useMemo(() => {
+    return (
+      people.find((p) => p.id === selectedPersonId) ||
+      filteredPeople[0] ||
+      people[0] ||
+      null
+    );
+  }, [people, filteredPeople, selectedPersonId]);
+
+  const activeGroup = useMemo(() => {
+    if (!activePerson) return groups[0] || null;
+    return groups.find((g) => g.id === activePerson.groupId) || groups[0] || null;
+  }, [activePerson, groups]);
+
+  const activeBackground = useMemo(() => {
+    if (activeGroup) {
+      const bg = backgrounds.find((b) => b.id === activeGroup.backgroundId);
+      if (bg) return bg;
+    }
+    return backgrounds[0] || null;
+  }, [activeGroup, backgrounds]);
+
+  const activeMessage = useMemo(() => {
+    if (!activePerson) return messages[0] || null;
+    return messages.find((m) => m.id === activePerson.messageId) || messages[0] || null;
+  }, [activePerson, messages]);
+
+  const activeElements: BirthdayElementSet = useMemo(() => {
+    if (activePerson?.elementOverrides) return activePerson.elementOverrides;
+    if (activeBackground?.defaultElements) return activeBackground.defaultElements;
+    return getDefaultElementSet({ x: 20, y: 14, width: 60, height: 50 });
+  }, [activePerson, activeBackground]);
+
+  // ============================================================
   // PORTÃO DE LOGIN OBRIGATÓRIO PARA CLIENTE (AUDITORIA)
   // ============================================================
   const isClientLogged =
@@ -246,7 +287,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     setIsLoggingIn(true);
     try {
       let method: 'supabase' | 'audit_login' = 'audit_login';
-      if (isSupabaseConfigured) {
+      if (isSupabaseConfigured && loginPassword.trim().length >= 6) {
         const sb = getSupabaseClient();
         if (sb) {
           const { data, error } = await sb.auth.signInWithPassword({
@@ -672,46 +713,6 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     notify(`Arte individual de "${newPerson.name}" criada e enquadrada no grupo "${groupObj?.name || ''}"!`);
   };
 
-  // ============================================================
-  // DADOS DERIVADOS DO ESTÚDIO VISUAL
-  // ============================================================
-  const filteredPeople = useMemo(() => {
-    if (activeGroupFilter === 'todos') return people;
-    return people.filter((p) => p.groupId === activeGroupFilter);
-  }, [people, activeGroupFilter]);
-
-  const activePerson = useMemo(() => {
-    return (
-      people.find((p) => p.id === selectedPersonId) ||
-      filteredPeople[0] ||
-      people[0] ||
-      null
-    );
-  }, [people, filteredPeople, selectedPersonId]);
-
-  const activeGroup = useMemo(() => {
-    if (!activePerson) return groups[0] || null;
-    return groups.find((g) => g.id === activePerson.groupId) || groups[0] || null;
-  }, [activePerson, groups]);
-
-  const activeBackground = useMemo(() => {
-    if (activeGroup) {
-      const bg = backgrounds.find((b) => b.id === activeGroup.backgroundId);
-      if (bg) return bg;
-    }
-    return backgrounds[0] || null;
-  }, [activeGroup, backgrounds]);
-
-  const activeMessage = useMemo(() => {
-    if (!activePerson) return messages[0] || null;
-    return messages.find((m) => m.id === activePerson.messageId) || messages[0] || null;
-  }, [activePerson, messages]);
-
-  const activeElements: BirthdayElementSet = useMemo(() => {
-    if (activePerson?.elementOverrides) return activePerson.elementOverrides;
-    if (activeBackground?.defaultElements) return activeBackground.defaultElements;
-    return getDefaultElementSet({ x: 20, y: 14, width: 60, height: 50 });
-  }, [activePerson, activeBackground]);
 
   const handleUpdateActiveElements = (updated: BirthdayElementSet) => {
     if (!activePerson) return;
