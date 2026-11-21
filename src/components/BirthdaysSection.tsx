@@ -51,6 +51,12 @@ import {
   Loader2,
   Layers,
   ShieldCheck,
+  Pencil,
+  ClipboardList,
+  Check,
+  X,
+  Search,
+  Calendar,
 } from 'lucide-react';
 
 const MAX_BACKGROUNDS = 10;
@@ -85,7 +91,7 @@ interface BirthdaysSectionProps {
   onSendArtToMural: (post: Omit<PostItem, 'id' | 'createdAt' | 'updatedAt' | 'comments'>) => void;
 }
 
-type SubView = 'studio' | 'frames' | 'messages' | 'audit';
+type SubView = 'studio' | 'list' | 'frames' | 'messages' | 'audit';
 
 export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   client,
@@ -126,7 +132,8 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // New Person Form State
+  // New / Edit Person Form State (Estúdio)
+  const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newDay, setNewDay] = useState<number>(new Date().getDate());
   const [newMonth, setNewMonth] = useState<number>(new Date().getMonth() + 1);
@@ -140,6 +147,24 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   });
   const [isFramingPhoto, setIsFramingPhoto] = useState(false);
   const [framingStatus, setFramingStatus] = useState<string | null>(null);
+
+  // Lista de Aniversariantes State (cadastro rápido nome/data/grupo, filtros mês/grupo e seleção)
+  const [listMonthFilter, setListMonthFilter] = useState<number | 'todos'>('todos');
+  const [listGroupFilter, setListGroupFilter] = useState<string>('todos');
+  const [listSearch, setListSearch] = useState<string>('');
+  const [editingListPersonId, setEditingListPersonId] = useState<string | null>(null);
+  const [listName, setListName] = useState('');
+  const [listDay, setListDay] = useState<number>(new Date().getDate());
+  const [listMonth, setListMonth] = useState<number>(new Date().getMonth() + 1);
+  const [listGroupId, setListGroupId] = useState<string>(groups[0]?.id || '');
+  const [markedForCardIds, setMarkedForCardIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`social_saas_bday_marked_${client.id}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // New Background State (associado diretamente a um grupo existente)
   const [selectedBgGroupId, setSelectedBgGroupId] = useState<string>(groups[0]?.id || '');
@@ -167,13 +192,30 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     setActiveGroupFilter('todos');
     setSelectedPersonId(null);
     setSelectedElement(null);
+    setEditingPersonId(null);
+    setEditingListPersonId(null);
+    try {
+      const raw = localStorage.getItem(`social_saas_bday_marked_${client.id}`);
+      setMarkedForCardIds(raw ? JSON.parse(raw) : []);
+    } catch {
+      setMarkedForCardIds([]);
+    }
   }, [client.id, client.contactName, client.email]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`social_saas_bday_marked_${client.id}`, JSON.stringify(markedForCardIds));
+    } catch {}
+  }, [client.id, markedForCardIds]);
 
   useEffect(() => {
     if ((!newGroupId || !groups.some((g) => g.id === newGroupId)) && groups[0]?.id) {
       setNewGroupId(groups[0].id);
     }
-  }, [groups, newGroupId]);
+    if ((!listGroupId || !groups.some((g) => g.id === listGroupId)) && groups[0]?.id) {
+      setListGroupId(groups[0].id);
+    }
+  }, [groups, newGroupId, listGroupId]);
 
   useEffect(() => {
     if ((!newMessageId || !messages.some((m) => m.id === newMessageId)) && messages[0]?.id) {
@@ -222,21 +264,50 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   }, [currentUserRole, clientSession, client, responsibleSm]);
 
   // ============================================================
-  // DADOS DERIVADOS DO ESTÚDIO VISUAL (declarados antes de qualquer return)
+  // DADOS DERIVADOS DO ESTÚDIO VISUAL & LISTA (declarados antes de qualquer return)
   // ============================================================
+  const markedSet = useMemo(() => new Set(markedForCardIds), [markedForCardIds]);
+
+  const markedPeopleList = useMemo(
+    () => people.filter((p) => markedSet.has(p.id)),
+    [people, markedSet]
+  );
+
   const filteredPeople = useMemo(() => {
     if (activeGroupFilter === 'todos') return people;
     return people.filter((p) => p.groupId === activeGroupFilter);
   }, [people, activeGroupFilter]);
 
+  const studioPeople = useMemo(() => {
+    return filteredPeople.filter(
+      (p) => Boolean(p.photoUrl) || markedSet.has(p.id) || p.id === selectedPersonId || p.id === editingPersonId
+    );
+  }, [filteredPeople, markedSet, selectedPersonId, editingPersonId]);
+
+  const listFilteredPeople = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    return people
+      .filter((p) => {
+        if (listMonthFilter !== 'todos' && p.birthMonth !== listMonthFilter) return false;
+        if (listGroupFilter !== 'todos' && p.groupId !== listGroupFilter) return false;
+        if (q && !p.name.toLowerCase().includes(q)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.birthMonth !== b.birthMonth) return a.birthMonth - b.birthMonth;
+        if (a.birthDay !== b.birthDay) return a.birthDay - b.birthDay;
+        return a.name.localeCompare(b.name, 'pt-BR');
+      });
+  }, [people, listMonthFilter, listGroupFilter, listSearch]);
+
   const activePerson = useMemo(() => {
     return (
       people.find((p) => p.id === selectedPersonId) ||
-      filteredPeople[0] ||
+      studioPeople[0] ||
       people[0] ||
       null
     );
-  }, [people, filteredPeople, selectedPersonId]);
+  }, [people, studioPeople, selectedPersonId]);
 
   const activeGroup = useMemo(() => {
     if (!activePerson) return groups[0] || null;
@@ -666,24 +737,177 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     }
   };
 
-  const handleCreateBirthdayPerson = (e: React.FormEvent) => {
+  const resetStudioPersonForm = () => {
+    setEditingPersonId(null);
+    setNewName('');
+    setNewDay(new Date().getDate());
+    setNewMonth(new Date().getMonth() + 1);
+    setNewGroupId(groups[0]?.id || '');
+    setNewMessageId(messages[0]?.id || '');
+    setNewPhotoUrl('');
+    setNewPhotoTransform({ scale: 1.1, offsetX: 0, offsetY: 0 });
+    setFramingStatus(null);
+  };
+
+  const startEditingPersonInStudio = (person: BirthdayPerson) => {
+    setEditingPersonId(person.id);
+    setSelectedPersonId(person.id);
+    setNewName(person.name);
+    setNewDay(person.birthDay);
+    setNewMonth(person.birthMonth);
+    setNewGroupId(person.groupId || groups[0]?.id || '');
+    setNewMessageId(person.messageId || messages[0]?.id || '');
+    setNewPhotoUrl(person.photoUrl || '');
+    setNewPhotoTransform(
+      person.photoTransform || { scale: 1.1, offsetX: 0, offsetY: 0 }
+    );
+    setFramingStatus(
+      person.photoUrl ? 'Foto atual carregada. Troque se desejar.' : 'Envie a foto da pessoa para gerar a arte.'
+    );
+  };
+
+  const toggleMarkPersonForCard = (personId: string) => {
+    setMarkedForCardIds((prev) =>
+      prev.includes(personId) ? prev.filter((id) => id !== personId) : [...prev, personId]
+    );
+  };
+
+  const openPersonInStudioForCard = (person: BirthdayPerson) => {
+    setMarkedForCardIds((prev) => (prev.includes(person.id) ? prev : [...prev, person.id]));
+    setSelectedPersonId(person.id);
+    setSelectedElement(null);
+    setSubView('studio');
+    if (!person.photoUrl) {
+      startEditingPersonInStudio(person);
+      notify(`"${person.name}" carregado no Estúdio. Envie a foto para finalizar o cartão!`);
+    } else {
+      resetStudioPersonForm();
+      setSelectedPersonId(person.id);
+    }
+  };
+
+  const handleSaveListPerson = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanName = newName.trim();
+    const cleanName = listName.trim();
     if (!cleanName) return;
-    if (!newPhotoUrl) {
-      notify('Envie a foto da pessoa para que a IA faça o enquadramento no plano de fundo.');
+
+    const effectiveGroupId = listGroupId || groups[0]?.id || '';
+    const clampedDay = Math.max(1, Math.min(31, Number(listDay) || 1));
+    const clampedMonth = Math.max(1, Math.min(12, Number(listMonth) || 1));
+    const groupObj = groups.find((g) => g.id === effectiveGroupId);
+
+    if (editingListPersonId) {
+      const existing = people.find((p) => p.id === editingListPersonId);
+      if (existing) {
+        const updated: BirthdayPerson = {
+          ...existing,
+          name: cleanName,
+          birthDay: clampedDay,
+          birthMonth: clampedMonth,
+          groupId: effectiveGroupId,
+          updatedAt: new Date().toISOString(),
+        };
+        onUpdatePerson(updated);
+        onRecordAudit({
+          actorName: actorIdentity.name,
+          actorEmail: actorIdentity.email,
+          actorRole: actorIdentity.role,
+          action: 'Editou na Lista de Aniversariantes',
+          targetType: 'aniversariante',
+          targetLabel: `${updated.name} (${formatBirthdayDay(updated.birthDay)}/${formatBirthdayMonthShort(updated.birthMonth)})`,
+          details: `Grupo: ${groupObj?.name || 'Sem grupo'}`,
+        });
+        notify(`Dados de "${updated.name}" atualizados na lista!`);
+      }
+      setEditingListPersonId(null);
+      setListName('');
       return;
     }
-
-    const effectiveGroupId = newGroupId || groups[0]?.id || '';
-    const effectiveMsgId = newMessageId || messages[0]?.id || '';
 
     const newPerson: BirthdayPerson = {
       id: `bday-${Date.now()}`,
       clientProjectId: client.id,
       name: cleanName,
-      birthDay: Math.max(1, Math.min(31, Number(newDay) || 1)),
-      birthMonth: Math.max(1, Math.min(12, Number(newMonth) || 1)),
+      birthDay: clampedDay,
+      birthMonth: clampedMonth,
+      groupId: effectiveGroupId,
+      messageId: messages[0]?.id || '',
+      photoUrl: '',
+      photoTransform: { scale: 1.1, offsetX: 0, offsetY: 0 },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdByName: actorIdentity.name,
+      createdByRole: actorIdentity.role,
+    };
+
+    onSavePerson(newPerson);
+    setListName('');
+    onRecordAudit({
+      actorName: actorIdentity.name,
+      actorEmail: actorIdentity.email,
+      actorRole: actorIdentity.role,
+      action: 'Cadastrou na Lista de Aniversariantes',
+      targetType: 'aniversariante',
+      targetLabel: `${newPerson.name} (${formatBirthdayDay(newPerson.birthDay)}/${formatBirthdayMonthShort(newPerson.birthMonth)})`,
+      details: `Grupo: ${groupObj?.name || 'Sem grupo'}`,
+    });
+    notify(`"${newPerson.name}" adicionado(a) à Lista de Aniversariantes!`);
+  };
+
+  const handleCreateBirthdayPerson = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newName.trim();
+    if (!cleanName) return;
+
+    const effectiveGroupId = newGroupId || groups[0]?.id || '';
+    const effectiveMsgId = newMessageId || messages[0]?.id || '';
+    const clampedDay = Math.max(1, Math.min(31, Number(newDay) || 1));
+    const clampedMonth = Math.max(1, Math.min(12, Number(newMonth) || 1));
+    const groupObj = groups.find((g) => g.id === effectiveGroupId);
+
+    if (editingPersonId) {
+      const existing = people.find((p) => p.id === editingPersonId);
+      if (existing) {
+        const updatedPerson: BirthdayPerson = {
+          ...existing,
+          name: cleanName,
+          birthDay: clampedDay,
+          birthMonth: clampedMonth,
+          groupId: effectiveGroupId,
+          messageId: effectiveMsgId,
+          photoUrl: newPhotoUrl || existing.photoUrl,
+          photoTransform: newPhotoUrl ? newPhotoTransform : existing.photoTransform,
+          updatedAt: new Date().toISOString(),
+        };
+        onUpdatePerson(updatedPerson);
+        setSelectedPersonId(updatedPerson.id);
+        resetStudioPersonForm();
+
+        onRecordAudit({
+          actorName: actorIdentity.name,
+          actorEmail: actorIdentity.email,
+          actorRole: actorIdentity.role,
+          action: 'Editou Aniversariante',
+          targetType: 'aniversariante',
+          targetLabel: `${updatedPerson.name} (${formatBirthdayDay(updatedPerson.birthDay)}/${formatBirthdayMonthShort(updatedPerson.birthMonth)})`,
+          details: `Grupo: ${groupObj?.name || 'Sem grupo'}`,
+        });
+        notify(`Aniversariante "${updatedPerson.name}" atualizado com sucesso!`);
+      }
+      return;
+    }
+
+    if (!newPhotoUrl) {
+      notify('Envie a foto da pessoa para que a IA faça o enquadramento no plano de fundo.');
+      return;
+    }
+
+    const newPerson: BirthdayPerson = {
+      id: `bday-${Date.now()}`,
+      clientProjectId: client.id,
+      name: cleanName,
+      birthDay: clampedDay,
+      birthMonth: clampedMonth,
       groupId: effectiveGroupId,
       messageId: effectiveMsgId,
       photoUrl: newPhotoUrl,
@@ -696,11 +920,8 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
 
     onSavePerson(newPerson);
     setSelectedPersonId(newPerson.id);
-    setNewName('');
-    setNewPhotoUrl('');
-    setFramingStatus(null);
+    resetStudioPersonForm();
 
-    const groupObj = groups.find((g) => g.id === effectiveGroupId);
     onRecordAudit({
       actorName: actorIdentity.name,
       actorEmail: actorIdentity.email,
@@ -796,15 +1017,19 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   };
 
   const handleDownloadBatchGroupPngs = async () => {
-    if (filteredPeople.length === 0) return;
+    const exportable = studioPeople.filter((p) => Boolean(p.photoUrl));
+    if (exportable.length === 0) {
+      notify('Envie a foto de pelo menos um aniversariante antes de baixar em lote.');
+      return;
+    }
     setIsExporting(true);
     try {
-      for (let i = 0; i < filteredPeople.length; i++) {
-        await handleDownloadIndividualPng(filteredPeople[i]);
+      for (let i = 0; i < exportable.length; i++) {
+        await handleDownloadIndividualPng(exportable[i]);
         // Pequeno intervalo para o navegador processar cada download individual
         await new Promise((r) => setTimeout(r, 250));
       }
-      notify(`${filteredPeople.length} arte(s) individual(is) geradas e baixadas!`);
+      notify(`${exportable.length} arte(s) individual(is) geradas e baixadas!`);
     } finally {
       setIsExporting(false);
     }
@@ -886,7 +1111,23 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Estúdio & Aniversariantes ({people.length})</span>
+            <span>Estúdio & Aniversariantes ({studioPeople.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubView('list')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+              subView === 'list'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700'
+            }`}
+          >
+            <ClipboardList className="w-3.5 h-3.5" />
+            <span>
+              Lista de Aniversariantes ({people.length})
+              {markedPeopleList.length > 0 ? ` • ${markedPeopleList.length} marcado(s)` : ''}
+            </span>
           </button>
 
           <button
@@ -971,14 +1212,79 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* COLUNA ESQUERDA: Cadastro + Lista Individual */}
           <div className="lg:col-span-5 space-y-5">
-            {/* Card: Cadastrar Aniversariante */}
+            {/* Fila de Pessoas Marcadas na Lista de Aniversariantes */}
+            {markedPeopleList.length > 0 && (
+              <div className="bg-emerald-950/30 border border-emerald-500/35 rounded-3xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
+                    <ClipboardList className="w-4 h-4" />
+                    <span>Marcados da Lista ({markedPeopleList.length})</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSubView('list')}
+                    className="text-[11px] font-bold text-emerald-300 hover:text-white underline"
+                  >
+                    Gerenciar Lista
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {markedPeopleList.map((mp) => {
+                    const isCurrent = activePerson?.id === mp.id;
+                    return (
+                      <button
+                        key={mp.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPersonId(mp.id);
+                          setSelectedElement(null);
+                          if (!mp.photoUrl) {
+                            startEditingPersonInStudio(mp);
+                          }
+                        }}
+                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border flex items-center gap-1.5 transition-all ${
+                          isCurrent
+                            ? 'bg-emerald-600 text-white border-emerald-400 shadow'
+                            : 'bg-slate-950/80 text-slate-200 border-slate-700 hover:border-emerald-500/60'
+                        }`}
+                      >
+                        <span>{mp.name}</span>
+                        <span className="text-[10px] opacity-80">
+                          {formatBirthdayDay(mp.birthDay)}/{formatBirthdayMonthShort(mp.birthMonth)}
+                        </span>
+                        {!mp.photoUrl && (
+                          <span className="text-[9px] text-amber-300">(sem foto)</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Card: Cadastrar ou Editar Aniversariante */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-pink-400" />
-                  <span>Novo Aniversariante</span>
+                  {editingPersonId ? (
+                    <Pencil className="w-4 h-4 text-amber-400" />
+                  ) : (
+                    <Plus className="w-4 h-4 text-pink-400" />
+                  )}
+                  <span>{editingPersonId ? 'Editar Aniversariante' : 'Novo Aniversariante'}</span>
                 </h3>
-                <span className="text-[11px] text-slate-400">1 arte individual gerada</span>
+                {editingPersonId ? (
+                  <button
+                    type="button"
+                    onClick={resetStudioPersonForm}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-bold flex items-center gap-1"
+                  >
+                    <X className="w-3 h-3" />
+                    <span>Cancelar</span>
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-400">1 arte individual gerada</span>
+                )}
               </div>
 
               <form onSubmit={handleCreateBirthdayPerson} className="space-y-3.5">
@@ -1062,7 +1368,9 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                 <div className="bg-slate-950 border border-dashed border-slate-700 rounded-2xl p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <span className="text-xs font-bold text-white block">Foto da Pessoa *</span>
+                      <span className="text-xs font-bold text-white block">
+                        Foto da Pessoa {editingPersonId ? '(Opcional ao editar)' : '*'}
+                      </span>
                     </div>
                     <label className="cursor-pointer px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all">
                       {isFramingPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
@@ -1093,23 +1401,27 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                 <button
                   type="submit"
                   disabled={isFramingPhoto || backgrounds.length === 0 || groups.length === 0}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 disabled:opacity-50 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all"
+                  className={`w-full py-2.5 rounded-xl disabled:opacity-50 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${
+                    editingPersonId
+                      ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/20'
+                      : 'bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 shadow-indigo-600/20'
+                  }`}
                 >
-                  <Wand2 className="w-4 h-4" />
-                  <span>Gerar Arte Individual</span>
+                  {editingPersonId ? <Check className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
+                  <span>{editingPersonId ? 'Salvar Alterações' : 'Gerar Arte Individual'}</span>
                 </button>
               </form>
             </div>
 
-            {/* Card: Lista de Aniversariantes Cadastrados (filtrável por grupo) */}
+            {/* Card: Lista de Artes Individuais (filtrável por grupo) */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
                   <Users className="w-4 h-4 text-indigo-400" />
-                  <span>Artes Individuais ({filteredPeople.length})</span>
+                  <span>Artes Individuais ({studioPeople.length})</span>
                 </h3>
 
-                {filteredPeople.length > 0 && (
+                {studioPeople.some((p) => Boolean(p.photoUrl)) && (
                   <button
                     type="button"
                     onClick={handleDownloadBatchGroupPngs}
@@ -1117,7 +1429,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                     className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold flex items-center gap-1.5"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Baixar Todas ({filteredPeople.length})</span>
+                    <span>Baixar Todas ({studioPeople.filter((p) => Boolean(p.photoUrl)).length})</span>
                   </button>
                 )}
               </div>
@@ -1133,10 +1445,12 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                       : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                   }`}
                 >
-                  Todos ({people.length})
+                  Todos ({people.filter((p) => Boolean(p.photoUrl) || markedSet.has(p.id)).length})
                 </button>
                 {groups.map((grp) => {
-                  const count = people.filter((p) => p.groupId === grp.id).length;
+                  const count = people.filter(
+                    (p) => p.groupId === grp.id && (Boolean(p.photoUrl) || markedSet.has(p.id))
+                  ).length;
                   return (
                     <button
                       key={grp.id}
@@ -1154,15 +1468,23 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                 })}
               </div>
 
-              {filteredPeople.length === 0 ? (
-                <div className="p-6 text-center rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-slate-500">
-                  Nenhum aniversariante neste filtro. Cadastre ao lado para gerar a arte individual automaticamente.
+              {studioPeople.length === 0 ? (
+                <div className="p-6 text-center rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-slate-500 space-y-2">
+                  <p>Nenhum aniversariante com arte ou marcado neste filtro.</p>
+                  <button
+                    type="button"
+                    onClick={() => setSubView('list')}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]"
+                  >
+                    Abrir Lista de Aniversariantes
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                  {filteredPeople.map((person) => {
+                  {studioPeople.map((person) => {
                     const grp = groups.find((g) => g.id === person.groupId);
                     const isSelected = activePerson?.id === person.id;
+                    const isEditingThis = editingPersonId === person.id;
                     return (
                       <div
                         key={person.id}
@@ -1171,17 +1493,25 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                           setSelectedElement(null);
                         }}
                         className={`p-3 rounded-2xl border cursor-pointer flex items-center justify-between gap-3 transition-all ${
-                          isSelected
+                          isEditingThis
+                            ? 'bg-amber-950/40 border-amber-500 shadow-md'
+                            : isSelected
                             ? 'bg-indigo-950/50 border-indigo-500 shadow-md'
                             : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          <img
-                            src={person.photoUrl}
-                            alt={person.name}
-                            className="w-11 h-11 rounded-xl object-cover border border-slate-700 shrink-0"
-                          />
+                          {person.photoUrl ? (
+                            <img
+                              src={person.photoUrl}
+                              alt={person.name}
+                              className="w-11 h-11 rounded-xl object-cover border border-slate-700 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-xl bg-slate-900 border border-dashed border-amber-500/50 flex items-center justify-center text-amber-300 shrink-0">
+                              <Cake className="w-5 h-5" />
+                            </div>
+                          )}
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-white truncate">{person.name}</p>
                             <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-0.5">
@@ -1189,6 +1519,9 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                                 {formatBirthdayDay(person.birthDay)} {formatBirthdayMonthShort(person.birthMonth)}
                               </span>
                               <span className="truncate">• {grp?.name || 'Sem grupo'}</span>
+                              {!person.photoUrl && (
+                                <span className="text-[10px] text-amber-300 font-semibold">• Sem foto</span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1198,19 +1531,38 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDownloadIndividualPng(person);
+                              startEditingPersonInStudio(person);
                             }}
-                            title="Baixar arte individual PNG"
-                            className="p-2 rounded-lg bg-slate-800 hover:bg-emerald-600/30 text-emerald-400 transition-colors"
+                            title="Editar aniversariante"
+                            className={`p-2 rounded-lg transition-colors ${
+                              isEditingThis
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-slate-800 hover:bg-amber-600/30 text-amber-300'
+                            }`}
                           >
-                            <Download className="w-3.5 h-3.5" />
+                            <Pencil className="w-3.5 h-3.5" />
                           </button>
+                          {person.photoUrl && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadIndividualPng(person);
+                              }}
+                              title="Baixar arte individual PNG"
+                              className="p-2 rounded-lg bg-slate-800 hover:bg-emerald-600/30 text-emerald-400 transition-colors"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               if (window.confirm(`Excluir aniversariante "${person.name}"?`)) {
                                 onDeletePerson(person.id);
+                                setMarkedForCardIds((prev) => prev.filter((id) => id !== person.id));
+                                if (editingPersonId === person.id) resetStudioPersonForm();
                                 onRecordAudit({
                                   actorName: actorIdentity.name,
                                   actorEmail: actorIdentity.email,
@@ -1559,6 +1911,395 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                   </button>
                 </div>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* SUBVIEW 1B: LISTA DE ANIVERSARIANTES (NOME, DATA, GRUPO E SELEÇÃO) */}
+      {/* ============================================================ */}
+      {subView === 'list' && (
+        <div className="space-y-5">
+          {/* Card: Cadastro Rápido / Edição (Nome + Dia + Mês + Grupo) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4 text-emerald-400" />
+                  <span>
+                    {editingListPersonId ? 'Editar Pessoa na Lista' : 'Lista de Aniversariantes'}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Cadastre nome, data e grupo, filtre por mês e grupo e marque quem vai receber cartão de aniversário.
+                </p>
+              </div>
+
+              {editingListPersonId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingListPersonId(null);
+                    setListName('');
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Cancelar Edição</span>
+                </button>
+              )}
+            </div>
+
+            <form
+              onSubmit={handleSaveListPerson}
+              className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-slate-950/70 border border-slate-800 rounded-2xl p-4"
+            >
+              <div className="sm:col-span-5">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Nome completo *</label>
+                <input
+                  type="text"
+                  required
+                  value={listName}
+                  onChange={(e) => setListName(e.target.value)}
+                  placeholder="Ex: Maria Aparecida da Silva"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Dia *</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  required
+                  value={listDay}
+                  onChange={(e) => setListDay(Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Mês *</label>
+                <select
+                  value={listMonth}
+                  onChange={(e) => setListMonth(Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                >
+                  {PORTUGUESE_MONTHS_SHORT.map((m, idx) => (
+                    <option key={m} value={idx + 1}>
+                      {idx + 1} - {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Grupo *</label>
+                <select
+                  value={listGroupId}
+                  onChange={(e) => setListGroupId(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-semibold text-white focus:outline-none focus:border-emerald-500 h-[38px]"
+                >
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-1">
+                <button
+                  type="submit"
+                  title={editingListPersonId ? 'Salvar alterações' : 'Adicionar aniversariante na lista'}
+                  className={`w-full h-[38px] px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1 shadow-md transition-all ${
+                    editingListPersonId
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : 'bg-emerald-600 hover:bg-emerald-500'
+                  }`}
+                >
+                  {editingListPersonId ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  <span className="sm:hidden">{editingListPersonId ? 'Salvar' : 'Criar'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Card: Filtros por Mês e por Grupo + Lista Selecionável */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+            {/* Barra de Busca + Ações de Seleção */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="relative flex-1 min-w-[220px] max-w-sm">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={listSearch}
+                  onChange={(e) => setListSearch(e.target.value)}
+                  placeholder="Buscar por nome..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {listFilteredPeople.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const filteredIds = listFilteredPeople.map((p) => p.id);
+                      const allMarked = filteredIds.every((id) => markedSet.has(id));
+                      if (allMarked) {
+                        setMarkedForCardIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+                      } else {
+                        setMarkedForCardIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700"
+                  >
+                    {listFilteredPeople.every((p) => markedSet.has(p.id))
+                      ? 'Desmarcar Filtrados'
+                      : 'Marcar Todos Filtrados'}
+                  </button>
+                )}
+
+                {markedPeopleList.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMarkedForCardIds([])}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                    >
+                      Limpar ({markedPeopleList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openPersonInStudioForCard(markedPeopleList[0])}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg"
+                    >
+                      <Wand2 className="w-3.5 h-3.5" />
+                      <span>Fazer Cartão dos Marcados ({markedPeopleList.length})</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Filtro por Mês */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Filtrar por Mês:</span>
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setListMonthFilter('todos')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                    listMonthFilter === 'todos'
+                      ? 'bg-emerald-600 text-white border-emerald-500'
+                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                  }`}
+                >
+                  Todos ({people.filter((p) => listGroupFilter === 'todos' || p.groupId === listGroupFilter).length})
+                </button>
+                {PORTUGUESE_MONTHS_SHORT.map((m, idx) => {
+                  const monthNum = idx + 1;
+                  const count = people.filter(
+                    (p) =>
+                      p.birthMonth === monthNum &&
+                      (listGroupFilter === 'todos' || p.groupId === listGroupFilter)
+                  ).length;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setListMonthFilter(monthNum)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                        listMonthFilter === monthNum
+                          ? 'bg-emerald-600 text-white border-emerald-500'
+                          : count > 0
+                          ? 'bg-slate-950 text-slate-200 border-slate-700 hover:border-emerald-500/60'
+                          : 'bg-slate-950/60 text-slate-500 border-slate-800/80 hover:text-slate-300'
+                      }`}
+                    >
+                      {m} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Filtro por Grupo */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-pink-400" />
+                <span>Filtrar por Grupo:</span>
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setListGroupFilter('todos')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                    listGroupFilter === 'todos'
+                      ? 'bg-pink-600 text-white border-pink-500'
+                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                  }`}
+                >
+                  Todos os Grupos ({people.filter((p) => listMonthFilter === 'todos' || p.birthMonth === listMonthFilter).length})
+                </button>
+                {groups.map((grp) => {
+                  const count = people.filter(
+                    (p) =>
+                      p.groupId === grp.id &&
+                      (listMonthFilter === 'todos' || p.birthMonth === listMonthFilter)
+                  ).length;
+                  return (
+                    <button
+                      key={grp.id}
+                      type="button"
+                      onClick={() => setListGroupFilter(grp.id)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                        listGroupFilter === grp.id
+                          ? 'bg-pink-600 text-white border-pink-500'
+                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      {grp.name} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Lista Selecionável */}
+            {listFilteredPeople.length === 0 ? (
+              <div className="p-8 text-center rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-slate-400">
+                Nenhum aniversariante encontrado para este mês/grupo. Use o formulário acima para cadastrar.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                {listFilteredPeople.map((person) => {
+                  const grp = groups.find((g) => g.id === person.groupId);
+                  const isMarked = markedSet.has(person.id);
+                  const isEditingRow = editingListPersonId === person.id;
+
+                  return (
+                    <div
+                      key={person.id}
+                      onClick={() => toggleMarkPersonForCard(person.id)}
+                      className={`p-3 rounded-2xl border cursor-pointer flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 transition-all ${
+                        isEditingRow
+                          ? 'bg-amber-950/35 border-amber-500'
+                          : isMarked
+                          ? 'bg-emerald-950/35 border-emerald-500/70 shadow-md'
+                          : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={isMarked}
+                          onChange={() => toggleMarkPersonForCard(person.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Marcar ${person.name} para fazer cartão`}
+                          className="w-4 h-4 rounded accent-emerald-500 cursor-pointer shrink-0"
+                        />
+
+                        {person.photoUrl ? (
+                          <img
+                            src={person.photoUrl}
+                            alt={person.name}
+                            className="w-10 h-10 rounded-xl object-cover border border-slate-700 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                            <Cake className="w-4 h-4" />
+                          </div>
+                        )}
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-white truncate">{person.name}</span>
+                            {isMarked && (
+                              <span className="text-[10px] font-bold text-emerald-300">
+                                • Marcado para cartão
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 flex-wrap">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-100 font-bold tabular-nums">
+                              {formatBirthdayDay(person.birthDay)} {formatBirthdayMonthShort(person.birthMonth)}
+                            </span>
+                            <span>{grp?.name || 'Sem grupo'}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className={person.photoUrl ? 'text-emerald-400 font-semibold' : 'text-amber-300/90'}>
+                              {person.photoUrl ? 'Foto / Arte pronta' : 'Sem foto'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => openPersonInStudioForCard(person)}
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-600/25 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-[11px] font-bold flex items-center gap-1 transition-colors"
+                          title="Abrir no Estúdio para fazer o cartão"
+                        >
+                          <Wand2 className="w-3 h-3" />
+                          <span>Fazer Cartão</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingListPersonId(person.id);
+                            setListName(person.name);
+                            setListDay(person.birthDay);
+                            setListMonth(person.birthMonth);
+                            setListGroupId(person.groupId || groups[0]?.id || '');
+                          }}
+                          title="Editar nome, data ou grupo"
+                          className={`p-2 rounded-lg transition-colors ${
+                            isEditingRow
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-slate-800 hover:bg-amber-600/30 text-amber-300'
+                          }`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Excluir "${person.name}" da lista de aniversariantes?`)) {
+                              onDeletePerson(person.id);
+                              setMarkedForCardIds((prev) => prev.filter((id) => id !== person.id));
+                              if (editingListPersonId === person.id) {
+                                setEditingListPersonId(null);
+                                setListName('');
+                              }
+                              onRecordAudit({
+                                actorName: actorIdentity.name,
+                                actorEmail: actorIdentity.email,
+                                actorRole: actorIdentity.role,
+                                action: 'Excluiu da Lista de Aniversariantes',
+                                targetType: 'aniversariante',
+                                targetLabel: person.name,
+                              });
+                            }
+                          }}
+                          title="Excluir aniversariante"
+                          className="p-2 rounded-lg bg-slate-800 hover:bg-rose-600/30 text-rose-400 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
