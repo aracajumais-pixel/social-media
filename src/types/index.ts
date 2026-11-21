@@ -62,7 +62,8 @@ export interface InspirationFile {
   title: string;
   description?: string;
   url: string;
-  type: 'image' | 'link' | 'doc';
+  type: string; // Categoria ou tipo legado ('image' | 'link' | 'doc')
+  category?: string;
   uploadedByRole: UserRole;
   uploadedByName: string;
   createdAt: string;

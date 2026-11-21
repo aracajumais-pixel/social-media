@@ -210,8 +210,8 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Role Switcher (Oculto quando acessado por link direto de cliente) */}
-            {!(isClientView && isClientLinkAccess) && (
+            {/* Role Switcher (Sempre oculto quando acessado por link direto de cliente) */}
+            {!isClientLinkAccess && (
               <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
                 <button
                   onClick={() => onChangeUserRole('gestor')}

@@ -2021,13 +2021,15 @@ CREATE TABLE IF NOT EXISTS approval_records ( id TEXT PRIMARY KEY, post_id TEXT 
 CREATE TABLE IF NOT EXISTS client_tasks ( id TEXT PRIMARY KEY, client_project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, deadline TEXT, status TEXT DEFAULT 'novo', linked_post_id TEXT, created_by_role TEXT DEFAULT 'cliente', created_by_name TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW() );
 
 -- 4. POLÍTICAS DE ACESSO (RLS - CRUCIAL PARA SALVAR SEM ERRO)
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY; ALTER TABLE posts ENABLE ROW LEVEL SECURITY; ALTER TABLE post_comments_audit ENABLE ROW LEVEL SECURITY; ALTER TABLE social_medias ENABLE ROW LEVEL SECURITY; ALTER TABLE approval_records ENABLE ROW LEVEL SECURITY; ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Permitir acesso total clientes" ON clients FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir acesso total posts" ON posts FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir acesso total audit" ON post_comments_audit FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir acesso total approval_records" ON approval_records FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);`}
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY; ALTER TABLE posts ENABLE ROW LEVEL SECURITY; ALTER TABLE post_comments_audit ENABLE ROW LEVEL SECURITY; ALTER TABLE social_medias ENABLE ROW LEVEL SECURITY; ALTER TABLE approval_records ENABLE ROW LEVEL SECURITY; ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY; ALTER TABLE inspirations ENABLE ROW LEVEL SECURITY; ALTER TABLE receipts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir acesso total clientes" ON clients; CREATE POLICY "Permitir acesso total clientes" ON clients FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Permitir acesso total posts" ON posts; CREATE POLICY "Permitir acesso total posts" ON posts FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Permitir acesso total audit" ON post_comments_audit; CREATE POLICY "Permitir acesso total audit" ON post_comments_audit FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Permitir acesso total social_medias" ON social_medias; CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Permitir acesso total approval_records" ON approval_records; CREATE POLICY "Permitir acesso total approval_records" ON approval_records FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Permitir acesso total client_tasks" ON client_tasks; CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Permitir acesso total inspirations" ON inspirations; CREATE POLICY "Permitir acesso total inspirations" ON inspirations FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts; CREATE POLICY "Permitir acesso total receipts" ON receipts FOR ALL USING (true) WITH CHECK (true);`}
                 </pre>
               </div>
             </div>

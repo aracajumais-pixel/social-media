@@ -76,7 +76,29 @@ const defaultEmptyClient: ClientProject = {
   driveStorageLimitGB: 15.0
 };
 
+const getClientLinkContext = () => {
+  if (typeof window === 'undefined') {
+    return { isClientLinkAccess: false, urlClientId: '', urlSmId: '', urlToken: '' };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const muralMatch = window.location.pathname.match(/^\/mural\/([^/?#]+)/i);
+  const postMatch = window.location.pathname.match(/^\/p\/([^/?#]+)/i);
+  const urlClientId =
+    (muralMatch?.[1] ? decodeURIComponent(muralMatch[1]).trim() : '') ||
+    (params.get('client')?.trim() || '');
+  const urlSmId = params.get('sm')?.trim() || '';
+  const urlToken =
+    (postMatch?.[1] ? decodeURIComponent(postMatch[1]).trim() : '') ||
+    (params.get('token')?.trim() || '') ||
+    (params.get('approvalToken')?.trim() || '');
+  const isClientLinkAccess = Boolean(urlClientId || urlToken);
+  return { isClientLinkAccess, urlClientId, urlSmId, urlToken };
+};
+
 export default function App() {
+  const initialClientLink = React.useMemo(() => getClientLinkContext(), []);
+  const isClientLinkAccess = initialClientLink.isClientLinkAccess;
+
   // Global State with LocalStorage Persistence (Opção B - Funciona 100% Grátis sem Cartão)
   const [clients, setClients] = useState<ClientProject[]>(() => {
     try {
@@ -95,9 +117,11 @@ export default function App() {
     }
   });
   const [selectedClientId, setSelectedClientId] = useState<string>(() => {
+    if (initialClientLink.urlClientId) return initialClientLink.urlClientId;
     return localStorage.getItem('social_saas_selected_client_id') || 'client-1';
   });
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
+    if (initialClientLink.isClientLinkAccess) return 'cliente';
     return (localStorage.getItem('social_saas_user_role') as UserRole) || 'gestor';
   });
   const [activeTab, setActiveTab] = useState<TabType>('posts');
@@ -381,18 +405,26 @@ export default function App() {
   }, [socialMedias]);
 
   React.useEffect(() => {
-    try { localStorage.setItem('social_saas_selected_client_id', selectedClientId); } catch {}
-  }, [selectedClientId]);
+    if (!isClientLinkAccess) {
+      try { localStorage.setItem('social_saas_selected_client_id', selectedClientId); } catch {}
+    }
+  }, [selectedClientId, isClientLinkAccess]);
 
   React.useEffect(() => {
-    try { localStorage.setItem('social_saas_user_role', currentUserRole); } catch {}
+    if (isClientLinkAccess && currentUserRole !== 'cliente') {
+      setCurrentUserRole('cliente');
+      return;
+    }
+    if (!isClientLinkAccess) {
+      try { localStorage.setItem('social_saas_user_role', currentUserRole); } catch {}
+    }
     if (currentUserRole !== 'gestor' && (activeTab === 'book' || activeTab === 'market' || activeTab === 'admin')) {
       setActiveTab('posts');
     }
     if (currentUserRole === 'cliente' && (activeTab === 'metrics' || activeTab === 'billing' || activeTab === 'settings')) {
       setActiveTab('posts');
     }
-  }, [currentUserRole, activeTab]);
+  }, [currentUserRole, activeTab, isClientLinkAccess]);
 
   React.useEffect(() => {
     try { localStorage.setItem('social_saas_posts', JSON.stringify(posts)); } catch {}
@@ -537,31 +569,23 @@ export default function App() {
   const [isClientCardOpen, setIsClientCardOpen] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<WhatsAppNotificationPayload[]>([]);
 
-  // Detect ?client=..., ?sm=..., ?token=... in URL for direct mural or public token link approval
+  // Detect /mural/:clientId, /p/:token, ?client=..., ?sm=..., ?token=... in URL and lock to 'cliente' role
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const muralPathMatch = window.location.pathname.match(/^\/mural\/([^/?#]+)/i);
-    const clientParam =
-      (muralPathMatch?.[1] ? decodeURIComponent(muralPathMatch[1]).trim() : '') ||
-      params.get('client');
-    const smParam = params.get('sm');
-    const token = extractApprovalTokenFromLocation();
-    const savedRole = localStorage.getItem('social_saas_user_role') as UserRole | null;
-    const isTeamSession = savedRole === 'social_media' || savedRole === 'gestor';
+    const { isClientLinkAccess: linkAccess, urlClientId, urlSmId, urlToken } = getClientLinkContext();
+    const token = urlToken || extractApprovalTokenFromLocation() || '';
 
-    if (clientParam) {
-      const matched = clients.find(c => c.id === clientParam);
-      if (matched) {
-        setSelectedClientId(matched.id);
-        if (!isTeamSession) {
-          setCurrentUserRole('cliente');
-        }
-        if (smParam) {
-          setActiveSocialMediaId(smParam);
-        } else if (matched.assignedSocialMediaId) {
-          setActiveSocialMediaId(matched.assignedSocialMediaId);
-        }
+    if (linkAccess) {
+      setCurrentUserRole('cliente');
+    }
+
+    if (urlClientId) {
+      setSelectedClientId(urlClientId);
+      const matched = clients.find(c => c.id === urlClientId);
+      if (urlSmId) {
+        setActiveSocialMediaId(urlSmId);
+      } else if (matched?.assignedSocialMediaId) {
+        setActiveSocialMediaId(matched.assignedSocialMediaId);
       }
     }
 
@@ -571,11 +595,11 @@ export default function App() {
         setPublicApprovalPost(matched);
         if (matched.clientProjectId) {
           setSelectedClientId(matched.clientProjectId);
-          if (!isTeamSession) {
-            setCurrentUserRole('cliente');
-          }
         }
-        if (matched.socialMediaAuthorId && !isTeamSession) {
+        setCurrentUserRole('cliente');
+        if (urlSmId) {
+          setActiveSocialMediaId(urlSmId);
+        } else if (matched.socialMediaAuthorId) {
           setActiveSocialMediaId(matched.socialMediaAuthorId);
         }
       }
@@ -604,16 +628,17 @@ export default function App() {
 
   // Identidade do Social Media Ativo (para separar visualização de clientes por profissional)
   const [activeSocialMediaId, setActiveSocialMediaId] = useState<string>(() => {
+    if (initialClientLink.urlSmId) return initialClientLink.urlSmId;
     return localStorage.getItem('social_saas_active_sm_id') || (socialMedias[0]?.id || 'sm-1');
   });
 
   const [approvalToastMessage, setApprovalToastMessage] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (activeSocialMediaId) {
+    if (activeSocialMediaId && !isClientLinkAccess) {
       try { localStorage.setItem('social_saas_active_sm_id', activeSocialMediaId); } catch {}
     }
-  }, [activeSocialMediaId]);
+  }, [activeSocialMediaId, isClientLinkAccess]);
 
   // Garante que activeSocialMediaId sempre aponte para um Social Media válido existente na lista
   React.useEffect(() => {
@@ -623,9 +648,8 @@ export default function App() {
   }, [socialMedias, activeSocialMediaId]);
 
   const activeSmObj = socialMedias.find(sm => sm.id === activeSocialMediaId);
-  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const urlClientParam = urlParams?.get('client') || null;
-  const urlSmParam = urlParams?.get('sm') || null;
+  const urlClientParam = initialClientLink.urlClientId || null;
+  const urlSmParam = initialClientLink.urlSmId || null;
 
   // Clientes acessíveis conforme o perfil atual:
   // Se for Social Media, só visualiza a lista dos clientes que ele próprio cadastrou ou atrelou a ele!
@@ -653,13 +677,13 @@ export default function App() {
       if (!isCurrentValid && clients.length > 0) {
         setSelectedClientId(clients[0].id);
       }
-    } else if (currentUserRole === 'cliente' && !urlClientParam) {
+    } else if (currentUserRole === 'cliente' && !isClientLinkAccess) {
       const isCurrentValid = clients.some(c => c.id === selectedClientId);
       if (!isCurrentValid && clients.length > 0) {
         setSelectedClientId(clients[0].id);
       }
     }
-  }, [currentUserRole, activeSocialMediaId, userAccessibleClients, clients, selectedClientId, urlClientParam]);
+  }, [currentUserRole, activeSocialMediaId, userAccessibleClients, clients, selectedClientId, isClientLinkAccess]);
 
   // Verifica se há um cliente válido dentro do escopo permitido para o perfil atual (evita vazamento entre Social Medias)
   const matchedAccessibleClient = userAccessibleClients.find(c => c.id === selectedClientId)
@@ -1442,7 +1466,10 @@ export default function App() {
         selectedClientId={selectedClientId}
         onSelectClient={setSelectedClientId}
         currentUserRole={currentUserRole}
-        onChangeUserRole={setCurrentUserRole}
+        onChangeUserRole={(role) => {
+          if (isClientLinkAccess && role !== 'cliente') return;
+          setCurrentUserRole(role);
+        }}
         onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
         onOpenDriveModal={() => setIsDriveModalOpen(true)}
         onOpenAddClientModal={() => setActiveTab('settings')}
@@ -1885,8 +1912,8 @@ export default function App() {
           )
         )}
 
-        {/* TAB 4: MÉTRICAS META / GOOGLE ANALYTICS */}
-        {activeTab === 'metrics' && (
+        {/* TAB 4: MÉTRICAS META / GOOGLE ANALYTICS (Oculto para Cliente) */}
+        {activeTab === 'metrics' && currentUserRole !== 'cliente' && (
           !hasValidSelectedClient ? (
             <div className="bg-slate-900 border border-purple-500/40 rounded-3xl p-8 text-center space-y-3 shadow-xl">
               <Building2 className="w-10 h-10 text-purple-400 mx-auto" />
@@ -2048,6 +2075,8 @@ export default function App() {
             defaultPostTitle={defaultPreviewPost?.title}
             defaultPostCaption={defaultPreviewPost?.caption}
             defaultPostMediaUrl={defaultPreviewPost?.mediaUrl}
+            defaultPostMediaType={defaultPreviewPost?.mediaType}
+            defaultPostSocialNetworks={defaultPreviewPost?.socialNetworks}
           />
         );
       })()}

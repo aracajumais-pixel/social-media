@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { buildApprovalUrl } from '../utils/token';
 import { DriveImage } from './DriveImage';
+import { WhatsAppLinkPreviewCard } from './WhatsAppLinkPreviewCard';
 import { uploadMediaToSupabase, syncPostToSupabase, hasSupabaseCredentials } from '../lib/supabase';
 import { getEmbeddableMediaUrl } from '../utils/driveHelper';
 
@@ -794,31 +795,25 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
         {/* ============================================================ */}
         <div className="p-4 sm:p-5 pt-3 border-t border-slate-800/80 bg-[#090d18] shrink-0 space-y-2.5">
           {showWhatsAppCardPreview && (
-            <div className="bg-[#0b141a] border border-emerald-500/35 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
-              <div className="w-full max-w-[300px] bg-[#1f2c34] rounded-xl overflow-hidden border border-white/10 shadow-lg">
-                <div className="aspect-video w-full bg-slate-950 overflow-hidden">
-                  <DriveImage src={post.mediaUrl} alt={post.title} className="w-full h-full object-cover" />
-                </div>
-                <div className="p-2.5 space-y-1">
-                  <div className="text-xs font-bold text-white line-clamp-1">
-                    {clientName ? `${clientName}: "${post.title}"` : post.title}
-                  </div>
-                  <p className="text-[11px] text-slate-300 line-clamp-2 leading-snug">
-                    {post.caption || 'Clique para visualizar a arte, comentar ou aprovar.'}
-                  </p>
-                  <div className="pt-1 flex items-center justify-between gap-2 border-t border-white/10 text-[10px] text-slate-300">
-                    <span className="truncate font-mono flex items-center gap-1">
-                      <Link2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                      {typeof window !== 'undefined' ? window.location.host : 'socialmedia5.app'}
-                    </span>
-                    <img src="/favicon.jpg" alt="Ícone" className="w-4 h-4 rounded object-cover shrink-0" />
-                  </div>
-                </div>
+            <div className="bg-[#081016] border border-emerald-500/35 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in max-h-[360px] overflow-y-auto">
+              <div className="w-full max-w-[330px] shrink-0">
+                <WhatsAppLinkPreviewCard
+                  messageText={`Olá ${clientContactName || clientName || 'Cliente'}! 🎨\n\nConfira a prévia da publicação "${post.title}" para aprovação:\n\n${approvalUrl}`}
+                  title={post.title}
+                  description={post.caption || 'Clique para visualizar a arte, comentar ou aprovar.'}
+                  mediaUrl={post.mediaUrl}
+                  mediaType={post.mediaType}
+                  socialNetworks={post.socialNetworks}
+                  linkUrl={approvalUrl}
+                  domain={typeof window !== 'undefined' ? window.location.host : 'socialmedia5.app'}
+                  clientName={clientName}
+                  maxMediaHeightClass="max-h-[250px]"
+                />
               </div>
-              <div className="text-[11px] text-slate-300 space-y-1 flex-1">
+              <div className="text-[11px] text-slate-300 space-y-1.5 flex-1">
                 <p className="font-bold text-emerald-300">Prévia do cartão no WhatsApp</p>
                 <p className="text-slate-400 leading-relaxed">
-                  Ao colar ou enviar este link no WhatsApp, o cliente verá automaticamente a imagem em destaque, o título, a legenda e o cartão clicável igual ao Instagram.
+                  Ao colar ou enviar este link no WhatsApp, o cliente verá automaticamente a mensagem no topo, a mídia em destaque no padrão Instagram e o rodapé com o domínio e ícone da plataforma.
                 </p>
               </div>
             </div>

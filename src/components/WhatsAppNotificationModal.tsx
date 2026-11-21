@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { ClientProject, WhatsAppNotificationPayload } from '../types';
-import { X, MessageSquare, Send, CheckCircle2, Phone, ExternalLink, Sparkles, Copy, Check, Link2 } from 'lucide-react';
+import { ClientProject, SocialNetwork, WhatsAppNotificationPayload } from '../types';
+import { X, MessageSquare, Send, CheckCircle2, Phone, ExternalLink, Sparkles, Copy, Check } from 'lucide-react';
 import { buildApprovalUrl } from '../utils/token';
-import { DriveImage } from './DriveImage';
+import { WhatsAppLinkPreviewCard } from './WhatsAppLinkPreviewCard';
 
 interface WhatsAppNotificationModalProps {
   isOpen: boolean;
@@ -14,6 +14,8 @@ interface WhatsAppNotificationModalProps {
   defaultPostTitle?: string;
   defaultPostCaption?: string;
   defaultPostMediaUrl?: string;
+  defaultPostMediaType?: 'image' | 'video' | 'carousel';
+  defaultPostSocialNetworks?: SocialNetwork[];
 }
 
 export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps> = ({
@@ -25,7 +27,9 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
   approvalToken,
   defaultPostTitle,
   defaultPostCaption,
-  defaultPostMediaUrl
+  defaultPostMediaUrl,
+  defaultPostMediaType,
+  defaultPostSocialNetworks
 }) => {
   const [notificationType, setNotificationType] = useState<WhatsAppNotificationPayload['type']>('novo_rascunho');
   const [postTitle, setPostTitle] = useState(defaultPostTitle || 'Novo Post do Instagram / Reels');
@@ -87,7 +91,7 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl my-8 p-6 space-y-5">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl my-4 sm:my-8 p-6 space-y-5">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
@@ -149,32 +153,17 @@ export const WhatsAppNotificationModal: React.FC<WhatsAppNotificationModalProps>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             <div className="space-y-1.5">
               <label className="block text-slate-300 font-bold">Pré-visualização do Cartão no WhatsApp:</label>
-              <div className="bg-[#0b141a] p-3 rounded-2xl border border-emerald-800/40">
-                <div className="bg-[#1f2c34] rounded-xl overflow-hidden border border-white/10 shadow-md">
-                  <div className="aspect-video w-full bg-slate-950 overflow-hidden">
-                    {defaultPostMediaUrl ? (
-                      <DriveImage src={defaultPostMediaUrl} alt={postTitle} className="w-full h-full object-cover" />
-                    ) : (
-                      <img src="/og-default.jpg" alt={postTitle} className="w-full h-full object-cover" />
-                    )}
-                  </div>
-                  <div className="p-2.5 space-y-1">
-                    <div className="text-xs font-bold text-white line-clamp-2 leading-snug">
-                      {selectedClient.name}: &quot;{postTitle}&quot;
-                    </div>
-                    <p className="text-[11px] text-slate-300 line-clamp-2 leading-snug">
-                      {defaultPostCaption || 'Clique no cartão para visualizar a arte, comentar ou aprovar esta publicação.'}
-                    </p>
-                    <div className="pt-1.5 mt-1 border-t border-white/10 flex items-center justify-between gap-2 text-[10px] text-slate-300">
-                      <span className="truncate font-mono flex items-center gap-1">
-                        <Link2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                        {host}
-                      </span>
-                      <img src="/favicon.jpg" alt="Ícone" className="w-4 h-4 rounded object-cover shrink-0" />
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <WhatsAppLinkPreviewCard
+                messageText={finalMessage}
+                title={postTitle}
+                description={defaultPostCaption || 'Clique no cartão para visualizar a arte, comentar ou aprovar esta publicação.'}
+                mediaUrl={defaultPostMediaUrl}
+                mediaType={defaultPostMediaType}
+                socialNetworks={defaultPostSocialNetworks}
+                linkUrl={approvalUrl}
+                domain={host}
+                clientName={selectedClient.name}
+              />
             </div>
 
             <div className="space-y-2">

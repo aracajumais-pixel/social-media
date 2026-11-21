@@ -19,7 +19,6 @@ import {
 } from './BirthdayInteractiveCanvas';
 import {
   computeAutoFaceFraming,
-  createSampleTransparentFrameDataUrl,
   detectPngTransparentCutout,
   fileToOptimizedDataUrl,
   formatBirthdayDay,
@@ -142,8 +141,8 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   const [isFramingPhoto, setIsFramingPhoto] = useState(false);
   const [framingStatus, setFramingStatus] = useState<string | null>(null);
 
-  // New Background State
-  const [newBgName, setNewBgName] = useState('');
+  // New Background State (associado diretamente a um grupo existente)
+  const [selectedBgGroupId, setSelectedBgGroupId] = useState<string>(groups[0]?.id || '');
   const [isUploadingBg, setIsUploadingBg] = useState(false);
   const [bgAiBusyId, setBgAiBusyId] = useState<string | null>(null);
 
@@ -187,6 +186,12 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
       setNewGroupBgId(backgrounds[0].id);
     }
   }, [backgrounds, newGroupBgId]);
+
+  useEffect(() => {
+    if ((!selectedBgGroupId || !groups.some((g) => g.id === selectedBgGroupId)) && groups[0]?.id) {
+      setSelectedBgGroupId(groups[0].id);
+    }
+  }, [groups, selectedBgGroupId]);
 
   const notify = (text: string) => {
     setFeedbackBanner(text);
@@ -421,7 +426,10 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
         }
       }
 
-      const bgTitle = newBgName.trim() || file.name.replace(/\.[^.]+$/, '') || `Fundo ${backgrounds.length + 1}`;
+      const targetGroup = groups.find((g) => g.id === selectedBgGroupId) || groups[0];
+      const bgTitle = targetGroup
+        ? targetGroup.name
+        : file.name.replace(/\.[^.]+$/, '') || `Fundo ${backgrounds.length + 1}`;
       const newBg: BirthdayBackground = {
         id: `bg-${Date.now()}`,
         clientProjectId: client.id,
@@ -436,7 +444,12 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
       };
 
       onSaveBackground(newBg);
-      setNewBgName('');
+      if (targetGroup) {
+        onUpdateGroup({
+          ...targetGroup,
+          backgroundId: newBg.id,
+        });
+      }
       if (!newGroupBgId) setNewGroupBgId(newBg.id);
 
       onRecordAudit({
@@ -446,7 +459,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
         action: 'Incluiu Plano de Fundo PNG',
         targetType: 'plano_de_fundo',
         targetLabel: newBg.name,
-        details: `Área transparente detectada: ${detected.cutoutRect.width.toFixed(0)}% x ${detected.cutoutRect.height.toFixed(0)}%`,
+        details: `${targetGroup ? `Grupo associado: ${targetGroup.name} • ` : ''}Área transparente detectada: ${detected.cutoutRect.width.toFixed(0)}% x ${detected.cutoutRect.height.toFixed(0)}%`,
       });
 
       // Chama IA para analisar elementos visuais do plano de fundo PNG e evitar sobreposição de textos
@@ -457,35 +470,6 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     } finally {
       setIsUploadingBg(false);
     }
-  };
-
-  const handleCreateSampleFrame = () => {
-    if (backgrounds.length >= MAX_BACKGROUNDS) return;
-    const sampleUrl = createSampleTransparentFrameDataUrl();
-    const cutoutRect = { x: 22, y: 11, width: 56, height: 48 };
-    const sampleBg: BirthdayBackground = {
-      id: `bg-${Date.now()}`,
-      clientProjectId: client.id,
-      name: `Moldura Modelo ${backgrounds.length + 1}`,
-      imageUrl: sampleUrl,
-      width: 900,
-      height: 900,
-      cutoutRect,
-      defaultElements: getDefaultElementSet(cutoutRect),
-      aiAnalysisNotes: 'Moldura de exemplo com janela transparente pronta para testar.',
-      createdAt: new Date().toISOString(),
-      createdByName: actorIdentity.name,
-    };
-    onSaveBackground(sampleBg);
-    onRecordAudit({
-      actorName: actorIdentity.name,
-      actorEmail: actorIdentity.email,
-      actorRole: actorIdentity.role,
-      action: 'Criou Plano de Fundo Modelo',
-      targetType: 'plano_de_fundo',
-      targetLabel: sampleBg.name,
-    });
-    notify('Moldura modelo criada! Você também pode enviar seus próprios arquivos PNG.');
   };
 
   // ============================================================
@@ -1593,29 +1577,31 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                   <span>Planos de Fundo PNG ({backgrounds.length}/{MAX_BACKGROUNDS})</span>
                 </h3>
               </div>
-              {backgrounds.length < MAX_BACKGROUNDS && (
-                <button
-                  type="button"
-                  onClick={handleCreateSampleFrame}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700"
-                >
-                  + Moldura Modelo
-                </button>
-              )}
             </div>
 
             <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <input
-                type="text"
-                value={newBgName}
-                onChange={(e) => setNewBgName(e.target.value)}
-                placeholder="Nome do plano de fundo (Ex: Fundo Adultos 2026)"
-                disabled={backgrounds.length >= MAX_BACKGROUNDS}
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-pink-500 disabled:opacity-50"
-              />
+              <div className="flex-1">
+                <select
+                  value={selectedBgGroupId}
+                  onChange={(e) => setSelectedBgGroupId(e.target.value)}
+                  disabled={backgrounds.length >= MAX_BACKGROUNDS || groups.length === 0}
+                  aria-label="Selecionar grupo para associar ao plano de fundo"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-semibold focus:outline-none focus:border-pink-500 disabled:opacity-50 cursor-pointer"
+                >
+                  {groups.length === 0 ? (
+                    <option value="">Cadastre um grupo ao lado primeiro</option>
+                  ) : (
+                    groups.map((grp) => (
+                      <option key={grp.id} value={grp.id}>
+                        Grupo: {grp.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
               <label
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shrink-0 transition-all ${
-                  backgrounds.length >= MAX_BACKGROUNDS
+                  backgrounds.length >= MAX_BACKGROUNDS || groups.length === 0
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                     : 'bg-pink-600 hover:bg-pink-500 text-white cursor-pointer shadow-lg shadow-pink-600/20'
                 }`}
@@ -1627,7 +1613,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                 <input
                   type="file"
                   accept="image/png"
-                  disabled={backgrounds.length >= MAX_BACKGROUNDS || isUploadingBg}
+                  disabled={backgrounds.length >= MAX_BACKGROUNDS || groups.length === 0 || isUploadingBg}
                   onChange={handleUploadBackgroundPng}
                   className="hidden"
                 />
@@ -1635,7 +1621,9 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[520px] overflow-y-auto pr-1">
-              {backgrounds.map((bg) => (
+              {backgrounds.map((bg) => {
+                const linkedGroups = groups.filter((g) => g.backgroundId === bg.id);
+                return (
                 <div key={bg.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-3 space-y-2.5">
                   <div className="relative aspect-square rounded-xl overflow-hidden bg-[repeating-conic-gradient(#1e293b_0%_25%,#0f172a_0%_50%)] bg-[length:16px_16px] border border-slate-800">
                     <img src={bg.imageUrl} alt={bg.name} className="w-full h-full object-contain" />
@@ -1653,6 +1641,11 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-white truncate">{bg.name}</p>
+                      {linkedGroups.length > 0 && (
+                        <p className="text-[10px] text-pink-300 font-semibold truncate">
+                          Grupo: {linkedGroups.map((g) => g.name).join(', ')}
+                        </p>
+                      )}
                       <p className="text-[10px] text-emerald-400 truncate">
                         Janela: {bg.cutoutRect.width.toFixed(0)}% × {bg.cutoutRect.height.toFixed(0)}%
                       </p>
@@ -1694,7 +1687,8 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
