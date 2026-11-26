@@ -31,9 +31,13 @@ export function formatBirthdayMonthShort(month: number): string {
   return PORTUGUESE_MONTHS_SHORT[idx] || 'JAN';
 }
 
-export function formatBirthdayGreetingLines(name: string): [string, string] {
+export function formatBirthdayDisplayName(name: string): string {
   const clean = (name || '').trim() || 'Aniversariante';
-  return ['Parabéns,', `  ${clean}!`];
+  return `${clean}!`;
+}
+
+export function formatBirthdayGreetingLines(name: string): [string, string] {
+  return ['', formatBirthdayDisplayName(name)];
 }
 
 export function getDefaultElementSet(cutout: BirthdayCutoutRect): BirthdayElementSet {
@@ -277,7 +281,7 @@ function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: nu
  * Renderiza a arte final individual em alta resolução (PNG) combinando:
  * 1) Foto da pessoa enquadrada por trás da área transparente do PNG
  * 2) Plano de fundo PNG com janela transparente
- * 3) Os 3 objetos editáveis (Data, Nome manuscrito "Parabéns,\n  {nome}!", Mensagem) sempre em PRETO (#000000).
+ * 3) Os 3 objetos editáveis (Data, Nome manuscrito "{nome}!", Mensagem) sempre em PRETO (#000000).
  */
 export async function renderBirthdayArtToDataUrl(params: {
   background: BirthdayBackground;
@@ -383,14 +387,14 @@ export async function renderBirthdayArtToDataUrl(params: {
     ctx.restore();
   }
 
-  // 3B: NOME ("Parabéns,\n  {nome}!" em fonte manuscrita)
+  // 3B: NOME ("{nome}!" em fonte manuscrita)
   {
     const el = elements.name;
     const cx = (el.xPct / 100) * canvasW;
     const cy = (el.yPct / 100) * canvasH;
     const maxW = (el.widthPct / 100) * canvasW;
     const fontSize = Math.round(baseUnit * 0.056 * el.scale);
-    const [line1, line2] = formatBirthdayGreetingLines(person.name);
+    const displayName = formatBirthdayDisplayName(person.name);
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -400,8 +404,7 @@ export async function renderBirthdayArtToDataUrl(params: {
     ctx.textBaseline = 'middle';
     ctx.font = `700 ${fontSize}px "Dancing Script", cursive`;
 
-    const wrappedLine2 = wrapTextLines(ctx, line2, maxW);
-    const allLines = [line1, ...wrappedLine2];
+    const allLines = wrapTextLines(ctx, displayName, maxW);
     const lineHeight = fontSize * 1.12;
     const totalHeight = allLines.length * lineHeight;
     let startY = -totalHeight / 2 + lineHeight / 2;

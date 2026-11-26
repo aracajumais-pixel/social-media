@@ -166,6 +166,7 @@ export const WhatsAppLinkPreviewCard: React.FC<WhatsAppLinkPreviewCardProps> = (
     videoDurationSeconds
   );
   const [mediaLoadFailed, setMediaLoadFailed] = useState(false);
+  const [mediaAspect, setMediaAspect] = useState<number | null>(null);
 
   const trimmedMediaUrl = (mediaUrl || '').trim();
   const isDriveUrl = Boolean(trimmedMediaUrl && isGoogleDriveUrl(trimmedMediaUrl));
@@ -173,6 +174,7 @@ export const WhatsAppLinkPreviewCard: React.FC<WhatsAppLinkPreviewCardProps> = (
 
   useEffect(() => {
     setMediaLoadFailed(false);
+    setMediaAspect(null);
     setDetectedVideoDuration(videoDurationSeconds);
   }, [trimmedMediaUrl, videoDurationSeconds]);
   const isVideo =
@@ -232,8 +234,8 @@ export const WhatsAppLinkPreviewCard: React.FC<WhatsAppLinkPreviewCardProps> = (
 
         {/* CARTÃO DE LINK ESTILO INSTAGRAM */}
         <div className="bg-[#1f2c34] rounded-xl overflow-hidden border border-white/10 shadow-md">
-          {/* B) ÁREA DE MÍDIA EM DESTAQUE (largura total, bordas arredondadas no topo, proporção original) */}
-          <div className="relative w-full bg-[#111b21] overflow-hidden rounded-t-xl">
+          {/* B) ÁREA DE MÍDIA EM DESTAQUE NO TOPO (modo foto na vertical 3x4 estilo Instagram) */}
+          <div className="relative w-full aspect-[3/4] bg-[#111b21] overflow-hidden rounded-t-xl">
             {trimmedMediaUrl && !mediaLoadFailed ? (
               isDirectVideoFile ? (
                 <video
@@ -248,25 +250,44 @@ export const WhatsAppLinkPreviewCard: React.FC<WhatsAppLinkPreviewCardProps> = (
                     }
                   }}
                   onError={() => setMediaLoadFailed(true)}
-                  className={`w-full h-auto ${maxMediaHeightClass} object-cover block bg-black`}
+                  className={`w-full h-full ${maxMediaHeightClass ? '' : ''} object-cover block bg-black`}
                 />
               ) : isDriveUrl ? (
                 <DriveImage
                   src={trimmedMediaUrl}
                   alt={title}
-                  className={`w-full h-auto min-h-[140px] ${maxMediaHeightClass} object-cover block`}
+                  className="w-full h-full object-cover block"
                 />
               ) : (
-                <img
-                  src={trimmedMediaUrl}
-                  alt={title}
-                  referrerPolicy="no-referrer"
-                  onError={() => setMediaLoadFailed(true)}
-                  className={`w-full h-auto min-h-[140px] ${maxMediaHeightClass} object-cover block`}
-                />
+                <>
+                  {mediaAspect !== null && mediaAspect > 0.9 && (
+                    <img
+                      src={trimmedMediaUrl}
+                      alt=""
+                      aria-hidden="true"
+                      referrerPolicy="no-referrer"
+                      className="absolute inset-0 w-full h-full object-cover scale-110 blur-xl opacity-65 brightness-75 pointer-events-none"
+                    />
+                  )}
+                  <img
+                    src={trimmedMediaUrl}
+                    alt={title}
+                    referrerPolicy="no-referrer"
+                    onLoad={(e) => {
+                      const { naturalWidth, naturalHeight } = e.currentTarget;
+                      if (naturalWidth > 0 && naturalHeight > 0) {
+                        setMediaAspect(naturalWidth / naturalHeight);
+                      }
+                    }}
+                    onError={() => setMediaLoadFailed(true)}
+                    className={`relative z-[1] w-full h-full ${
+                      mediaAspect !== null && mediaAspect > 0.9 ? 'object-contain' : 'object-cover'
+                    } block`}
+                  />
+                </>
               )
             ) : (
-              <div className="w-full aspect-[4/3] bg-gradient-to-br from-[#1b2832] via-[#131d24] to-[#0b141a] flex flex-col items-center justify-center p-5 text-center gap-2.5">
+              <div className="w-full h-full bg-gradient-to-br from-[#1b2832] via-[#131d24] to-[#0b141a] flex flex-col items-center justify-center p-5 text-center gap-2.5">
                 <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-emerald-300">
                   {isVideo ? <Film className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />}
                 </div>

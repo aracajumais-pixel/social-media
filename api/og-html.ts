@@ -173,6 +173,9 @@ function injectOpenGraphMetaTags(
     imageUrl: string;
     siteName: string;
     origin: string;
+    imageWidth?: number;
+    imageHeight?: number;
+    imageType?: string;
   }
 ): string {
   const safeTitle = escapeHtmlAttr(meta.title);
@@ -195,7 +198,7 @@ function injectOpenGraphMetaTags(
       .replace(/href=["']\/favicon\.svg["']/gi, `href="${escapeHtmlAttr(`${meta.origin}/favicon.svg`)}"`);
   }
 
-  const block = [
+  const blockLines = [
     `<title>${safeTitle}</title>`,
     `<meta name="description" content="${safeDesc}" />`,
     `<link rel="canonical" href="${safeUrl}" />`,
@@ -206,11 +209,16 @@ function injectOpenGraphMetaTags(
     `<meta property="og:url" content="${safeUrl}" />`,
     `<meta property="og:image" content="${safeImage}" />`,
     `<meta property="og:image:secure_url" content="${safeImage}" />`,
+    ...(meta.imageType ? [`<meta property="og:image:type" content="${escapeHtmlAttr(meta.imageType)}" />`] : []),
+    ...(meta.imageWidth ? [`<meta property="og:image:width" content="${meta.imageWidth}" />`] : []),
+    ...(meta.imageHeight ? [`<meta property="og:image:height" content="${meta.imageHeight}" />`] : []),
+    `<meta property="og:image:alt" content="${safeTitle}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${safeTitle}" />`,
     `<meta name="twitter:description" content="${safeDesc}" />`,
     `<meta name="twitter:image" content="${safeImage}" />`,
-  ].join('\n    ');
+  ];
+  const block = blockLines.join('\n    ');
 
   if (/<meta\s+name=["']viewport["'][^>]*>/i.test(out)) {
     return out.replace(/(<meta\s+name=["']viewport["'][^>]*>)/i, `$1\n    ${block}`);
@@ -240,8 +248,8 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const { post, clientName } = await fetchPostAndClientByToken(token);
     const shareUrl = origin ? `${origin}/p/${encodeURIComponent(token)}` : `/p/${encodeURIComponent(token)}`;
     const ogImage = origin
-      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg`
-      : `/api/og-image/${encodeURIComponent(token)}.jpg`;
+      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`
+      : `/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`;
 
     if (post) {
       const titleText = clientName ? `${clientName}: "${post.title}"` : `${post.title} — Social Media 5.0`;
@@ -257,6 +265,9 @@ export default async function handler(req: VercelReq, res: VercelRes) {
         imageUrl: ogImage,
         siteName: clientName ? `${clientName} • Social Media 5.0` : 'Social Media 5.0',
         origin,
+        imageWidth: 900,
+        imageHeight: 1200,
+        imageType: 'image/jpeg',
       });
     } else {
       enrichedHtml = injectOpenGraphMetaTags(baseHtml, {
@@ -276,8 +287,8 @@ export default async function handler(req: VercelReq, res: VercelRes) {
       : `/mural/${encodeURIComponent(clientId)}`;
     const shareUrl = origin ? `${origin}${pathUrl}` : pathUrl;
     const ogImage = origin
-      ? `${origin}/api/og-client-image/${encodeURIComponent(clientId)}.jpg`
-      : `/api/og-client-image/${encodeURIComponent(clientId)}.jpg`;
+      ? `${origin}/api/og-client-image/${encodeURIComponent(clientId)}.jpg?v=3x4`
+      : `/api/og-client-image/${encodeURIComponent(clientId)}.jpg?v=3x4`;
 
     enrichedHtml = injectOpenGraphMetaTags(baseHtml, {
       title: mural ? `Mural de Aprovações — ${mural.name}` : 'Mural Exclusivo de Aprovações — Social Media 5.0',
@@ -288,6 +299,9 @@ export default async function handler(req: VercelReq, res: VercelRes) {
       imageUrl: ogImage,
       siteName: mural ? `${mural.name} • Social Media 5.0` : 'Social Media 5.0',
       origin,
+      imageWidth: 900,
+      imageHeight: 1200,
+      imageType: 'image/jpeg',
     });
   } else {
     enrichedHtml = injectOpenGraphMetaTags(baseHtml, {

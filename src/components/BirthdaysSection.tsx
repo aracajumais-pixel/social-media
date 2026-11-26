@@ -166,12 +166,16 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     }
   });
 
-  // New Background State (associado diretamente a um grupo existente)
+  // New / Edit Background State (associado diretamente a um grupo existente)
   const [selectedBgGroupId, setSelectedBgGroupId] = useState<string>(groups[0]?.id || '');
+  const [newBgCustomName, setNewBgCustomName] = useState('');
+  const [editingBgId, setEditingBgId] = useState<string | null>(null);
+  const [editingBgName, setEditingBgName] = useState('');
   const [isUploadingBg, setIsUploadingBg] = useState(false);
   const [bgAiBusyId, setBgAiBusyId] = useState<string | null>(null);
 
-  // New Group State
+  // New / Edit Group State
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupBgId, setNewGroupBgId] = useState<string>(backgrounds[0]?.id || '');
 
@@ -184,6 +188,22 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [feedbackBanner, setFeedbackBanner] = useState<string | null>(null);
 
+  // Modal/Card de Edição do Aniversariante (abre ao clicar no lápis Editar)
+  const [editModalPersonId, setEditModalPersonId] = useState<string | null>(null);
+  const [editModalName, setEditModalName] = useState('');
+  const [editModalDay, setEditModalDay] = useState<number>(new Date().getDate());
+  const [editModalMonth, setEditModalMonth] = useState<number>(new Date().getMonth() + 1);
+  const [editModalGroupId, setEditModalGroupId] = useState<string>(groups[0]?.id || '');
+  const [editModalMessageId, setEditModalMessageId] = useState<string>(messages[0]?.id || '');
+  const [editModalPhotoUrl, setEditModalPhotoUrl] = useState<string>('');
+  const [editModalPhotoTransform, setEditModalPhotoTransform] = useState<BirthdayPhotoTransform>({
+    scale: 1.1,
+    offsetX: 0,
+    offsetY: 0,
+  });
+  const [editModalFramingStatus, setEditModalFramingStatus] = useState<string | null>(null);
+  const [isEditModalFraming, setIsEditModalFraming] = useState(false);
+
   useEffect(() => {
     setLoginName(client.contactName || '');
     setLoginEmail(client.email || '');
@@ -194,6 +214,9 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     setSelectedElement(null);
     setEditingPersonId(null);
     setEditingListPersonId(null);
+    setEditModalPersonId(null);
+    setEditingBgId(null);
+    setEditingGroupId(null);
     try {
       const raw = localStorage.getItem(`social_saas_bday_marked_${client.id}`);
       setMarkedForCardIds(raw ? JSON.parse(raw) : []);
@@ -234,6 +257,18 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
       setSelectedBgGroupId(groups[0].id);
     }
   }, [groups, selectedBgGroupId]);
+
+  useEffect(() => {
+    if (!editModalPersonId) return;
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        setEditModalPersonId(null);
+        setEditModalFramingStatus(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editModalPersonId]);
 
   const notify = (text: string) => {
     setFeedbackBanner(text);
@@ -539,9 +574,11 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
       }
 
       const targetGroup = groups.find((g) => g.id === selectedBgGroupId) || groups[0];
-      const bgTitle = targetGroup
-        ? targetGroup.name
-        : file.name.replace(/\.[^.]+$/, '') || `Fundo ${backgrounds.length + 1}`;
+      const bgTitle =
+        newBgCustomName.trim() ||
+        (targetGroup ? targetGroup.name : '') ||
+        file.name.replace(/\.[^.]+$/, '') ||
+        `Fundo ${backgrounds.length + 1}`;
       const newBg: BirthdayBackground = {
         id: `bg-${Date.now()}`,
         clientProjectId: client.id,
@@ -556,6 +593,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
       };
 
       onSaveBackground(newBg);
+      setNewBgCustomName('');
       if (targetGroup) {
         onUpdateGroup({
           ...targetGroup,
@@ -584,16 +622,116 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     }
   };
 
+  const handleSaveBackgroundEdit = (bg: BirthdayBackground) => {
+    const trimmed = editingBgName.trim();
+    if (!trimmed) {
+      notify('Informe um nome para o plano de fundo.');
+      return;
+    }
+    const updatedBg: BirthdayBackground = {
+      ...bg,
+      name: trimmed,
+    };
+    onUpdateBackground(updatedBg);
+    setEditingBgId(null);
+    setEditingBgName('');
+    onRecordAudit({
+      actorName: actorIdentity.name,
+      actorEmail: actorIdentity.email,
+      actorRole: actorIdentity.role,
+      action: 'Editou Plano de Fundo PNG',
+      targetType: 'plano_de_fundo',
+      targetLabel: updatedBg.name,
+    });
+    notify(`Plano de fundo "${updatedBg.name}" atualizado!`);
+  };
+
+  const handleReplaceBackgroundPng = async (
+    bg: BirthdayBackground,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setIsUploadingBg(true);
+    try {
+      const optimized = await fileToOptimizedDataUrl(file, 1400, true);
+      const detected = await detectPngTransparentCutout(optimized.dataUrl);
+
+      let storedUrl = optimized.dataUrl;
+      if (isSupabaseConfigured) {
+        const uploaded = await uploadMediaToSupabase(file, `birthdays-frames/${client.id}`);
+        if (uploaded.success && uploaded.url) {
+          storedUrl = uploaded.url;
+        }
+      }
+
+      const updatedBg: BirthdayBackground = {
+        ...bg,
+        name: editingBgId === bg.id && editingBgName.trim() ? editingBgName.trim() : bg.name,
+        imageUrl: storedUrl,
+        width: detected.width,
+        height: detected.height,
+        cutoutRect: detected.cutoutRect,
+      };
+      onUpdateBackground(updatedBg);
+      onRecordAudit({
+        actorName: actorIdentity.name,
+        actorEmail: actorIdentity.email,
+        actorRole: actorIdentity.role,
+        action: 'Substituiu Imagem do Plano de Fundo PNG',
+        targetType: 'plano_de_fundo',
+        targetLabel: updatedBg.name,
+        details: `Nova janela transparente: ${detected.cutoutRect.width.toFixed(0)}% x ${detected.cutoutRect.height.toFixed(0)}%`,
+      });
+      await analyzeBackgroundWithAI(updatedBg, optimized.dataUrl);
+    } catch (err) {
+      console.error('Erro ao substituir PNG:', err);
+      notify('Erro ao substituir imagem PNG. Verifique se o arquivo é um PNG válido.');
+    } finally {
+      setIsUploadingBg(false);
+    }
+  };
+
   // ============================================================
-  // HANDLERS: GRUPOS (LIMITE 10)
+  // HANDLERS: GRUPOS (LIMITE 10 — CRIAR, EDITAR E EXCLUIR)
   // ============================================================
-  const handleAddGroup = (e: React.FormEvent) => {
+  const handleSaveGroupForm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (groups.length >= MAX_GROUPS) return;
     const trimmed = newGroupName.trim();
     if (!trimmed) return;
 
     const chosenBg = newGroupBgId || backgrounds[0]?.id || '';
+    const bgObj = backgrounds.find((b) => b.id === chosenBg);
+
+    if (editingGroupId) {
+      const existing = groups.find((g) => g.id === editingGroupId);
+      if (existing) {
+        const updated: BirthdayGroup = {
+          ...existing,
+          name: trimmed,
+          backgroundId: chosenBg,
+        };
+        onUpdateGroup(updated);
+        onRecordAudit({
+          actorName: actorIdentity.name,
+          actorEmail: actorIdentity.email,
+          actorRole: actorIdentity.role,
+          action: 'Editou Grupo de Aniversariantes',
+          targetType: 'grupo',
+          targetLabel: updated.name,
+          details: bgObj ? `Plano de fundo: ${bgObj.name}` : undefined,
+        });
+        notify(`Grupo "${updated.name}" atualizado!`);
+      }
+      setEditingGroupId(null);
+      setNewGroupName('');
+      return;
+    }
+
+    if (groups.length >= MAX_GROUPS) return;
+
     const grp: BirthdayGroup = {
       id: `grp-${Date.now()}`,
       clientProjectId: client.id,
@@ -613,6 +751,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
       action: 'Incluiu Grupo de Aniversariantes',
       targetType: 'grupo',
       targetLabel: grp.name,
+      details: bgObj ? `Plano de fundo: ${bgObj.name}` : undefined,
     });
     notify(`Grupo "${grp.name}" incluído (${groups.length + 1}/${MAX_GROUPS}).`);
   };
@@ -764,6 +903,126 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
     setFramingStatus(
       person.photoUrl ? 'Foto atual carregada. Troque se desejar.' : 'Envie a foto da pessoa para gerar a arte.'
     );
+  };
+
+  const openEditPersonModal = (person: BirthdayPerson) => {
+    setEditModalPersonId(person.id);
+    setEditModalName(person.name);
+    setEditModalDay(person.birthDay);
+    setEditModalMonth(person.birthMonth);
+    setEditModalGroupId(person.groupId || groups[0]?.id || '');
+    setEditModalMessageId(person.messageId || messages[0]?.id || '');
+    setEditModalPhotoUrl(person.photoUrl || '');
+    setEditModalPhotoTransform(
+      person.photoTransform || { scale: 1.1, offsetX: 0, offsetY: 0 }
+    );
+    setEditModalFramingStatus(
+      person.photoUrl
+        ? 'Foto atual carregada. Troque ou re-enquadre se desejar.'
+        : 'Envie a foto da pessoa para gerar o cartão de felicitações.'
+    );
+  };
+
+  const closeEditPersonModal = () => {
+    setEditModalPersonId(null);
+    setEditModalFramingStatus(null);
+  };
+
+  const handleEditModalPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setIsEditModalFraming(true);
+    setEditModalFramingStatus('Carregando foto e enquadrando rosto com IA...');
+    try {
+      const optimized = await fileToOptimizedDataUrl(file, 1200, false);
+      let finalUrl = optimized.dataUrl;
+      if (isSupabaseConfigured) {
+        const uploaded = await uploadMediaToSupabase(file, `birthdays-people/${client.id}`);
+        if (uploaded.success && uploaded.url) {
+          finalUrl = uploaded.url;
+        }
+      }
+
+      setEditModalPhotoUrl(finalUrl);
+      const chosenGroup = groups.find((g) => g.id === (editModalGroupId || groups[0]?.id));
+      const chosenBg = backgrounds.find((b) => b.id === chosenGroup?.backgroundId) || backgrounds[0];
+      const aiTransform = await runAiFaceFraming(optimized.dataUrl, chosenBg);
+      setEditModalPhotoTransform(aiTransform);
+      setEditModalFramingStatus('✨ Foto carregada e enquadrada pela IA!');
+    } catch (err) {
+      console.error('Erro ao carregar foto no modal de edição:', err);
+      setEditModalFramingStatus('Não foi possível carregar a foto. Tente outra imagem JPG ou PNG.');
+      notify('Não foi possível carregar a foto. Tente outra imagem JPG ou PNG.');
+    } finally {
+      setIsEditModalFraming(false);
+    }
+  };
+
+  const handleSaveEditModal = (generateCard: boolean) => {
+    if (!editModalPersonId) return;
+    const existing = people.find((p) => p.id === editModalPersonId);
+    if (!existing) {
+      closeEditPersonModal();
+      return;
+    }
+
+    const cleanName = editModalName.trim();
+    if (!cleanName) {
+      notify('Informe o nome do aniversariante.');
+      return;
+    }
+
+    const effectiveGroupId = editModalGroupId || groups[0]?.id || '';
+    const effectiveMsgId = editModalMessageId || messages[0]?.id || '';
+    const clampedDay = Math.max(1, Math.min(31, Number(editModalDay) || 1));
+    const clampedMonth = Math.max(1, Math.min(12, Number(editModalMonth) || 1));
+    const groupObj = groups.find((g) => g.id === effectiveGroupId);
+
+    const updatedPerson: BirthdayPerson = {
+      ...existing,
+      name: cleanName,
+      birthDay: clampedDay,
+      birthMonth: clampedMonth,
+      groupId: effectiveGroupId,
+      messageId: effectiveMsgId,
+      photoUrl: editModalPhotoUrl || existing.photoUrl,
+      photoTransform: editModalPhotoUrl ? editModalPhotoTransform : existing.photoTransform,
+      updatedAt: new Date().toISOString(),
+    };
+
+    onUpdatePerson(updatedPerson);
+    setSelectedPersonId(updatedPerson.id);
+
+    onRecordAudit({
+      actorName: actorIdentity.name,
+      actorEmail: actorIdentity.email,
+      actorRole: actorIdentity.role,
+      action: generateCard
+        ? 'Editou Aniversariante e Gerou Cartão'
+        : 'Editou Aniversariante',
+      targetType: 'aniversariante',
+      targetLabel: `${updatedPerson.name} (${formatBirthdayDay(updatedPerson.birthDay)}/${formatBirthdayMonthShort(updatedPerson.birthMonth)})`,
+      details: `Grupo: ${groupObj?.name || 'Sem grupo'}`,
+    });
+
+    closeEditPersonModal();
+
+    if (generateCard) {
+      setMarkedForCardIds((prev) =>
+        prev.includes(updatedPerson.id) ? prev : [...prev, updatedPerson.id]
+      );
+      setSelectedElement(null);
+      setSubView('studio');
+      if (updatedPerson.photoUrl) {
+        notify(`Dados salvos e cartão de felicitações de "${updatedPerson.name}" gerado no Estúdio!`);
+      } else {
+        notify(`Dados de "${updatedPerson.name}" salvos! Envie uma foto no Estúdio para finalizar o cartão.`);
+      }
+    } else {
+      notify(`Dados de "${updatedPerson.name}" atualizados com sucesso!`);
+    }
   };
 
   const toggleMarkPersonForCard = (personId: string) => {
@@ -1484,7 +1743,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                   {studioPeople.map((person) => {
                     const grp = groups.find((g) => g.id === person.groupId);
                     const isSelected = activePerson?.id === person.id;
-                    const isEditingThis = editingPersonId === person.id;
+                    const isEditingThis = editModalPersonId === person.id || editingPersonId === person.id;
                     return (
                       <div
                         key={person.id}
@@ -1531,9 +1790,9 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              startEditingPersonInStudio(person);
+                              openEditPersonModal(person);
                             }}
-                            title="Editar aniversariante"
+                            title="Editar informações e gerar cartão"
                             className={`p-2 rounded-lg transition-colors ${
                               isEditingThis
                                 ? 'bg-amber-600 text-white'
@@ -2182,7 +2441,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                 {listFilteredPeople.map((person) => {
                   const grp = groups.find((g) => g.id === person.groupId);
                   const isMarked = markedSet.has(person.id);
-                  const isEditingRow = editingListPersonId === person.id;
+                  const isEditingRow = editModalPersonId === person.id || editingListPersonId === person.id;
 
                   return (
                     <div
@@ -2253,14 +2512,8 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingListPersonId(person.id);
-                            setListName(person.name);
-                            setListDay(person.birthDay);
-                            setListMonth(person.birthMonth);
-                            setListGroupId(person.groupId || groups[0]?.id || '');
-                          }}
-                          title="Editar nome, data ou grupo"
+                          onClick={() => openEditPersonModal(person)}
+                          title="Editar informações e gerar cartão"
                           className={`p-2 rounded-lg transition-colors ${
                             isEditingRow
                               ? 'bg-amber-600 text-white'
@@ -2321,14 +2574,22 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <div className="flex-1">
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  value={newBgCustomName}
+                  onChange={(e) => setNewBgCustomName(e.target.value)}
+                  placeholder="Nome do fundo (ex: Adultos 2026)"
+                  disabled={backgrounds.length >= MAX_BACKGROUNDS}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-pink-500 disabled:opacity-50"
+                />
                 <select
                   value={selectedBgGroupId}
                   onChange={(e) => setSelectedBgGroupId(e.target.value)}
                   disabled={backgrounds.length >= MAX_BACKGROUNDS || groups.length === 0}
                   aria-label="Selecionar grupo para associar ao plano de fundo"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-semibold focus:outline-none focus:border-pink-500 disabled:opacity-50 cursor-pointer"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-semibold focus:outline-none focus:border-pink-500 disabled:opacity-50 cursor-pointer"
                 >
                   {groups.length === 0 ? (
                     <option value="">Cadastre um grupo ao lado primeiro</option>
@@ -2342,7 +2603,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                 </select>
               </div>
               <label
-                className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shrink-0 transition-all ${
+                className={`w-full px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
                   backgrounds.length >= MAX_BACKGROUNDS || groups.length === 0
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                     : 'bg-pink-600 hover:bg-pink-500 text-white cursor-pointer shadow-lg shadow-pink-600/20'
@@ -2350,7 +2611,7 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
               >
                 {isUploadingBg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 <span>
-                  {backgrounds.length >= MAX_BACKGROUNDS ? 'Limite 10/10 Atingido' : 'Incluir Plano de Fundo PNG'}
+                  {backgrounds.length >= MAX_BACKGROUNDS ? 'Limite 10/10 Atingido' : 'Criar / Incluir Plano de Fundo PNG'}
                 </span>
                 <input
                   type="file"
@@ -2365,8 +2626,14 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[520px] overflow-y-auto pr-1">
               {backgrounds.map((bg) => {
                 const linkedGroups = groups.filter((g) => g.backgroundId === bg.id);
+                const isEditingThisBg = editingBgId === bg.id;
                 return (
-                <div key={bg.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-3 space-y-2.5">
+                <div
+                  key={bg.id}
+                  className={`bg-slate-950 border rounded-2xl p-3 space-y-2.5 transition-all ${
+                    isEditingThisBg ? 'border-amber-500 shadow-md' : 'border-slate-800'
+                  }`}
+                >
                   <div className="relative aspect-square rounded-xl overflow-hidden bg-[repeating-conic-gradient(#1e293b_0%_25%,#0f172a_0%_50%)] bg-[length:16px_16px] border border-slate-800">
                     <img src={bg.imageUrl} alt={bg.name} className="w-full h-full object-contain" />
                     <div
@@ -2380,54 +2647,114 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                       title="Área transparente detectada para o rosto"
                     />
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-white truncate">{bg.name}</p>
-                      {linkedGroups.length > 0 && (
-                        <p className="text-[10px] text-pink-300 font-semibold truncate">
-                          Grupo: {linkedGroups.map((g) => g.name).join(', ')}
+
+                  {isEditingThisBg ? (
+                    <div className="space-y-2 pt-1">
+                      <input
+                        type="text"
+                        value={editingBgName}
+                        onChange={(e) => setEditingBgName(e.target.value)}
+                        placeholder="Nome do plano de fundo"
+                        className="w-full bg-slate-900 border border-amber-500/60 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none"
+                      />
+                      <label className="w-full py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer border border-slate-700">
+                        <Upload className="w-3 h-3" />
+                        <span>Substituir Imagem PNG</span>
+                        <input
+                          type="file"
+                          accept="image/png"
+                          disabled={isUploadingBg}
+                          onChange={(e) => handleReplaceBackgroundPng(bg, e)}
+                          className="hidden"
+                        />
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveBackgroundEdit(bg)}
+                          className="flex-1 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center gap-1"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Salvar</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingBgId(null);
+                            setEditingBgName('');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold"
+                          title="Cancelar edição"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-white truncate">{bg.name}</p>
+                        {linkedGroups.length > 0 && (
+                          <p className="text-[10px] text-pink-300 font-semibold truncate">
+                            Grupo: {linkedGroups.map((g) => g.name).join(', ')}
+                          </p>
+                        )}
+                        <p className="text-[10px] text-emerald-400 truncate">
+                          Janela: {bg.cutoutRect.width.toFixed(0)}% × {bg.cutoutRect.height.toFixed(0)}%
                         </p>
-                      )}
-                      <p className="text-[10px] text-emerald-400 truncate">
-                        Janela: {bg.cutoutRect.width.toFixed(0)}% × {bg.cutoutRect.height.toFixed(0)}%
-                      </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingBgId(bg.id);
+                            setEditingBgName(bg.name);
+                          }}
+                          title="Editar plano de fundo"
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-600/30 text-amber-300"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => analyzeBackgroundWithAI(bg)}
+                          disabled={bgAiBusyId === bg.id}
+                          title="IA analisar área livre de elementos"
+                          className="p-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-300"
+                        >
+                          {bgAiBusyId === bg.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (backgrounds.length <= 1) {
+                              notify('Mantenha pelo menos 1 plano de fundo ativo.');
+                              return;
+                            }
+                            if (window.confirm(`Excluir plano de fundo "${bg.name}"?`)) {
+                              onDeleteBackground(bg.id);
+                              if (editingBgId === bg.id) {
+                                setEditingBgId(null);
+                                setEditingBgName('');
+                              }
+                              onRecordAudit({
+                                actorName: actorIdentity.name,
+                                actorEmail: actorIdentity.email,
+                                actorRole: actorIdentity.role,
+                                action: 'Excluiu Plano de Fundo PNG',
+                                targetType: 'plano_de_fundo',
+                                targetLabel: bg.name,
+                              });
+                            }
+                          }}
+                          title="Excluir plano de fundo"
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/30 text-rose-400"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => analyzeBackgroundWithAI(bg)}
-                        disabled={bgAiBusyId === bg.id}
-                        title="IA analisar área livre de elementos"
-                        className="p-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-300"
-                      >
-                        {bgAiBusyId === bg.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (backgrounds.length <= 1) {
-                            notify('Mantenha pelo menos 1 plano de fundo ativo.');
-                            return;
-                          }
-                          if (window.confirm(`Excluir plano de fundo "${bg.name}"?`)) {
-                            onDeleteBackground(bg.id);
-                            onRecordAudit({
-                              actorName: actorIdentity.name,
-                              actorEmail: actorIdentity.email,
-                              actorRole: actorIdentity.role,
-                              action: 'Excluiu Plano de Fundo PNG',
-                              targetType: 'plano_de_fundo',
-                              targetLabel: bg.name,
-                            });
-                          }
-                        }}
-                        title="Excluir plano de fundo"
-                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/30 text-rose-400"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
+                  )}
                 </div>
                 );
               })}
@@ -2436,27 +2763,45 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
 
           {/* Card Grupos de Aniversariantes (Limite 10) */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-            <div>
+            <div className="flex items-center justify-between gap-2">
               <h3 className="text-base font-extrabold text-white flex items-center gap-2">
                 <Users className="w-4 h-4 text-indigo-400" />
-                <span>Grupos de Aniversariantes ({groups.length}/{MAX_GROUPS})</span>
+                <span>
+                  {editingGroupId
+                    ? 'Editar Grupo de Aniversariantes'
+                    : `Grupos de Aniversariantes (${groups.length}/${MAX_GROUPS})`}
+                </span>
               </h3>
+              {editingGroupId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingGroupId(null);
+                    setNewGroupName('');
+                    setNewGroupBgId(backgrounds[0]?.id || '');
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-bold flex items-center gap-1"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Cancelar</span>
+                </button>
+              )}
             </div>
 
-            <form onSubmit={handleAddGroup} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <form onSubmit={handleSaveGroupForm} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input
                   type="text"
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
                   placeholder="Nome do grupo (Ex: Jovens)"
-                  disabled={groups.length >= MAX_GROUPS}
+                  disabled={!editingGroupId && groups.length >= MAX_GROUPS}
                   className="bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                 />
                 <select
                   value={newGroupBgId}
                   onChange={(e) => setNewGroupBgId(e.target.value)}
-                  disabled={groups.length >= MAX_GROUPS}
+                  disabled={!editingGroupId && groups.length >= MAX_GROUPS}
                   className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
                 >
                   {backgrounds.map((bg) => (
@@ -2468,30 +2813,44 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
               </div>
               <button
                 type="submit"
-                disabled={groups.length >= MAX_GROUPS || !newGroupName.trim()}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                disabled={(!editingGroupId && groups.length >= MAX_GROUPS) || !newGroupName.trim()}
+                className={`w-full py-2.5 rounded-xl disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                  editingGroupId
+                    ? 'bg-amber-600 hover:bg-amber-500'
+                    : 'bg-indigo-600 hover:bg-indigo-500'
+                }`}
               >
-                <Plus className="w-4 h-4" />
-                <span>{groups.length >= MAX_GROUPS ? 'Limite 10/10 Grupos Atingido' : 'Incluir Grupo'}</span>
+                {editingGroupId ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                <span>
+                  {editingGroupId
+                    ? 'Salvar Alterações do Grupo'
+                    : groups.length >= MAX_GROUPS
+                    ? 'Limite 10/10 Grupos Atingido'
+                    : 'Criar / Incluir Grupo'}
+                </span>
               </button>
             </form>
 
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
               {groups.map((grp) => {
                 const count = people.filter((p) => p.groupId === grp.id).length;
+                const linkedBg = backgrounds.find((b) => b.id === grp.backgroundId);
+                const isEditingThisGrp = editingGroupId === grp.id;
                 return (
-                  <div key={grp.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div
+                    key={grp.id}
+                    className={`bg-slate-950 border rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                      isEditingThisGrp ? 'border-amber-500 shadow-md' : 'border-slate-800'
+                    }`}
+                  >
                     <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={grp.name}
-                        onChange={(e) => onUpdateGroup({ ...grp, name: e.target.value })}
-                        className="bg-transparent text-sm font-bold text-white focus:outline-none focus:border-b border-indigo-500 w-full"
-                      />
-                      <span className="text-[11px] text-slate-400">{count} aniversariante(s) neste grupo</span>
+                      <p className="text-sm font-bold text-white truncate">{grp.name}</p>
+                      <span className="text-[11px] text-slate-400">
+                        {count} aniversariante(s) • Fundo: <strong className="text-slate-200">{linkedBg?.name || 'Não definido'}</strong>
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <select
                         value={grp.backgroundId}
                         onChange={(e) => {
@@ -2519,12 +2878,33 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          setEditingGroupId(grp.id);
+                          setNewGroupName(grp.name);
+                          setNewGroupBgId(grp.backgroundId || backgrounds[0]?.id || '');
+                        }}
+                        title="Editar grupo"
+                        className={`p-2 rounded-lg transition-colors ${
+                          isEditingThisGrp
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-slate-800 hover:bg-amber-600/30 text-amber-300'
+                        }`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
                           if (groups.length <= 1) {
                             notify('Mantenha pelo menos 1 grupo ativo.');
                             return;
                           }
                           if (window.confirm(`Excluir grupo "${grp.name}"?`)) {
                             onDeleteGroup(grp.id);
+                            if (editingGroupId === grp.id) {
+                              setEditingGroupId(null);
+                              setNewGroupName('');
+                            }
                             onRecordAudit({
                               actorName: actorIdentity.name,
                               actorEmail: actorIdentity.email,
@@ -2724,6 +3104,243 @@ export const BirthdaysSection: React.FC<BirthdaysSectionProps> = ({
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* CARD / MODAL DE EDIÇÃO DO ANIVERSARIANTE & GERAÇÃO DE CARTÃO */}
+      {/* ============================================================ */}
+      {editModalPersonId && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+          onClick={closeEditPersonModal}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-bday-modal-title"
+        >
+          <div
+            className="w-full max-w-xl bg-slate-900 border border-indigo-500/40 rounded-3xl shadow-2xl p-5 sm:p-6 space-y-5 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cabeçalho do Card */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 id="edit-bday-modal-title" className="text-base font-extrabold text-white">
+                    Editar Aniversariante
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Edite as informações, foto e mensagem para gerar o cartão de felicitações.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditPersonModal}
+                aria-label="Fechar card de edição"
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Campos de Edição */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSaveEditModal(true);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Nome completo *</label>
+                <input
+                  type="text"
+                  required
+                  value={editModalName}
+                  onChange={(e) => setEditModalName(e.target.value)}
+                  placeholder="Ex: Maria Aparecida da Silva"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Dia *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    required
+                    value={editModalDay}
+                    onChange={(e) => setEditModalDay(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Mês *</label>
+                  <select
+                    value={editModalMonth}
+                    onChange={(e) => setEditModalMonth(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {PORTUGUESE_MONTHS_SHORT.map((m, idx) => (
+                      <option key={m} value={idx + 1}>
+                        {idx + 1} - {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                    Grupo (Define o Plano de Fundo) *
+                  </label>
+                  <select
+                    value={editModalGroupId}
+                    onChange={(e) => setEditModalGroupId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {groups.map((g) => {
+                      const bg = backgrounds.find((b) => b.id === g.backgroundId);
+                      return (
+                        <option key={g.id} value={g.id}>
+                          {g.name} ({bg?.name || 'Sem fundo'})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Mensagem de Parabéns</label>
+                  <select
+                    value={editModalMessageId}
+                    onChange={(e) => setEditModalMessageId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {messages.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Prévia do Texto da Mensagem Selecionada */}
+              {messages.find((m) => m.id === editModalMessageId)?.text && (
+                <div className="bg-slate-950/70 border border-slate-800 rounded-xl px-3.5 py-2.5 text-[11px] text-slate-300 leading-relaxed">
+                  <span className="font-bold text-purple-300 block mb-0.5">Texto no cartão:</span>
+                  {messages.find((m) => m.id === editModalMessageId)?.text}
+                </div>
+              )}
+
+              {/* Foto da Pessoa */}
+              <div className="bg-slate-950 border border-dashed border-slate-700 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-bold text-white block">Foto do Aniversariante</span>
+                    <span className="text-[11px] text-slate-400">
+                      {editModalFramingStatus || 'Envie ou atualize a foto para enquadrar no plano de fundo.'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {editModalPhotoUrl && (
+                      <button
+                        type="button"
+                        disabled={isEditModalFraming || isFramingPhoto}
+                        onClick={async () => {
+                          setIsEditModalFraming(true);
+                          try {
+                            const chosenGroup = groups.find((g) => g.id === editModalGroupId);
+                            const chosenBg =
+                              backgrounds.find((b) => b.id === chosenGroup?.backgroundId) || backgrounds[0];
+                            const framed = await runAiFaceFraming(editModalPhotoUrl, chosenBg);
+                            setEditModalPhotoTransform(framed);
+                            setEditModalFramingStatus('✨ Rosto re-enquadrado pela IA!');
+                          } finally {
+                            setIsEditModalFraming(false);
+                          }
+                        }}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs font-bold flex items-center gap-1.5 border border-slate-700 disabled:opacity-50"
+                      >
+                        {isEditModalFraming ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Wand2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Re-enquadrar IA</span>
+                      </button>
+                    )}
+
+                    <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all">
+                      {isEditModalFraming ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5" />
+                      )}
+                      <span>{editModalPhotoUrl ? 'Trocar Foto' : 'Enviar Foto'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={isEditModalFraming}
+                        onChange={handleEditModalPhotoUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {editModalPhotoUrl && (
+                  <div className="flex items-center gap-3 pt-1">
+                    <img
+                      src={editModalPhotoUrl}
+                      alt={editModalName || 'Prévia'}
+                      className="w-16 h-16 rounded-xl object-cover border border-slate-700 shrink-0"
+                    />
+                    <div className="text-[11px] text-emerald-300">
+                      Foto pronta para o cartão ({formatBirthdayDay(editModalDay)}/{formatBirthdayMonthShort(editModalMonth)}).
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botões de Ação */}
+              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={closeEditPersonModal}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isEditModalFraming || !editModalName.trim()}
+                  onClick={() => handleSaveEditModal(false)}
+                  className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-colors"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Salvar Alterações</span>
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditModalFraming || !editModalName.trim()}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg shadow-indigo-600/20 transition-all"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  <span>Salvar e Gerar Cartão</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

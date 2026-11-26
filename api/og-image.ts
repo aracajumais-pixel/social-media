@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { formatOgImageTo3x4Jpeg } from './_ogFormatter';
 
 type VercelReq = IncomingMessage & {
   query?: Record<string, string | string[] | undefined>;
@@ -57,13 +58,26 @@ async function fetchImageBuffer(url: string, timeoutMs = 5000): Promise<{ buffer
     const ct = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     if (!ct.startsWith('image/') || ct === 'image/svg+xml') return null;
     const arrBuf = await resp.arrayBuffer();
-    if (!arrBuf || arrBuf.byteLength === 0 || arrBuf.byteLength > 5 * 1024 * 1024) return null;
+    if (!arrBuf || arrBuf.byteLength === 0 || arrBuf.byteLength > 12 * 1024 * 1024) return null;
     return { buffer: Buffer.from(arrBuf), contentType: ct };
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function sendFormattedOgResponse(
+  res: ServerResponse,
+  rawBuffer: Buffer,
+  fallbackContentType = 'image/jpeg'
+) {
+  const formatted = await formatOgImageTo3x4Jpeg(rawBuffer, fallbackContentType);
+  res.statusCode = 200;
+  res.setHeader('Content-Type', formatted.contentType);
+  res.setHeader('Content-Length', String(formatted.buffer.length));
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  return res.end(formatted.buffer);
 }
 
 async function sendFallbackImage(req: VercelReq, res: ServerResponse) {
@@ -76,11 +90,7 @@ async function sendFallbackImage(req: VercelReq, res: ServerResponse) {
   for (const filePath of candidates) {
     try {
       const buf = await fs.readFile(filePath);
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Content-Length', String(buf.length));
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.end(buf);
+      return await sendFormattedOgResponse(res, buf, 'image/jpeg');
     } catch {
       // try next
     }
@@ -90,11 +100,7 @@ async function sendFallbackImage(req: VercelReq, res: ServerResponse) {
   if (origin) {
     const fetched = await fetchImageBuffer(`${origin}/og-default.jpg`);
     if (fetched) {
-      res.statusCode = 200;
-      res.setHeader('Content-Type', fetched.contentType);
-      res.setHeader('Content-Length', String(fetched.buffer.length));
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.end(fetched.buffer);
+      return await sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
     }
   }
 
@@ -162,11 +168,7 @@ export default async function handler(req: VercelReq, res: ServerResponse) {
     const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(mediaUrl);
     if (match && match[1].toLowerCase() !== 'image/svg+xml') {
       const buf = Buffer.from(match[2], 'base64');
-      res.statusCode = 200;
-      res.setHeader('Content-Type', match[1]);
-      res.setHeader('Content-Length', String(buf.length));
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.end(buf);
+      return sendFormattedOgResponse(res, buf, match[1]);
     }
     return sendFallbackImage(req, res);
   }
@@ -177,11 +179,7 @@ export default async function handler(req: VercelReq, res: ServerResponse) {
     if (origin) {
       const fetched = await fetchImageBuffer(`${origin}${mediaUrl}`);
       if (fetched) {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', fetched.contentType);
-        res.setHeader('Content-Length', String(fetched.buffer.length));
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        return res.end(fetched.buffer);
+        return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
       }
     }
     return sendFallbackImage(req, res);
@@ -199,11 +197,7 @@ export default async function handler(req: VercelReq, res: ServerResponse) {
       for (const candidate of candidates) {
         const fetched = await fetchImageBuffer(candidate);
         if (fetched) {
-          res.statusCode = 200;
-          res.setHeader('Content-Type', fetched.contentType);
-          res.setHeader('Content-Length', String(fetched.buffer.length));
-          res.setHeader('Cache-Control', 'public, max-age=3600');
-          return res.end(fetched.buffer);
+          return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
         }
       }
     }
@@ -214,11 +208,7 @@ export default async function handler(req: VercelReq, res: ServerResponse) {
   if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) {
     const fetched = await fetchImageBuffer(mediaUrl);
     if (fetched) {
-      res.statusCode = 200;
-      res.setHeader('Content-Type', fetched.contentType);
-      res.setHeader('Content-Length', String(fetched.buffer.length));
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.end(fetched.buffer);
+      return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
     }
   }
 

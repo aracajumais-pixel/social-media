@@ -7,7 +7,7 @@ import {
 } from '../types';
 import {
   formatBirthdayDay,
-  formatBirthdayGreetingLines,
+  formatBirthdayDisplayName,
   formatBirthdayMonthShort,
 } from '../utils/birthdayCanvas';
 import { RotateCw } from 'lucide-react';
@@ -209,7 +209,7 @@ export const BirthdayInteractiveCanvas: React.FC<BirthdayInteractiveCanvasProps>
 
   const dayStr = formatBirthdayDay(person.birthDay);
   const monthStr = formatBirthdayMonthShort(person.birthMonth);
-  const [greetingLine1, greetingLine2] = formatBirthdayGreetingLines(person.name);
+  const displayName = formatBirthdayDisplayName(person.name);
 
   const renderHandles = (key: EditableBirthdayElementKey) => {
     if (selectedElement !== key || readOnly) return null;
@@ -343,7 +343,7 @@ export const BirthdayInteractiveCanvas: React.FC<BirthdayInteractiveCanvasProps>
           </span>
         </div>
 
-        {/* CAMADA 3B: OBJETO NOME ("Parabéns,\n  {nome}!" em fonte manuscrita, SEMPRE PRETO) */}
+        {/* CAMADA 3B: OBJETO NOME ("{nome}!" em fonte manuscrita, SEMPRE PRETO) */}
         <div
           onPointerDown={(e) => startMove(e, 'name')}
           onClick={(e) => e.stopPropagation()}
@@ -372,8 +372,7 @@ export const BirthdayInteractiveCanvas: React.FC<BirthdayInteractiveCanvasProps>
               wordBreak: 'break-word',
             }}
           >
-            <div>{greetingLine1}</div>
-            <div>{greetingLine2}</div>
+            <div>{displayName}</div>
           </div>
         </div>
 

@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import { formatOgImageTo3x4Jpeg, OG_IMAGE_HEIGHT, OG_IMAGE_WIDTH } from './api/_ogFormatter';
 
 dotenv.config();
 
@@ -120,13 +121,25 @@ async function fetchImageBuffer(url: string, timeoutMs = 5000): Promise<{ buffer
     const ct = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     if (!ct.startsWith('image/') || ct === 'image/svg+xml') return null;
     const arrBuf = await resp.arrayBuffer();
-    if (!arrBuf || arrBuf.byteLength === 0 || arrBuf.byteLength > 5 * 1024 * 1024) return null;
+    if (!arrBuf || arrBuf.byteLength === 0 || arrBuf.byteLength > 12 * 1024 * 1024) return null;
     return { buffer: Buffer.from(arrBuf), contentType: ct };
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function sendFormattedOgResponse(
+  res: express.Response,
+  rawBuffer: Buffer,
+  fallbackContentType = 'image/jpeg'
+) {
+  const formatted = await formatOgImageTo3x4Jpeg(rawBuffer, fallbackContentType);
+  res.setHeader('Content-Type', formatted.contentType);
+  res.setHeader('Content-Length', String(formatted.buffer.length));
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  return res.status(200).send(formatted.buffer);
 }
 
 async function sendFallbackOgImage(res: express.Response) {
@@ -139,10 +152,7 @@ async function sendFallbackOgImage(res: express.Response) {
   for (const filePath of candidates) {
     try {
       const buf = await fs.readFile(filePath);
-      res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Content-Length', String(buf.length));
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.status(200).send(buf);
+      return await sendFormattedOgResponse(res, buf, 'image/jpeg');
     } catch {
       // try next candidate
     }
@@ -161,10 +171,7 @@ async function serveOgImageFromMediaUrl(mediaUrl: string | undefined, res: expre
     const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(url);
     if (match && match[1].toLowerCase() !== 'image/svg+xml') {
       const buf = Buffer.from(match[2], 'base64');
-      res.setHeader('Content-Type', match[1]);
-      res.setHeader('Content-Length', String(buf.length));
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.status(200).send(buf);
+      return sendFormattedOgResponse(res, buf, match[1]);
     }
     return sendFallbackOgImage(res);
   }
@@ -181,10 +188,7 @@ async function serveOgImageFromMediaUrl(mediaUrl: string | undefined, res: expre
         const buf = await fs.readFile(filePath);
         const ext = path.extname(filePath).toLowerCase();
         const ct = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-        res.setHeader('Content-Type', ct);
-        res.setHeader('Content-Length', String(buf.length));
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        return res.status(200).send(buf);
+        return await sendFormattedOgResponse(res, buf, ct);
       } catch {
         // continue
       }
@@ -204,10 +208,7 @@ async function serveOgImageFromMediaUrl(mediaUrl: string | undefined, res: expre
       for (const candidate of driveCandidates) {
         const fetched = await fetchImageBuffer(candidate);
         if (fetched) {
-          res.setHeader('Content-Type', fetched.contentType);
-          res.setHeader('Content-Length', String(fetched.buffer.length));
-          res.setHeader('Cache-Control', 'public, max-age=3600');
-          return res.status(200).send(fetched.buffer);
+          return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
         }
       }
     }
@@ -218,10 +219,7 @@ async function serveOgImageFromMediaUrl(mediaUrl: string | undefined, res: expre
   if (url.startsWith('http://') || url.startsWith('https://')) {
     const fetched = await fetchImageBuffer(url);
     if (fetched) {
-      res.setHeader('Content-Type', fetched.contentType);
-      res.setHeader('Content-Length', String(fetched.buffer.length));
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.status(200).send(fetched.buffer);
+      return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
     }
   }
 
@@ -372,6 +370,9 @@ function injectOpenGraphMetaTags(
     imageUrl: string;
     siteName?: string;
     origin?: string;
+    imageWidth?: number;
+    imageHeight?: number;
+    imageType?: string;
   }
 ): string {
   const safeTitle = escapeHtmlAttr(meta.title);
@@ -407,6 +408,10 @@ function injectOpenGraphMetaTags(
     `<meta property="og:url" content="${safeUrl}" />`,
     `<meta property="og:image" content="${safeImage}" />`,
     `<meta property="og:image:secure_url" content="${safeImage}" />`,
+    ...(meta.imageType ? [`<meta property="og:image:type" content="${escapeHtmlAttr(meta.imageType)}" />`] : []),
+    ...(meta.imageWidth ? [`<meta property="og:image:width" content="${meta.imageWidth}" />`] : []),
+    ...(meta.imageHeight ? [`<meta property="og:image:height" content="${meta.imageHeight}" />`] : []),
+    `<meta property="og:image:alt" content="${safeTitle}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${safeTitle}" />`,
     `<meta name="twitter:description" content="${safeDesc}" />`,
@@ -439,8 +444,8 @@ async function buildEnrichedHtmlForRequest(
     const canonicalPath = `/p/${encodeURIComponent(token)}`;
     const shareUrl = origin ? `${origin}${canonicalPath}` : canonicalPath;
     const ogImage = origin
-      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg`
-      : `/api/og-image/${encodeURIComponent(token)}.jpg`;
+      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`
+      : `/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`;
 
     if (post) {
       const titleText = clientName
@@ -458,6 +463,9 @@ async function buildEnrichedHtmlForRequest(
         imageUrl: ogImage,
         siteName: clientName ? `${clientName} • Social Media 5.0` : 'Social Media 5.0',
         origin,
+        imageWidth: OG_IMAGE_WIDTH,
+        imageHeight: OG_IMAGE_HEIGHT,
+        imageType: 'image/jpeg',
       });
     }
 
@@ -481,8 +489,8 @@ async function buildEnrichedHtmlForRequest(
       : `/mural/${encodeURIComponent(clientParam)}`;
     const shareUrl = origin ? `${origin}${querySuffix}` : querySuffix;
     const ogImage = origin
-      ? `${origin}/api/og-client-image/${encodeURIComponent(clientParam)}.jpg`
-      : `/api/og-client-image/${encodeURIComponent(clientParam)}.jpg`;
+      ? `${origin}/api/og-client-image/${encodeURIComponent(clientParam)}.jpg?v=3x4`
+      : `/api/og-client-image/${encodeURIComponent(clientParam)}.jpg?v=3x4`;
 
     return injectOpenGraphMetaTags(baseHtml, {
       title: mural ? `Mural de Aprovações — ${mural.name}` : 'Mural Exclusivo de Aprovações — Social Media 5.0',
@@ -493,6 +501,9 @@ async function buildEnrichedHtmlForRequest(
       imageUrl: ogImage,
       siteName: mural ? `${mural.name} • Social Media 5.0` : 'Social Media 5.0',
       origin,
+      imageWidth: OG_IMAGE_WIDTH,
+      imageHeight: OG_IMAGE_HEIGHT,
+      imageType: 'image/jpeg',
     });
   }
 
