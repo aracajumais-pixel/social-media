@@ -444,8 +444,8 @@ async function buildEnrichedHtmlForRequest(
     const canonicalPath = `/p/${encodeURIComponent(token)}`;
     const shareUrl = origin ? `${origin}${canonicalPath}` : canonicalPath;
     const ogImage = origin
-      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`
-      : `/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`;
+      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4s`
+      : `/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4s`;
 
     if (post) {
       const titleText = clientName
@@ -489,8 +489,8 @@ async function buildEnrichedHtmlForRequest(
       : `/mural/${encodeURIComponent(clientParam)}`;
     const shareUrl = origin ? `${origin}${querySuffix}` : querySuffix;
     const ogImage = origin
-      ? `${origin}/api/og-client-image/${encodeURIComponent(clientParam)}.jpg?v=3x4`
-      : `/api/og-client-image/${encodeURIComponent(clientParam)}.jpg?v=3x4`;
+      ? `${origin}/api/og-client-image/${encodeURIComponent(clientParam)}.jpg?v=3x4s`
+      : `/api/og-client-image/${encodeURIComponent(clientParam)}.jpg?v=3x4s`;
 
     return injectOpenGraphMetaTags(baseHtml, {
       title: mural ? `Mural de Aprovações — ${mural.name}` : 'Mural Exclusivo de Aprovações — Social Media 5.0',

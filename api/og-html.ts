@@ -248,8 +248,8 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const { post, clientName } = await fetchPostAndClientByToken(token);
     const shareUrl = origin ? `${origin}/p/${encodeURIComponent(token)}` : `/p/${encodeURIComponent(token)}`;
     const ogImage = origin
-      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`
-      : `/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4`;
+      ? `${origin}/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4s`
+      : `/api/og-image/${encodeURIComponent(token)}.jpg?v=3x4s`;
 
     if (post) {
       const titleText = clientName ? `${clientName}: "${post.title}"` : `${post.title} — Social Media 5.0`;
@@ -265,8 +265,8 @@ export default async function handler(req: VercelReq, res: VercelRes) {
         imageUrl: ogImage,
         siteName: clientName ? `${clientName} • Social Media 5.0` : 'Social Media 5.0',
         origin,
-        imageWidth: 900,
-        imageHeight: 1200,
+        imageWidth: 600,
+        imageHeight: 800,
         imageType: 'image/jpeg',
       });
     } else {
@@ -287,8 +287,8 @@ export default async function handler(req: VercelReq, res: VercelRes) {
       : `/mural/${encodeURIComponent(clientId)}`;
     const shareUrl = origin ? `${origin}${pathUrl}` : pathUrl;
     const ogImage = origin
-      ? `${origin}/api/og-client-image/${encodeURIComponent(clientId)}.jpg?v=3x4`
-      : `/api/og-client-image/${encodeURIComponent(clientId)}.jpg?v=3x4`;
+      ? `${origin}/api/og-client-image/${encodeURIComponent(clientId)}.jpg?v=3x4s`
+      : `/api/og-client-image/${encodeURIComponent(clientId)}.jpg?v=3x4s`;
 
     enrichedHtml = injectOpenGraphMetaTags(baseHtml, {
       title: mural ? `Mural de Aprovações — ${mural.name}` : 'Mural Exclusivo de Aprovações — Social Media 5.0',
@@ -299,8 +299,8 @@ export default async function handler(req: VercelReq, res: VercelRes) {
       imageUrl: ogImage,
       siteName: mural ? `${mural.name} • Social Media 5.0` : 'Social Media 5.0',
       origin,
-      imageWidth: 900,
-      imageHeight: 1200,
+      imageWidth: 600,
+      imageHeight: 800,
       imageType: 'image/jpeg',
     });
   } else {

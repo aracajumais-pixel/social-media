@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { formatOgImageTo3x4Jpeg } from './_ogFormatter';
+
+const OG_IMAGE_WIDTH = 600;
+const OG_IMAGE_HEIGHT = 800;
+const MAX_WHATSAPP_OG_BYTES = 180 * 1024;
 
 type VercelReq = IncomingMessage & {
   query?: Record<string, string | string[] | undefined>;
@@ -42,6 +45,82 @@ function extractDriveFileId(url: string): string | null {
   return match?.[1] || null;
 }
 
+async function formatBufferTo3x4Jpeg(
+  inputBuffer: Buffer,
+  fallbackContentType = 'image/jpeg'
+): Promise<{ buffer: Buffer; contentType: string }> {
+  try {
+    const sharpMod = await import('sharp');
+    const sharp = sharpMod.default;
+    const base = sharp(inputBuffer, { failOn: 'none' }).rotate();
+    const meta = await base.metadata();
+    const srcW = meta.width || OG_IMAGE_WIDTH;
+    const srcH = meta.height || OG_IMAGE_HEIGHT;
+    const srcAspect = srcW / Math.max(1, srcH);
+
+    let composed: ReturnType<typeof sharp>;
+
+    if (srcAspect <= 0.9) {
+      composed = sharp(inputBuffer, { failOn: 'none' })
+        .rotate()
+        .resize(OG_IMAGE_WIDTH, OG_IMAGE_HEIGHT, {
+          fit: 'cover',
+          position: 'attention',
+        });
+    } else {
+      const blurredBackdrop = await sharp(inputBuffer, { failOn: 'none' })
+        .rotate()
+        .resize(OG_IMAGE_WIDTH, OG_IMAGE_HEIGHT, {
+          fit: 'cover',
+          position: 'centre',
+        })
+        .blur(20)
+        .modulate({ brightness: 0.72, saturation: 1.05 })
+        .toBuffer();
+
+      const foreground = await sharp(inputBuffer, { failOn: 'none' })
+        .rotate()
+        .resize(OG_IMAGE_WIDTH, OG_IMAGE_HEIGHT, {
+          fit: 'inside',
+          withoutEnlargement: false,
+        })
+        .toBuffer();
+
+      composed = sharp(blurredBackdrop).composite([
+        {
+          input: foreground,
+          gravity: 'centre',
+        },
+      ]);
+    }
+
+    const flattened = composed.flatten({ background: '#111b21' });
+    let outBuffer = await flattened
+      .clone()
+      .jpeg({ quality: 78, progressive: true, mozjpeg: true })
+      .toBuffer();
+
+    if (outBuffer.length > MAX_WHATSAPP_OG_BYTES) {
+      outBuffer = await flattened
+        .clone()
+        .jpeg({ quality: 66, progressive: true, mozjpeg: true })
+        .toBuffer();
+    }
+
+    if (outBuffer.length > MAX_WHATSAPP_OG_BYTES) {
+      outBuffer = await flattened
+        .clone()
+        .jpeg({ quality: 54, progressive: true, mozjpeg: true })
+        .toBuffer();
+    }
+
+    return { buffer: outBuffer, contentType: 'image/jpeg' };
+  } catch (err) {
+    console.warn('OG 3:4 formatter fallback:', err);
+    return { buffer: inputBuffer, contentType: fallbackContentType };
+  }
+}
+
 async function fetchImageBuffer(url: string, timeoutMs = 5000): Promise<{ buffer: Buffer; contentType: string } | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -72,7 +151,7 @@ async function sendFormattedOgResponse(
   rawBuffer: Buffer,
   fallbackContentType = 'image/jpeg'
 ) {
-  const formatted = await formatOgImageTo3x4Jpeg(rawBuffer, fallbackContentType);
+  const formatted = await formatBufferTo3x4Jpeg(rawBuffer, fallbackContentType);
   res.statusCode = 200;
   res.setHeader('Content-Type', formatted.contentType);
   res.setHeader('Content-Length', String(formatted.buffer.length));
@@ -158,59 +237,64 @@ async function lookupMediaUrl(req: VercelReq): Promise<string> {
 }
 
 export default async function handler(req: VercelReq, res: ServerResponse) {
-  const mediaUrl = (await lookupMediaUrl(req)).trim();
-  if (!mediaUrl) {
-    return sendFallbackImage(req, res);
-  }
-
-  // 1. Base64 data URI
-  if (mediaUrl.startsWith('data:image/')) {
-    const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(mediaUrl);
-    if (match && match[1].toLowerCase() !== 'image/svg+xml') {
-      const buf = Buffer.from(match[2], 'base64');
-      return sendFormattedOgResponse(res, buf, match[1]);
+  try {
+    const mediaUrl = (await lookupMediaUrl(req)).trim();
+    if (!mediaUrl) {
+      return sendFallbackImage(req, res);
     }
-    return sendFallbackImage(req, res);
-  }
 
-  // 2. Relative path on same origin
-  if (mediaUrl.startsWith('/') && !mediaUrl.startsWith('//')) {
-    const origin = getRequestOrigin(req);
-    if (origin) {
-      const fetched = await fetchImageBuffer(`${origin}${mediaUrl}`);
-      if (fetched) {
-        return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
+    // 1. Base64 data URI
+    if (mediaUrl.startsWith('data:image/')) {
+      const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(mediaUrl);
+      if (match && match[1].toLowerCase() !== 'image/svg+xml') {
+        const buf = Buffer.from(match[2], 'base64');
+        return sendFormattedOgResponse(res, buf, match[1]);
       }
+      return sendFallbackImage(req, res);
     }
-    return sendFallbackImage(req, res);
-  }
 
-  // 3. Google Drive link
-  if (mediaUrl.includes('drive.google.com') || mediaUrl.includes('googleusercontent.com')) {
-    const driveId = extractDriveFileId(mediaUrl);
-    if (driveId) {
-      const candidates = [
-        `https://drive.google.com/thumbnail?id=${driveId}&sz=w1200`,
-        `https://lh3.googleusercontent.com/d/${driveId}=w1200`,
-        `https://drive.google.com/uc?export=view&id=${driveId}`,
-      ];
-      for (const candidate of candidates) {
-        const fetched = await fetchImageBuffer(candidate);
+    // 2. Relative path on same origin
+    if (mediaUrl.startsWith('/') && !mediaUrl.startsWith('//')) {
+      const origin = getRequestOrigin(req);
+      if (origin) {
+        const fetched = await fetchImageBuffer(`${origin}${mediaUrl}`);
         if (fetched) {
           return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
         }
       }
+      return sendFallbackImage(req, res);
     }
+
+    // 3. Google Drive link
+    if (mediaUrl.includes('drive.google.com') || mediaUrl.includes('googleusercontent.com')) {
+      const driveId = extractDriveFileId(mediaUrl);
+      if (driveId) {
+        const candidates = [
+          `https://drive.google.com/thumbnail?id=${driveId}&sz=w1200`,
+          `https://lh3.googleusercontent.com/d/${driveId}=w1200`,
+          `https://drive.google.com/uc?export=view&id=${driveId}`,
+        ];
+        for (const candidate of candidates) {
+          const fetched = await fetchImageBuffer(candidate);
+          if (fetched) {
+            return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
+          }
+        }
+      }
+      return sendFallbackImage(req, res);
+    }
+
+    // 4. Remote HTTP(S) image (Supabase Storage, Unsplash, etc.)
+    if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) {
+      const fetched = await fetchImageBuffer(mediaUrl);
+      if (fetched) {
+        return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
+      }
+    }
+
+    return sendFallbackImage(req, res);
+  } catch (err) {
+    console.error('Unhandled error in /api/og-image:', err);
     return sendFallbackImage(req, res);
   }
-
-  // 4. Remote HTTP(S) image (Supabase Storage, Unsplash, etc.)
-  if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) {
-    const fetched = await fetchImageBuffer(mediaUrl);
-    if (fetched) {
-      return sendFormattedOgResponse(res, fetched.buffer, fetched.contentType);
-    }
-  }
-
-  return sendFallbackImage(req, res);
 }
