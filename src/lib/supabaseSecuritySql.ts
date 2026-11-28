@@ -20,18 +20,32 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Garante compatibilidade caso public.profiles já existisse com restrições antigas (ex: sem 'social_media' no CHECK)
+-- Garante compatibilidade caso public.profiles já existisse com tipo ENUM (ex: user_role) ou restrições antigas
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'social_media';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'social_media';
 
 DO $$
 DECLARE
   c RECORD;
+  p RECORD;
 BEGIN
+  -- 1) Remove políticas antigas que possam referenciar profiles.role ou tipo user_role (serão recriadas na seção 10)
+  FOR p IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN (
+        'profiles', 'clients', 'posts', 'post_comments_audit',
+        'social_medias', 'approval_records', 'client_tasks', 'inspirations', 'receipts'
+      )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', p.policyname, p.schemaname, p.tablename);
+  END LOOP;
+
+  -- 2) Remove constraints CHECK antigas em public.profiles
   FOR c IN
     SELECT conname
     FROM pg_constraint
@@ -40,11 +54,20 @@ BEGIN
   LOOP
     EXECUTE format('ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS %I', c.conname);
   END LOOP;
+
+  -- 3) Converte role de eventual ENUM (user_role) para TEXT sem erro de cast
+  ALTER TABLE public.profiles ALTER COLUMN role DROP DEFAULT;
+  ALTER TABLE public.profiles ALTER COLUMN role TYPE TEXT USING role::text;
+  ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'social_media';
 END $$;
 
 UPDATE public.profiles
-SET role = 'social_media'
-WHERE role IS NULL OR role NOT IN ('DEVWEBAPP', 'social_media', 'client');
+SET role = CASE
+  WHEN role::text IN ('DEVWEBAPP', 'gestor') THEN 'DEVWEBAPP'
+  WHEN role::text IN ('client', 'cliente') THEN 'client'
+  ELSE 'social_media'
+END
+WHERE role IS NULL OR role::text NOT IN ('DEVWEBAPP', 'social_media', 'client');
 
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_role_check
@@ -215,6 +238,7 @@ AS $$
   SELECT lower(coalesce(auth.jwt() ->> 'email', ''));
 $$;
 
+DROP FUNCTION IF EXISTS public.current_app_role() CASCADE;
 CREATE OR REPLACE FUNCTION public.current_app_role()
 RETURNS TEXT
 LANGUAGE SQL
@@ -222,7 +246,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+  SELECT role::text FROM public.profiles WHERE id = auth.uid() LIMIT 1;
 $$;
 
 CREATE OR REPLACE FUNCTION public.is_gestor()
