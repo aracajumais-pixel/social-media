@@ -1190,6 +1190,8 @@ export async function resolveAuthenticatedAppRole(user: {
   }
 
   // Se criado sem registro em profiles, prioriza vínculo na tabela social_medias / clients; caso contrário entra sempre como social_media
+  let resolvedRole: UserRole = 'social_media';
+  let resolvedName = fallbackName;
   const userEmail = (user.email || '').trim().toLowerCase();
   if (userEmail) {
     try {
@@ -1200,25 +1202,42 @@ export async function resolveAuthenticatedAppRole(user: {
         .limit(1)
         .maybeSingle();
       if (smRow) {
-        return { role: 'social_media', fullName: smRow.name || fallbackName };
-      }
-      const { data: clientRow } = await clientDb
-        .from('clients')
-        .select('id, contact_name, name')
-        .ilike('email', userEmail)
-        .limit(1)
-        .maybeSingle();
-      if (clientRow) {
-        return { role: 'cliente', fullName: clientRow.contact_name || clientRow.name || fallbackName };
+        resolvedRole = 'social_media';
+        resolvedName = smRow.name || fallbackName;
+      } else {
+        const { data: clientRow } = await clientDb
+          .from('clients')
+          .select('id, contact_name, name')
+          .ilike('email', userEmail)
+          .limit(1)
+          .maybeSingle();
+        if (clientRow) {
+          resolvedRole = 'cliente';
+          resolvedName = clientRow.contact_name || clientRow.name || fallbackName;
+        }
       }
     } catch {
       // ignore
     }
   }
 
+  // Garante criação do perfil caso o usuário já existisse no Auth antes da tabela profiles
+  if (user.id && userEmail) {
+    try {
+      await clientDb.from('profiles').insert([{
+        id: user.id,
+        email: userEmail,
+        full_name: resolvedName,
+        role: mapAppRoleToSupabaseRole(resolvedRole)
+      }]);
+    } catch {
+      // ignore (ex: RLS ou perfil já existente)
+    }
+  }
+
   return {
-    role: 'social_media',
-    fullName: fallbackName
+    role: resolvedRole,
+    fullName: resolvedName
   };
 }
 

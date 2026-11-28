@@ -151,6 +151,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onAuthenticated }) => {
           const sMsg = String(signUpErr?.message || '').toLowerCase();
           if (sMsg.includes('already registered') || sMsg.includes('already exists')) {
             setErrorMsg('E-mail ou senha incorretos.');
+          } else if (sMsg.includes('database error saving new user')) {
+            setErrorMsg(
+              'O banco Supabase rejeitou o registro do novo perfil ("Database error saving new user"). Execute o script atualizado em md/SUPABASE_EXECUCAO.sql no SQL Editor do Supabase para atualizar a tabela profiles e a trigger handle_new_user.'
+            );
           } else {
             setErrorMsg(signUpErr?.message || 'E-mail ou senha incorretos.');
           }

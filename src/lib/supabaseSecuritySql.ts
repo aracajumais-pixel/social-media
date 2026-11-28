@@ -20,6 +20,36 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Garante compatibilidade caso public.profiles já existisse com restrições antigas (ex: sem 'social_media' no CHECK)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'social_media';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'social_media';
+
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  FOR c IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.profiles'::regclass
+      AND contype = 'c'
+  LOOP
+    EXECUTE format('ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS %I', c.conname);
+  END LOOP;
+END $$;
+
+UPDATE public.profiles
+SET role = 'social_media'
+WHERE role IS NULL OR role NOT IN ('DEVWEBAPP', 'social_media', 'client');
+
+ALTER TABLE public.profiles
+  ADD CONSTRAINT profiles_role_check
+  CHECK (role IN ('DEVWEBAPP', 'social_media', 'client'));
+
 -- 2. TABELA DE CLIENTES
 CREATE TABLE IF NOT EXISTS public.clients (
   id TEXT PRIMARY KEY,
@@ -273,39 +303,68 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, auth
 AS $$
 DECLARE
   assigned_role TEXT;
   matched_name TEXT;
+  user_email TEXT;
 BEGIN
+  user_email := lower(trim(coalesce(new.email, '')));
+
   -- Todo novo acesso pela tela de login entra com perfil de Social Media (isolado por carteira).
   -- Apenas e-mails previamente cadastrados exclusivamente na tabela de clientes recebem perfil 'client'.
   -- Promoção para Gestor (DEVWEBAPP) é feita manualmente via SQL no final deste script.
-  IF EXISTS (SELECT 1 FROM public.social_medias WHERE lower(coalesce(email, '')) = lower(coalesce(new.email, ''))) THEN
-    assigned_role := 'social_media';
-    SELECT name INTO matched_name FROM public.social_medias WHERE lower(coalesce(email, '')) = lower(coalesce(new.email, '')) LIMIT 1;
-  ELSIF EXISTS (SELECT 1 FROM public.clients WHERE lower(coalesce(email, '')) = lower(coalesce(new.email, ''))) THEN
-    assigned_role := 'client';
-    SELECT coalesce(nullif(contact_name, ''), name) INTO matched_name FROM public.clients WHERE lower(coalesce(email, '')) = lower(coalesce(new.email, '')) LIMIT 1;
-  ELSE
-    assigned_role := 'social_media';
-  END IF;
+  BEGIN
+    IF user_email <> '' AND EXISTS (SELECT 1 FROM public.social_medias WHERE lower(coalesce(email, '')) = user_email) THEN
+      assigned_role := 'social_media';
+      SELECT name INTO matched_name FROM public.social_medias WHERE lower(coalesce(email, '')) = user_email LIMIT 1;
+    ELSIF user_email <> '' AND EXISTS (SELECT 1 FROM public.clients WHERE lower(coalesce(email, '')) = user_email) THEN
+      assigned_role := 'client';
+      SELECT coalesce(nullif(contact_name, ''), name) INTO matched_name FROM public.clients WHERE lower(coalesce(email, '')) = user_email LIMIT 1;
+    ELSE
+      assigned_role := 'social_media';
+    END IF;
 
-  INSERT INTO public.profiles (id, email, full_name, role)
-  VALUES (
-    new.id,
-    coalesce(new.email, ''),
-    coalesce(matched_name, new.raw_user_meta_data ->> 'full_name', split_part(coalesce(new.email, ''), '@', 1)),
-    assigned_role
-  )
-  ON CONFLICT (id) DO NOTHING;
+    -- Remove eventual perfil órfão antigo com o mesmo e-mail para evitar conflito de UNIQUE
+    IF user_email <> '' THEN
+      BEGIN
+        DELETE FROM public.profiles p
+        WHERE lower(coalesce(p.email, '')) = user_email
+          AND p.id <> new.id
+          AND NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id);
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
+    END IF;
+
+    INSERT INTO public.profiles (id, email, full_name, role)
+    VALUES (
+      new.id,
+      coalesce(new.email, ''),
+      coalesce(
+        nullif(trim(matched_name), ''),
+        nullif(trim(new.raw_user_meta_data ->> 'full_name'), ''),
+        nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
+        'Social Media'
+      ),
+      assigned_role
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      email = EXCLUDED.email,
+      full_name = coalesce(nullif(public.profiles.full_name, ''), EXCLUDED.full_name),
+      updated_at = NOW();
+  EXCEPTION WHEN OTHERS THEN
+    -- Nunca bloqueia o cadastro em auth.users por erro secundário na tabela profiles
+    RAISE WARNING 'handle_new_user aviso para %: %', new.id, SQLERRM;
+  END;
 
   RETURN new;
 END;
 $$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP TRIGGER IF EXISTS handle_new_user_trigger ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
@@ -339,6 +398,11 @@ DROP POLICY IF EXISTS "Profiles leitura autenticada" ON public.profiles;
 CREATE POLICY "Profiles leitura autenticada" ON public.profiles
   FOR SELECT TO authenticated
   USING (id = auth.uid() OR public.is_gestor());
+
+DROP POLICY IF EXISTS "Profiles insercao proprio autenticado" ON public.profiles;
+CREATE POLICY "Profiles insercao proprio autenticado" ON public.profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (id = auth.uid() AND role IN ('social_media', 'client'));
 
 DROP POLICY IF EXISTS "Profiles atualizacao proprio ou gestor" ON public.profiles;
 CREATE POLICY "Profiles atualizacao proprio ou gestor" ON public.profiles
