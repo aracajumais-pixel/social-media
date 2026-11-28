@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs/promises';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -15,6 +16,91 @@ const PORT = Number(process.env.PORT || 3000);
 const MODEL_NAME = 'gemini-4-hydrogen';
 const DATA_DIR = path.join(__dirname, '.data');
 const STATE_FILE = path.join(DATA_DIR, 'app-state.json');
+const AUTH_FILE = path.join(DATA_DIR, 'auth.json');
+const SESSION_SIGNING_SECRET = (process.env.SESSION_SECRET || '').trim() || crypto.randomBytes(32).toString('hex');
+const REVOKED_TOKENS = new Set<string>();
+
+interface StoredAuthRecord {
+  id: string;
+  name: string;
+  email: string;
+  role: 'gestor' | 'social_media' | 'cliente';
+  passwordHash: string;
+  createdAt: string;
+}
+
+function hashPasswordScrypt(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+function verifyPasswordScrypt(password: string, stored: string): boolean {
+  const parts = stored.split(':');
+  if (parts.length !== 2) return false;
+  const [salt, keyHex] = parts;
+  const expected = Buffer.from(keyHex, 'hex');
+  const actual = crypto.scryptSync(password, salt, 64);
+  if (expected.length !== actual.length) return false;
+  return crypto.timingSafeEqual(expected, actual);
+}
+
+function signSessionToken(user: { id: string; email: string; name: string; role: string }): string {
+  const payload = {
+    sub: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    jti: crypto.randomBytes(12).toString('hex'),
+  };
+  const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SIGNING_SECRET).update(encoded).digest('base64url');
+  return `${encoded}.${sig}`;
+}
+
+function verifySessionToken(token: string | undefined | null): { sub: string; email: string; name: string; role: string; jti: string } | null {
+  if (!token) return null;
+  const dotIdx = token.indexOf('.');
+  if (dotIdx <= 0) return null;
+  const encoded = token.slice(0, dotIdx);
+  const sig = token.slice(dotIdx + 1);
+  const expectedSig = crypto.createHmac('sha256', SESSION_SIGNING_SECRET).update(encoded).digest('base64url');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expectedSig);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    if (!parsed || typeof parsed.exp !== 'number' || parsed.exp < Date.now()) return null;
+    if (parsed.jti && REVOKED_TOKENS.has(String(parsed.jti))) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function extractBearerToken(req: express.Request): string | null {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  return auth.slice(7).trim() || null;
+}
+
+async function readAuthUsers(): Promise<StoredAuthRecord[]> {
+  try {
+    const raw = await fs.readFile(AUTH_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.users) ? parsed.users : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeAuthUsers(users: StoredAuthRecord[]): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const tmpFile = `${AUTH_FILE}.tmp`;
+  await fs.writeFile(tmpFile, JSON.stringify({ users }, null, 2), 'utf8');
+  await fs.rename(tmpFile, AUTH_FILE);
+}
 
 let stateWriteQueue: Promise<void> = Promise.resolve();
 
@@ -179,11 +265,13 @@ async function serveOgImageFromMediaUrl(mediaUrl: string | undefined, res: expre
   // 2. Caminho local estático (/assets/..., /og-default.jpg, etc.)
   if (url.startsWith('/') && !url.startsWith('//')) {
     const cleanRel = url.split('?')[0].replace(/^\/+/, '');
+    const publicRoot = path.resolve(__dirname, 'public');
+    const distRoot = path.resolve(__dirname, 'dist');
     const localCandidates = [
-      path.join(__dirname, 'public', cleanRel),
-      path.join(__dirname, 'dist', cleanRel),
-    ];
-    for (const filePath of localCandidates) {
+      { root: publicRoot, file: path.resolve(publicRoot, cleanRel) },
+      { root: distRoot, file: path.resolve(distRoot, cleanRel) },
+    ].filter(({ root, file }) => file.startsWith(root + path.sep));
+    for (const { file: filePath } of localCandidates) {
       try {
         const buf = await fs.readFile(filePath);
         const ext = path.extname(filePath).toLowerCase();
@@ -197,7 +285,13 @@ async function serveOgImageFromMediaUrl(mediaUrl: string | undefined, res: expre
   }
 
   // 3. Links do Google Drive (tenta thumbnail de alta resolução primeiro — funciona para imagem e vídeo!)
-  if (url.includes('drive.google.com') || url.includes('googleusercontent.com')) {
+  let parsedHostname = '';
+  try {
+    parsedHostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    parsedHostname = '';
+  }
+  if (parsedHostname === 'drive.google.com' || parsedHostname.endsWith('.googleusercontent.com')) {
     const driveId = extractDriveFileId(url);
     if (driveId) {
       const driveCandidates = [
@@ -254,6 +348,34 @@ async function findPostAndClientByToken(token: string): Promise<{
   const sbUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const sbKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
   if (sbUrl && sbKey) {
+    try {
+      const rpcResp = await fetch(`${sbUrl}/rest/v1/rpc/get_og_preview_data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: sbKey,
+          Authorization: `Bearer ${sbKey}`,
+        },
+        body: JSON.stringify({ p_token: token }),
+      });
+      if (rpcResp.ok) {
+        const rpcData: any = await rpcResp.json();
+        if (rpcData && (rpcData.title || rpcData.media_url)) {
+          return {
+            post: {
+              id: token,
+              title: rpcData.title || 'Publicação para Aprovação',
+              caption: rpcData.caption || '',
+              mediaUrl: rpcData.media_url || '',
+              approvalToken: token,
+            },
+            clientName: rpcData.client_name || undefined,
+          };
+        }
+      }
+    } catch {
+      // continua para consulta direta
+    }
     try {
       const resp = await fetch(
         `${sbUrl}/rest/v1/posts?approval_token=eq.${encodeURIComponent(token)}&select=id,title,caption,media_url,client_project_id,approval_token&limit=1`,
@@ -327,6 +449,29 @@ async function findClientMuralById(clientId: string): Promise<{
   const sbUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const sbKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
   if (sbUrl && sbKey) {
+    try {
+      const rpcResp = await fetch(`${sbUrl}/rest/v1/rpc/get_og_preview_data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: sbKey,
+          Authorization: `Bearer ${sbKey}`,
+        },
+        body: JSON.stringify({ p_client_id: clientId }),
+      });
+      if (rpcResp.ok) {
+        const rpcData: any = await rpcResp.json();
+        if (rpcData && rpcData.client_name) {
+          return {
+            name: rpcData.client_name,
+            previewImageUrl: rpcData.media_url || rpcData.logo_url || '',
+            postsCount: 1,
+          };
+        }
+      }
+    } catch {
+      // continua para consulta direta
+    }
     try {
       const cResp = await fetch(
         `${sbUrl}/rest/v1/clients?id=eq.${encodeURIComponent(clientId)}&select=id,name,logo_url&limit=1`,
@@ -559,13 +704,351 @@ async function startServer() {
   });
 
   /**
-   * Persistência compartilhada no servidor para sincronização entre computadores
-   * (complementa o Supabase quando offline ou antes de criar tabelas opcionais).
+   * Autenticação do servidor local (quando Supabase não está configurado no preview)
    */
-  app.get('/api/sync-state', async (_req, res) => {
+  app.get('/api/auth/status', async (_req, res) => {
+    const users = await readAuthUsers();
+    res.json({ ok: true, initialized: users.length > 0 });
+  });
+
+  app.post('/api/auth/setup', async (req, res) => {
+    try {
+      const name = String(req.body?.name || '').trim();
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const password = String(req.body?.password || '');
+      if (name.length < 2 || !email.includes('@') || password.length < 6) {
+        return res.status(400).json({ ok: false, error: 'Informe nome, e-mail válido e senha com ao menos 6 caracteres.' });
+      }
+      const existing = await readAuthUsers();
+      if (existing.some((u) => u.email === email)) {
+        return res.status(409).json({ ok: false, error: 'E-mail já cadastrado. Faça login.' });
+      }
+      const userRecord: StoredAuthRecord = {
+        id: `local-sm-${Date.now()}`,
+        name,
+        email,
+        role: 'social_media',
+        passwordHash: hashPasswordScrypt(password),
+        createdAt: new Date().toISOString(),
+      };
+      await writeAuthUsers([...existing, userRecord]);
+      const token = signSessionToken(userRecord);
+      return res.json({
+        ok: true,
+        token,
+        user: { id: userRecord.id, email: userRecord.email, name: userRecord.name, role: userRecord.role },
+      });
+    } catch (err) {
+      console.error('Error in /api/auth/setup:', err);
+      return res.status(500).json({ ok: false, error: 'Falha ao configurar acesso inicial.' });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const password = String(req.body?.password || '');
+      if (!email.includes('@') || password.length < 6) {
+        return res.status(400).json({ ok: false, error: 'Informe um e-mail válido e senha com ao menos 6 caracteres.' });
+      }
+      const users = await readAuthUsers();
+      const matched = users.find((u) => u.email === email);
+      if (matched) {
+        if (!verifyPasswordScrypt(password, matched.passwordHash)) {
+          return res.status(401).json({ ok: false, error: 'E-mail ou senha incorretos.' });
+        }
+        const token = signSessionToken(matched);
+        return res.json({
+          ok: true,
+          token,
+          user: { id: matched.id, email: matched.email, name: matched.name, role: matched.role },
+        });
+      }
+
+      // Primeiro acesso automático: registra conta e senha como social_media (ou cliente se o e-mail estiver apenas em clientes)
+      const state = await readSharedState();
+      const smsArr: any[] = Array.isArray(state?.socialMedias) ? state.socialMedias : [];
+      const clientsArr: any[] = Array.isArray(state?.clients) ? state.clients : [];
+      const matchedSm = smsArr.find((s) => String(s?.email || '').trim().toLowerCase() === email);
+      const matchedClient = clientsArr.find((c) => String(c?.email || '').trim().toLowerCase() === email);
+      const resolvedRole: StoredAuthRecord['role'] = !matchedSm && matchedClient ? 'cliente' : 'social_media';
+      const resolvedName =
+        (matchedSm?.name && String(matchedSm.name).trim()) ||
+        (matchedClient?.contactName && String(matchedClient.contactName).trim()) ||
+        email.split('@')[0] ||
+        'Social Media';
+
+      const newUser: StoredAuthRecord = {
+        id: matchedSm?.id ? String(matchedSm.id) : `local-sm-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        name: resolvedName,
+        email,
+        role: resolvedRole,
+        passwordHash: hashPasswordScrypt(password),
+        createdAt: new Date().toISOString(),
+      };
+      await writeAuthUsers([...users, newUser]);
+      const token = signSessionToken(newUser);
+      return res.json({
+        ok: true,
+        token,
+        user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role },
+      });
+    } catch (err) {
+      console.error('Error in /api/auth/login:', err);
+      return res.status(500).json({ ok: false, error: 'Falha ao autenticar.' });
+    }
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    const token = extractBearerToken(req);
+    const verified = verifySessionToken(token);
+    if (verified?.jti) {
+      REVOKED_TOKENS.add(verified.jti);
+    }
+    res.json({ ok: true });
+  });
+
+  /**
+   * Endpoints públicos estritamente delimitados por token/ID para links compartilhados (/p/:token e /mural/:clientId)
+   */
+  app.get('/api/public/post/:token', async (req, res) => {
+    try {
+      const token = String(req.params.token || '').trim();
+      const state = await readSharedState();
+      const postsArr: any[] = Array.isArray(state?.posts) ? state.posts : [];
+      const clientsArr: any[] = Array.isArray(state?.clients) ? state.clients : [];
+      const smArr: any[] = Array.isArray(state?.socialMedias) ? state.socialMedias : [];
+      const post = postsArr.find((p) => p?.approvalToken === token);
+      if (!post) return res.json({ ok: true, post: null, client: null, socialMedia: null });
+      const client = clientsArr.find((c) => c?.id === post.clientProjectId) || null;
+      const sm = smArr.find((s) => s?.id === (post.socialMediaAuthorId || client?.assignedSocialMediaId)) || null;
+      return res.json({
+        ok: true,
+        post,
+        client: client
+          ? {
+              id: client.id,
+              name: client.name,
+              contactName: client.contactName,
+              logoUrl: client.logoUrl,
+              activeSocialNetworks: client.activeSocialNetworks || ['instagram', 'facebook'],
+              assignedSocialMediaId: client.assignedSocialMediaId,
+              assignedSocialMediaIds: Array.isArray(client.assignedSocialMediaIds) ? client.assignedSocialMediaIds : undefined,
+              metricsAccess: client.metricsAccess || 'cliente',
+            }
+          : null,
+        socialMedia: sm ? { id: sm.id, name: sm.name, socialProfile: sm.socialProfile } : null,
+      });
+    } catch {
+      return res.json({ ok: false });
+    }
+  });
+
+  app.post('/api/public/post/:token/action', async (req, res) => {
+    try {
+      const token = String(req.params.token || '').trim();
+      const { action, comment, authorName } = req.body || {};
+      const state = await readSharedState();
+      const postsArr: any[] = Array.isArray(state?.posts) ? state.posts : [];
+      const idx = postsArr.findIndex((p) => p?.approvalToken === token);
+      if (idx < 0) return res.status(404).json({ ok: false, error: 'Post não encontrado' });
+      const target = { ...postsArr[idx] };
+      if (target.tokenExpiresAt && new Date(target.tokenExpiresAt).getTime() < Date.now()) {
+        return res.status(410).json({ ok: false, error: 'Link expirado' });
+      }
+      const nowIso = new Date().toISOString();
+      const ts = new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const comments = Array.isArray(target.comments) ? [...target.comments] : [];
+      if (action === 'approve') {
+        target.status = 'aprovado';
+        target.approvedAt = target.approvedAt || nowIso;
+        comments.push({
+          id: `c-appr-${Date.now()}`,
+          authorRole: 'cliente',
+          authorName: String(authorName || 'Cliente'),
+          text: '🎉 Post aprovado com sucesso! Este conteúdo será programado para postagem.',
+          timestamp: ts,
+        });
+      } else if (action === 'request_change' && String(comment || '').trim()) {
+        target.status = 'alterar';
+        comments.push({
+          id: `c-${Date.now()}`,
+          authorRole: 'cliente',
+          authorName: String(authorName || 'Cliente'),
+          text: `[Instrução de Ajuste]: ${String(comment).trim()}`,
+          timestamp: ts,
+        });
+      } else if (action === 'comment' && String(comment || '').trim()) {
+        comments.push({
+          id: `c-${Date.now()}`,
+          authorRole: 'cliente',
+          authorName: String(authorName || 'Cliente'),
+          text: String(comment).trim(),
+          timestamp: ts,
+        });
+      }
+      target.comments = comments;
+      target.updatedAt = nowIso;
+      postsArr[idx] = target;
+      await writeSharedStatePatch({ posts: postsArr });
+      return res.json({ ok: true });
+    } catch {
+      return res.status(500).json({ ok: false });
+    }
+  });
+
+  app.get('/api/public/mural/:clientId', async (req, res) => {
+    try {
+      const clientId = String(req.params.clientId || '').trim();
+      const smId = String(req.query?.sm || '').trim();
+      const state = await readSharedState();
+      const clientsArr: any[] = Array.isArray(state?.clients) ? state.clients : [];
+      const client = clientsArr.find((c) => c?.id === clientId);
+      if (!client) return res.json({ ok: true, client: null, socialMedia: null, posts: [], tasks: [], inspirations: [] });
+      const targetSmId = smId || client.assignedSocialMediaId;
+      const smArr: any[] = Array.isArray(state?.socialMedias) ? state.socialMedias : [];
+      const sm = smArr.find((s) => s?.id === targetSmId) || null;
+      const posts = (Array.isArray(state?.posts) ? state.posts : []).filter(
+        (p: any) => p?.clientProjectId === clientId && (!targetSmId || !p.socialMediaAuthorId || p.socialMediaAuthorId === targetSmId)
+      );
+      const tasks = (Array.isArray(state?.tasks) ? state.tasks : []).filter((t: any) => t?.clientProjectId === clientId);
+      const inspirations = (Array.isArray(state?.inspirations) ? state.inspirations : []).filter((i: any) => i?.clientProjectId === clientId);
+      return res.json({
+        ok: true,
+        client: {
+          id: client.id,
+          name: client.name,
+          contactName: client.contactName,
+          logoUrl: client.logoUrl,
+          activeSocialNetworks: client.activeSocialNetworks || ['instagram', 'facebook'],
+          assignedSocialMediaId: client.assignedSocialMediaId,
+          assignedSocialMediaIds: Array.isArray(client.assignedSocialMediaIds) ? client.assignedSocialMediaIds : undefined,
+          metricsAccess: client.metricsAccess || 'cliente',
+        },
+        socialMedia: sm ? { id: sm.id, name: sm.name, socialProfile: sm.socialProfile } : null,
+        posts,
+        tasks,
+        inspirations,
+      });
+    } catch {
+      return res.json({ ok: false });
+    }
+  });
+
+  function resolveCallerSmIds(state: Record<string, any>, verified: { sub: string; email: string }): Set<string> {
+    const ids = new Set<string>([verified.sub]);
+    const cleanEmail = verified.email.trim().toLowerCase();
+    const smArr: any[] = Array.isArray(state?.socialMedias) ? state.socialMedias : [];
+    for (const sm of smArr) {
+      if (sm?.id === verified.sub || (cleanEmail && String(sm?.email || '').trim().toLowerCase() === cleanEmail)) {
+        if (sm?.id) ids.add(String(sm.id));
+      }
+    }
+    return ids;
+  }
+
+  function isClientLinkedToSmSet(client: any, smIds: Set<string>, smsArr: any[]): boolean {
+    if (!client) return false;
+    if (client.assignedSocialMediaId && smIds.has(String(client.assignedSocialMediaId))) return true;
+    if (client.createdBySocialMediaId && smIds.has(String(client.createdBySocialMediaId))) return true;
+    if (Array.isArray(client.assignedSocialMediaIds) && client.assignedSocialMediaIds.some((id: any) => smIds.has(String(id)))) {
+      return true;
+    }
+    for (const sm of smsArr) {
+      if (smIds.has(String(sm?.id)) && Array.isArray(sm?.assignedClientIds) && sm.assignedClientIds.includes(client.id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Persistência compartilhada protegida por autenticação Bearer Token (com isolamento por Social Media)
+   */
+  app.get('/api/sync-state', async (req, res) => {
+    const verified = verifySessionToken(extractBearerToken(req));
+    if (!verified) {
+      return res.status(401).json({ ok: false, error: 'Autenticação necessária' });
+    }
     try {
       const state = await readSharedState();
-      res.json({ ok: true, state });
+      if (verified.role === 'gestor') {
+        return res.json({ ok: true, state });
+      }
+
+      const smsArr: any[] = Array.isArray(state?.socialMedias) ? state.socialMedias : [];
+      const clientsArr: any[] = Array.isArray(state?.clients) ? state.clients : [];
+
+      if (verified.role === 'cliente') {
+        const cleanEmail = verified.email.trim().toLowerCase();
+        const myClients = clientsArr.filter(
+          (c) => c?.id === verified.sub || (cleanEmail && String(c?.email || '').trim().toLowerCase() === cleanEmail)
+        );
+        const allowedClientIds = new Set(myClients.map((c) => c.id));
+        const byClient = (arr: any) => (Array.isArray(arr) ? arr.filter((x) => allowedClientIds.has(x?.clientProjectId)) : []);
+        return res.json({
+          ok: true,
+          state: {
+            clients: myClients,
+            socialMedias: smsArr
+              .filter((sm) => myClients.some((c) => isClientLinkedToSmSet(c, new Set([String(sm.id)]), [sm])))
+              .map((sm) => ({ id: sm.id, name: sm.name, socialProfile: sm.socialProfile })),
+            posts: byClient(state?.posts),
+            tasks: byClient(state?.tasks),
+            inspirations: byClient(state?.inspirations),
+            receipts: [],
+            approvalRecords: [],
+            birthdayBackgrounds: byClient(state?.birthdayBackgrounds),
+            birthdayGroups: byClient(state?.birthdayGroups),
+            birthdayMessages: byClient(state?.birthdayMessages),
+            birthdayPeople: byClient(state?.birthdayPeople),
+            birthdayAuditLogs: byClient(state?.birthdayAuditLogs),
+          },
+        });
+      }
+
+      // Social Media: recebe apenas seus próprios clientes e dados associados (suporta N:N)
+      const callerSmIds = resolveCallerSmIds(state, verified);
+      const myClients = clientsArr.filter((c) => isClientLinkedToSmSet(c, callerSmIds, smsArr));
+      const allowedClientIds = new Set(myClients.map((c) => c.id));
+      const byClient = (arr: any) => (Array.isArray(arr) ? arr.filter((x) => allowedClientIds.has(x?.clientProjectId)) : []);
+      const scopedPosts = byClient(state?.posts).filter(
+        (p: any) => !p?.socialMediaAuthorId || callerSmIds.has(String(p.socialMediaAuthorId))
+      );
+
+      // Para diretório de co-atribuição, expõe dados sensíveis apenas do próprio SM
+      const scopedSocialMedias = smsArr.map((sm) => {
+        if (callerSmIds.has(String(sm?.id))) return sm;
+        return {
+          id: sm.id,
+          name: sm.name,
+          email: sm.email,
+          socialProfile: sm.socialProfile,
+          assignedClientIds: (Array.isArray(sm.assignedClientIds) ? sm.assignedClientIds : []).filter((cid: string) =>
+            allowedClientIds.has(cid)
+          ),
+          totalPostsCreated: 0,
+          status: sm.status || 'ativo',
+        };
+      });
+
+      return res.json({
+        ok: true,
+        state: {
+          clients: myClients,
+          socialMedias: scopedSocialMedias,
+          posts: scopedPosts,
+          tasks: byClient(state?.tasks),
+          inspirations: byClient(state?.inspirations),
+          receipts: byClient(state?.receipts),
+          approvalRecords: byClient(state?.approvalRecords),
+          birthdayBackgrounds: byClient(state?.birthdayBackgrounds),
+          birthdayGroups: byClient(state?.birthdayGroups),
+          birthdayMessages: byClient(state?.birthdayMessages),
+          birthdayPeople: byClient(state?.birthdayPeople),
+          birthdayAuditLogs: byClient(state?.birthdayAuditLogs),
+        },
+      });
     } catch (err) {
       console.error('Error reading shared state:', err);
       res.json({ ok: false, state: {} });
@@ -573,6 +1056,10 @@ async function startServer() {
   });
 
   app.post('/api/sync-state', async (req, res) => {
+    const verified = verifySessionToken(extractBearerToken(req));
+    if (!verified) {
+      return res.status(401).json({ ok: false, error: 'Autenticação necessária' });
+    }
     try {
       const patch = req.body || {};
       if (typeof patch !== 'object' || Array.isArray(patch)) {
@@ -592,13 +1079,133 @@ async function startServer() {
         'birthdayPeople',
         'birthdayAuditLogs',
       ]);
-      const filtered: Record<string, any> = {};
-      for (const [k, v] of Object.entries(patch)) {
-        if (allowedKeys.has(k)) {
-          filtered[k] = v;
+
+      if (verified.role === 'gestor') {
+        const filtered: Record<string, any> = {};
+        for (const [k, v] of Object.entries(patch)) {
+          if (allowedKeys.has(k)) {
+            filtered[k] = v;
+          }
         }
+        await writeSharedStatePatch(filtered);
+        return res.json({ ok: true });
       }
-      await writeSharedStatePatch(filtered);
+
+      // Social Media (ou Cliente): mescla mantendo intactos dados de outros Social Medias / clientes
+      stateWriteQueue = stateWriteQueue.then(async () => {
+        await fs.mkdir(DATA_DIR, { recursive: true });
+        const current = await readSharedState();
+        const curSms: any[] = Array.isArray(current?.socialMedias) ? current.socialMedias : [];
+        const curClients: any[] = Array.isArray(current?.clients) ? current.clients : [];
+        const callerSmIds = resolveCallerSmIds(current, verified);
+        const primaryCallerSmId = Array.from(callerSmIds).find((id) => id !== verified.sub) || verified.sub;
+
+        const existingMyClientIds = new Set(
+          curClients.filter((c) => isClientLinkedToSmSet(c, callerSmIds, curSms)).map((c) => c.id)
+        );
+        const foreignClientIds = new Set(
+          curClients.filter((c) => !existingMyClientIds.has(c.id)).map((c) => c.id)
+        );
+
+        const nextState: Record<string, any> = { ...current };
+
+        if (Array.isArray(patch.clients) && verified.role === 'social_media') {
+          const foreignClients = curClients.filter((c) => !existingMyClientIds.has(c.id));
+          const incomingMyClients = patch.clients
+            .filter((c: any) => c && c.id && !foreignClientIds.has(c.id))
+            .map((c: any) => {
+              const smIdsSet = new Set<string>(Array.isArray(c.assignedSocialMediaIds) ? c.assignedSocialMediaIds.filter(Boolean) : []);
+              if (c.assignedSocialMediaId) smIdsSet.add(String(c.assignedSocialMediaId));
+              if (!Array.from(smIdsSet).some((id) => callerSmIds.has(id))) {
+                smIdsSet.add(primaryCallerSmId);
+              }
+              const smIdsArr = Array.from(smIdsSet);
+              return {
+                ...c,
+                assignedSocialMediaId: c.assignedSocialMediaId || smIdsArr[0],
+                assignedSocialMediaIds: smIdsArr,
+                createdBySocialMediaId: c.createdBySocialMediaId || primaryCallerSmId,
+              };
+            });
+          nextState.clients = [...foreignClients, ...incomingMyClients];
+        }
+
+        const effectiveMyClientIds = new Set(
+          (Array.isArray(nextState.clients) ? nextState.clients : curClients)
+            .filter((c: any) => isClientLinkedToSmSet(c, callerSmIds, curSms))
+            .map((c: any) => c.id)
+        );
+
+        if (Array.isArray(patch.socialMedias) && verified.role === 'social_media') {
+          const incomingById = new Map<string, any>(
+            patch.socialMedias.filter((s: any) => s?.id).map((s: any) => [String(s.id), s])
+          );
+          const updatedSms = curSms.map((existingSm) => {
+            const smId = String(existingSm.id);
+            const inc = incomingById.get(smId);
+            if (callerSmIds.has(smId)) {
+              return inc ? { ...existingSm, ...inc } : existingSm;
+            }
+            // Para outros Social Medias: preserva todos os campos privados e sincroniza apenas vínculos de clientes do chamador (M:N)
+            if (!inc) return existingSm;
+            const prevForeignLinks = (Array.isArray(existingSm.assignedClientIds) ? existingSm.assignedClientIds : []).filter(
+              (cid: string) => !effectiveMyClientIds.has(cid)
+            );
+            const nextSharedLinks = (Array.isArray(inc.assignedClientIds) ? inc.assignedClientIds : []).filter((cid: string) =>
+              effectiveMyClientIds.has(cid)
+            );
+            return {
+              ...existingSm,
+              assignedClientIds: Array.from(new Set([...prevForeignLinks, ...nextSharedLinks])),
+            };
+          });
+          // Adiciona registro do próprio SM se ainda não existia no servidor
+          for (const inc of patch.socialMedias) {
+            const incEmail = String(inc?.email || '').trim().toLowerCase();
+            if (
+              inc?.id &&
+              !updatedSms.some((s) => String(s.id) === String(inc.id)) &&
+              (callerSmIds.has(String(inc.id)) || (incEmail && incEmail === verified.email.toLowerCase()))
+            ) {
+              updatedSms.push(inc);
+            }
+          }
+          nextState.socialMedias = updatedSms;
+        }
+
+        const mergeClientScopedArray = (key: string, preserveOtherSmPosts = false) => {
+          if (!Array.isArray(patch[key])) return;
+          const curArr: any[] = Array.isArray(current[key]) ? current[key] : [];
+          const preserved = curArr.filter((item) => {
+            if (!effectiveMyClientIds.has(item?.clientProjectId)) return true;
+            if (preserveOtherSmPosts && item?.socialMediaAuthorId && !callerSmIds.has(String(item.socialMediaAuthorId))) {
+              return true;
+            }
+            return false;
+          });
+          const incoming = patch[key].filter((item: any) => effectiveMyClientIds.has(item?.clientProjectId));
+          nextState[key] = [...preserved, ...incoming];
+        };
+
+        mergeClientScopedArray('posts', verified.role === 'social_media');
+        mergeClientScopedArray('tasks');
+        mergeClientScopedArray('inspirations');
+        if (verified.role === 'social_media') {
+          mergeClientScopedArray('receipts');
+          mergeClientScopedArray('approvalRecords');
+        }
+        mergeClientScopedArray('birthdayBackgrounds');
+        mergeClientScopedArray('birthdayGroups');
+        mergeClientScopedArray('birthdayMessages');
+        mergeClientScopedArray('birthdayPeople');
+        mergeClientScopedArray('birthdayAuditLogs');
+
+        nextState._updatedAt = new Date().toISOString();
+        const tmpFile = `${STATE_FILE}.tmp`;
+        await fs.writeFile(tmpFile, JSON.stringify(nextState), 'utf8');
+        await fs.rename(tmpFile, STATE_FILE);
+      });
+      await stateWriteQueue;
       res.json({ ok: true });
     } catch (err) {
       console.error('Error writing shared state:', err);

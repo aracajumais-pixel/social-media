@@ -38,12 +38,19 @@ import {
   fetchClientsFromSupabase, fetchPostsFromSupabase, deleteClientFromSupabase, deletePostFromSupabase,
   syncReceiptToSupabase, syncApprovalRecordToSupabase, fetchApprovalRecordsFromSupabase, getSupabaseClient,
   fetchSocialMediasFromSupabase, syncTaskToSupabase, fetchTasksFromSupabase, deleteTaskFromSupabase,
-  syncInspirationToSupabase, fetchInspirationsFromSupabase, deleteInspirationFromSupabase, fetchReceiptsFromSupabase
+  syncInspirationToSupabase, fetchInspirationsFromSupabase, deleteInspirationFromSupabase, fetchReceiptsFromSupabase,
+  resolveAuthenticatedAppRole, fetchPublicPostByTokenFromSupabase, submitPublicApprovalActionToSupabase,
+  fetchPublicMuralByClientFromSupabase, submitPublicMuralTaskToSupabase
 } from './lib/supabase';
-import { fetchSharedServerState, saveSharedServerStatePatch } from './lib/serverSync';
+import {
+  fetchSharedServerState, saveSharedServerStatePatch, logoutLocalServerAccount,
+  fetchLocalPublicPost, submitLocalPublicPostAction, fetchLocalPublicMural
+} from './lib/serverSync';
+import { LoginGate, AuthenticatedSessionUser } from './components/LoginGate';
 import { openWhatsAppDirect } from './utils/whatsappHelper';
+import { getClientSocialMediaIds, isClientLinkedToSocialMedia, getClientAssignedSocialMedias } from './utils/clientLinks';
 
-import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight, Eye, Bell, ChevronRight, ClipboardCheck } from 'lucide-react';
+import { Plus, Filter, Clock, CheckCircle2, AlertCircle, Search, Layers, Sparkles, Building2, MessageCircle, ClipboardList, ArrowRight, Eye, Bell, ChevronRight, ClipboardCheck, Lock, Loader2 } from 'lucide-react';
 
 const INITIAL_DEMO_TASKS: ClientTask[] = [
   {
@@ -95,136 +102,67 @@ const getClientLinkContext = () => {
   return { isClientLinkAccess, urlClientId, urlSmId, urlToken };
 };
 
+const WORKSPACE_LOCAL_STORAGE_KEYS = [
+  'social_saas_clients',
+  'social_saas_social_medias',
+  'social_saas_selected_client_id',
+  'social_saas_user_role',
+  'social_saas_posts',
+  'social_saas_inspirations',
+  'social_saas_receipts',
+  'social_saas_fee_per_post',
+  'social_saas_saas_proofs',
+  'social_saas_tasks',
+  'social_saas_approval_records',
+  'social_saas_bday_backgrounds',
+  'social_saas_bday_groups',
+  'social_saas_bday_messages',
+  'social_saas_bday_people',
+  'social_saas_bday_audit',
+  'social_saas_active_sm_id'
+];
+
+function clearWorkspaceLocalStorage() {
+  try {
+    WORKSPACE_LOCAL_STORAGE_KEYS.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
 export default function App() {
   const initialClientLink = React.useMemo(() => getClientLinkContext(), []);
   const isClientLinkAccess = initialClientLink.isClientLinkAccess;
 
-  // Global State with LocalStorage Persistence (Opção B - Funciona 100% Grátis sem Cartão)
-  const [clients, setClients] = useState<ClientProject[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_clients');
-      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
-    } catch {
-      return INITIAL_CLIENTS;
-    }
-  });
-  const [socialMedias, setSocialMedias] = useState<SocialMediaUser[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_social_medias');
-      return saved ? JSON.parse(saved) : INITIAL_SOCIAL_MEDIAS;
-    } catch {
-      return INITIAL_SOCIAL_MEDIAS;
-    }
-  });
-  const [selectedClientId, setSelectedClientId] = useState<string>(() => {
-    if (initialClientLink.urlClientId) return initialClientLink.urlClientId;
-    return localStorage.getItem('social_saas_selected_client_id') || 'client-1';
-  });
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
-    if (initialClientLink.isClientLinkAccess) return 'cliente';
-    return (localStorage.getItem('social_saas_user_role') as UserRole) || 'gestor';
-  });
+  // Autenticação obrigatória para acesso ao painel (/) — links públicos (/p/:token e /mural/:id) têm escopo restrito
+  const [authUser, setAuthUser] = useState<AuthenticatedSessionUser | null>(null);
+  const [authChecking, setAuthChecking] = useState<boolean>(() => !initialClientLink.isClientLinkAccess);
+  const [isClientLinkLoading, setIsClientLinkLoading] = useState<boolean>(() => initialClientLink.isClientLinkAccess);
+
+  // Estados iniciam sempre vazios até a confirmação do login (ou validação do link público específico)
+  const [clients, setClients] = useState<ClientProject[]>([]);
+  const [socialMedias, setSocialMedias] = useState<SocialMediaUser[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>(() => initialClientLink.urlClientId || '');
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() =>
+    initialClientLink.isClientLinkAccess ? 'cliente' : 'social_media'
+  );
   const [activeTab, setActiveTab] = useState<TabType>('posts');
 
-  const [posts, setPosts] = useState<PostItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_posts');
-      return saved ? JSON.parse(saved) : INITIAL_POSTS;
-    } catch {
-      return INITIAL_POSTS;
-    }
-  });
-  const [inspirations, setInspirations] = useState<InspirationFile[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_inspirations');
-      return saved ? JSON.parse(saved) : INITIAL_INSPIRATIONS;
-    } catch {
-      return INITIAL_INSPIRATIONS;
-    }
-  });
-  const [receipts, setReceipts] = useState<BillingReceipt[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_receipts');
-      return saved ? JSON.parse(saved) : INITIAL_RECEIPTS;
-    } catch {
-      return INITIAL_RECEIPTS;
-    }
-  });
-  const [feePerPost, setFeePerPost] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_fee_per_post');
-      return saved ? Number(saved) : 0.50;
-    } catch {
-      return 0.50;
-    }
-  });
-  const [saasProofs, setSaasProofs] = useState<SaaSPaymentProof[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_saas_proofs');
-      return saved ? JSON.parse(saved) : INITIAL_SAAS_PROOF_PAYMENTS;
-    } catch {
-      return INITIAL_SAAS_PROOF_PAYMENTS;
-    }
-  });
-  const [tasks, setTasks] = useState<ClientTask[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_tasks');
-      return saved ? JSON.parse(saved) : INITIAL_DEMO_TASKS;
-    } catch {
-      return INITIAL_DEMO_TASKS;
-    }
-  });
+  const [posts, setPosts] = useState<PostItem[]>([]);
+  const [inspirations, setInspirations] = useState<InspirationFile[]>([]);
+  const [receipts, setReceipts] = useState<BillingReceipt[]>([]);
+  const [feePerPost, setFeePerPost] = useState<number>(0.50);
+  const [saasProofs, setSaasProofs] = useState<SaaSPaymentProof[]>([]);
+  const [tasks, setTasks] = useState<ClientTask[]>([]);
   const [convertingTask, setConvertingTask] = useState<ClientTask | null>(null);
-  const [approvalRecords, setApprovalRecords] = useState<ApprovalRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_approval_records');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [approvalRecords, setApprovalRecords] = useState<ApprovalRecord[]>([]);
 
   // Estado do módulo Aniversariantes
-  const [birthdayBackgrounds, setBirthdayBackgrounds] = useState<BirthdayBackground[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_bday_backgrounds');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [birthdayGroups, setBirthdayGroups] = useState<BirthdayGroup[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_bday_groups');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [birthdayMessages, setBirthdayMessages] = useState<BirthdayMessage[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_bday_messages');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [birthdayPeople, setBirthdayPeople] = useState<BirthdayPerson[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_bday_people');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [birthdayAuditLogs, setBirthdayAuditLogs] = useState<BirthdayAuditLog[]>(() => {
-    try {
-      const saved = localStorage.getItem('social_saas_bday_audit');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [birthdayBackgrounds, setBirthdayBackgrounds] = useState<BirthdayBackground[]>([]);
+  const [birthdayGroups, setBirthdayGroups] = useState<BirthdayGroup[]>([]);
+  const [birthdayMessages, setBirthdayMessages] = useState<BirthdayMessage[]>([]);
+  const [birthdayPeople, setBirthdayPeople] = useState<BirthdayPerson[]>([]);
+  const [birthdayAuditLogs, setBirthdayAuditLogs] = useState<BirthdayAuditLog[]>([]);
   const [birthdayClientSessions, setBirthdayClientSessions] = useState<Record<string, BirthdayClientAuthSession>>(() => {
     try {
       const saved = sessionStorage.getItem('social_saas_bday_client_sessions');
@@ -235,11 +173,228 @@ export default function App() {
   });
 
   const isRemoteHydratedRef = React.useRef(false);
+  const [isRemoteHydrated, setIsRemoteHydrated] = useState(false);
+  const autoCreatedSmForUserRef = React.useRef<string | null>(null);
   const [tasksTableMissingInSupabase, setTasksTableMissingInSupabase] = useState(false);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
 
-  // Carrega dados remotos (Supabase + Servidor compartilhado /api/sync-state) na inicialização e ao voltar foco
+  const serverAuthToken = authUser?.serverToken || null;
+
+  const hydrateFromLocalCacheIfAny = React.useCallback((role: UserRole) => {
+    try {
+      const readArr = <T,>(key: string): T[] => {
+        const raw = localStorage.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+      };
+      const c = readArr<ClientProject>('social_saas_clients');
+      const sm = readArr<SocialMediaUser>('social_saas_social_medias');
+      const p = readArr<PostItem>('social_saas_posts');
+      if (c.length > 0) setClients(c);
+      if (sm.length > 0) setSocialMedias(sm);
+      if (p.length > 0) setPosts(p);
+      setInspirations(readArr<InspirationFile>('social_saas_inspirations'));
+      if (role !== 'cliente') {
+        setReceipts(readArr<BillingReceipt>('social_saas_receipts'));
+        setApprovalRecords(readArr<ApprovalRecord>('social_saas_approval_records'));
+        setSaasProofs(readArr<SaaSPaymentProof>('social_saas_saas_proofs'));
+      }
+      setTasks(readArr<ClientTask>('social_saas_tasks'));
+      setBirthdayBackgrounds(readArr<BirthdayBackground>('social_saas_bday_backgrounds'));
+      setBirthdayGroups(readArr<BirthdayGroup>('social_saas_bday_groups'));
+      setBirthdayMessages(readArr<BirthdayMessage>('social_saas_bday_messages'));
+      setBirthdayPeople(readArr<BirthdayPerson>('social_saas_bday_people'));
+      setBirthdayAuditLogs(readArr<BirthdayAuditLog>('social_saas_bday_audit'));
+      const savedFee = localStorage.getItem('social_saas_fee_per_post');
+      if (savedFee) setFeePerPost(Number(savedFee) || 0.50);
+      const savedCid = localStorage.getItem('social_saas_selected_client_id');
+      if (savedCid) setSelectedClientId(savedCid);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Verifica sessão existente no Supabase Auth ao abrir a rota raiz (/)
+  React.useEffect(() => {
+    if (isClientLinkAccess) {
+      setAuthChecking(false);
+      return;
+    }
+
+    if (!hasSupabaseCredentials()) {
+      setAuthChecking(false);
+      return;
+    }
+
+    const sb = getSupabaseClient();
+    if (!sb) {
+      setAuthChecking(false);
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      try {
+        const { data } = await sb.auth.getSession();
+        const sessionUser = data?.session?.user;
+        if (!mounted) return;
+        if (sessionUser) {
+          const resolved = await resolveAuthenticatedAppRole({
+            id: sessionUser.id,
+            email: sessionUser.email,
+            user_metadata: sessionUser.user_metadata
+          });
+          if (!mounted) return;
+          const logged: AuthenticatedSessionUser = {
+            id: sessionUser.id,
+            email: sessionUser.email || '',
+            name: resolved.fullName,
+            role: resolved.role,
+            provider: 'supabase'
+          };
+          setAuthUser(logged);
+          setCurrentUserRole(resolved.role);
+          hydrateFromLocalCacheIfAny(resolved.role);
+        } else {
+          setAuthUser(null);
+        }
+      } catch {
+        if (mounted) setAuthUser(null);
+      } finally {
+        if (mounted) setAuthChecking(false);
+      }
+    })();
+
+    const { data: sub } = sb.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        isRemoteHydratedRef.current = false;
+        setIsRemoteHydrated(false);
+        autoCreatedSmForUserRef.current = null;
+        setAuthUser(null);
+        setClients([]);
+        setSocialMedias([]);
+        setPosts([]);
+        setTasks([]);
+        setInspirations([]);
+        setReceipts([]);
+        setApprovalRecords([]);
+        setBirthdayBackgrounds([]);
+        setBirthdayGroups([]);
+        setBirthdayMessages([]);
+        setBirthdayPeople([]);
+        setBirthdayAuditLogs([]);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe();
+    };
+  }, [isClientLinkAccess, hydrateFromLocalCacheIfAny]);
+
+  const handleAuthenticatedSuccess = React.useCallback((user: AuthenticatedSessionUser) => {
+    isRemoteHydratedRef.current = false;
+    setIsRemoteHydrated(false);
+    autoCreatedSmForUserRef.current = null;
+    setAuthUser(user);
+    setCurrentUserRole(user.role);
+    setActiveTab('posts');
+    hydrateFromLocalCacheIfAny(user.role);
+  }, [hydrateFromLocalCacheIfAny]);
+
+  const handleLogout = React.useCallback(async () => {
+    isRemoteHydratedRef.current = false;
+    setIsRemoteHydrated(false);
+    autoCreatedSmForUserRef.current = null;
+    if (authUser?.provider === 'supabase') {
+      const sb = getSupabaseClient();
+      if (sb) {
+        try { await sb.auth.signOut(); } catch {}
+      }
+    } else if (authUser?.serverToken) {
+      await logoutLocalServerAccount(authUser.serverToken);
+    }
+    clearWorkspaceLocalStorage();
+    setAuthUser(null);
+    setClients([]);
+    setSocialMedias([]);
+    setPosts([]);
+    setInspirations([]);
+    setReceipts([]);
+    setTasks([]);
+    setApprovalRecords([]);
+    setBirthdayBackgrounds([]);
+    setBirthdayGroups([]);
+    setBirthdayMessages([]);
+    setBirthdayPeople([]);
+    setBirthdayAuditLogs([]);
+    setSelectedClientId('');
+    setActiveSocialMediaId('');
+    setActiveTab('posts');
+  }, [authUser]);
+
+  // Carrega dados remotos SOMENTE se autenticado OU se for um link público delimitado (/p/:token ou /mural/:id)
   const loadRemoteData = React.useCallback(async () => {
+    if (!isClientLinkAccess && !authUser) {
+      return;
+    }
+
+    // Caso 1: Link público de cliente (/p/:token ou /mural/:clientId) — busca estritamente delimitada ao item/cliente do link
+    if (isClientLinkAccess) {
+      setIsClientLinkLoading(true);
+      try {
+        const sbReady = hasSupabaseCredentials();
+        if (initialClientLink.urlToken) {
+          let res = sbReady
+            ? await fetchPublicPostByTokenFromSupabase(initialClientLink.urlToken)
+            : { post: null, client: null, socialMedia: null };
+          if (!res.post) {
+            const localRes = await fetchLocalPublicPost(initialClientLink.urlToken);
+            if (localRes?.post) res = localRes;
+          }
+          if (res.post) {
+            setPosts([res.post]);
+            setPublicApprovalPost(res.post);
+            if (res.client) {
+              setClients([res.client]);
+              setSelectedClientId(res.client.id);
+            } else if (res.post.clientProjectId) {
+              setSelectedClientId(res.post.clientProjectId);
+            }
+            if (res.socialMedia) {
+              setSocialMedias([res.socialMedia]);
+              setActiveSocialMediaId(res.socialMedia.id);
+            }
+          }
+        } else if (initialClientLink.urlClientId) {
+          let muralRes = sbReady
+            ? await fetchPublicMuralByClientFromSupabase(initialClientLink.urlClientId, initialClientLink.urlSmId)
+            : { client: null, socialMedia: null, posts: [], tasks: [], inspirations: [] };
+          if (!muralRes.client) {
+            const localMural = await fetchLocalPublicMural(initialClientLink.urlClientId, initialClientLink.urlSmId);
+            if (localMural?.client) muralRes = localMural;
+          }
+          if (muralRes.client) {
+            setClients([muralRes.client]);
+            setSelectedClientId(muralRes.client.id);
+            setPosts(muralRes.posts);
+            setTasks(muralRes.tasks);
+            setInspirations(muralRes.inspirations);
+            if (muralRes.socialMedia) {
+              setSocialMedias([muralRes.socialMedia]);
+              setActiveSocialMediaId(muralRes.socialMedia.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar link público delimitado:', err);
+      } finally {
+        setIsClientLinkLoading(false);
+      }
+      return;
+    }
+
+    // Caso 2: Usuário autenticado no painel (/)
     setIsManualSyncing(true);
     try {
       const sbReady = hasSupabaseCredentials();
@@ -253,7 +408,7 @@ export default function App() {
         fetchedInspirations,
         fetchedReceipts
       ] = await Promise.all([
-        fetchSharedServerState(),
+        fetchSharedServerState(serverAuthToken),
         sbReady ? fetchClientsFromSupabase() : Promise.resolve(null),
         sbReady ? fetchPostsFromSupabase() : Promise.resolve(null),
         sbReady ? fetchSocialMediasFromSupabase() : Promise.resolve(null),
@@ -274,10 +429,12 @@ export default function App() {
         const mergedClients = fetchedClients.map(fc => {
           const sc = serverById.get(fc.id);
           if (!sc) return fc;
+          const mergedSmIds = Array.from(new Set([...getClientSocialMediaIds(fc), ...getClientSocialMediaIds(sc)]));
           return {
             ...sc,
             ...fc,
-            assignedSocialMediaId: fc.assignedSocialMediaId || sc.assignedSocialMediaId,
+            assignedSocialMediaId: fc.assignedSocialMediaId || sc.assignedSocialMediaId || mergedSmIds[0],
+            assignedSocialMediaIds: mergedSmIds,
             createdBySocialMediaId: fc.createdBySocialMediaId || sc.createdBySocialMediaId,
             activeSocialNetworks: (sc.activeSocialNetworks && sc.activeSocialNetworks.length > 0)
               ? sc.activeSocialNetworks
@@ -287,8 +444,10 @@ export default function App() {
           };
         });
         setClients(mergedClients);
-      } else if (serverState?.clients && serverState.clients.length > 0) {
+      } else if (serverState?.clients) {
         setClients(serverState.clients);
+      } else if (fetchedClients !== null) {
+        setClients(fetchedClients);
       }
 
       if (fetchedSocialMedias && fetchedSocialMedias.length > 0) {
@@ -296,19 +455,24 @@ export default function App() {
         const mergedSms = fetchedSocialMedias.map(fsm => {
           const ssm = serverSmById.get(fsm.id);
           if (!ssm) return fsm;
+          const mergedClientIds = Array.from(
+            new Set([...(fsm.assignedClientIds || []), ...(ssm.assignedClientIds || [])])
+          );
           return {
             ...ssm,
             ...fsm,
-            assignedClientIds: (ssm.assignedClientIds && ssm.assignedClientIds.length > 0)
-              ? ssm.assignedClientIds
-              : fsm.assignedClientIds,
+            assignedClientIds: mergedClientIds,
             signatureUrl: fsm.signatureUrl || ssm.signatureUrl,
             bankInfo: fsm.bankInfo || ssm.bankInfo
           };
         });
-        setSocialMedias(mergedSms);
-      } else if (serverState?.socialMedias && serverState.socialMedias.length > 0) {
+        const existingSmIds = new Set(mergedSms.map(sm => sm.id));
+        const extraServerSms = (serverState?.socialMedias || []).filter(ssm => !existingSmIds.has(ssm.id));
+        setSocialMedias([...mergedSms, ...extraServerSms]);
+      } else if (serverState?.socialMedias) {
         setSocialMedias(serverState.socialMedias);
+      } else if (fetchedSocialMedias !== null) {
+        setSocialMedias(fetchedSocialMedias);
       }
 
       if (fetchedPosts && fetchedPosts.length > 0) {
@@ -370,11 +534,13 @@ export default function App() {
       console.warn('Erro ao carregar dados remotos na inicialização:', err);
     } finally {
       isRemoteHydratedRef.current = true;
+      setIsRemoteHydrated(true);
       setIsManualSyncing(false);
     }
-  }, []);
+  }, [isClientLinkAccess, authUser, serverAuthToken, initialClientLink.urlToken, initialClientLink.urlClientId, initialClientLink.urlSmId]);
 
   React.useEffect(() => {
+    if (!isClientLinkAccess && !authUser) return;
     loadRemoteData();
     const handleFocus = () => {
       if (document.visibilityState === 'visible') {
@@ -383,39 +549,43 @@ export default function App() {
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [loadRemoteData]);
+  }, [loadRemoteData, isClientLinkAccess, authUser]);
 
-  // Auto-save state to localStorage + Servidor compartilhado (/api/sync-state) + Supabase (somente após hidratação inicial)
+  // Auto-save state to localStorage + Servidor compartilhado (/api/sync-state) + Supabase (somente quando autenticado e após hidratação inicial)
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_clients', JSON.stringify(clients)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
     if (hasSupabaseCredentials()) {
       syncAllClientsToSupabase(clients);
     }
-    saveSharedServerStatePatch({ clients });
-  }, [clients]);
+    saveSharedServerStatePatch({ clients }, serverAuthToken);
+  }, [clients, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_social_medias', JSON.stringify(socialMedias)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
     if (hasSupabaseCredentials()) {
       syncAllSocialMediasToSupabase(socialMedias);
     }
-    saveSharedServerStatePatch({ socialMedias });
-  }, [socialMedias]);
+    saveSharedServerStatePatch({ socialMedias }, serverAuthToken);
+  }, [socialMedias, authUser, serverAuthToken]);
 
   React.useEffect(() => {
-    if (!isClientLinkAccess) {
+    if (authUser && !isClientLinkAccess && selectedClientId) {
       try { localStorage.setItem('social_saas_selected_client_id', selectedClientId); } catch {}
     }
-  }, [selectedClientId, isClientLinkAccess]);
+  }, [selectedClientId, isClientLinkAccess, authUser]);
 
   React.useEffect(() => {
     if (isClientLinkAccess && currentUserRole !== 'cliente') {
       setCurrentUserRole('cliente');
       return;
     }
-    if (!isClientLinkAccess) {
+    if (authUser && authUser.role !== 'gestor' && currentUserRole !== authUser.role) {
+      setCurrentUserRole(authUser.role);
+      return;
+    }
+    if (!isClientLinkAccess && authUser) {
       try { localStorage.setItem('social_saas_user_role', currentUserRole); } catch {}
     }
     if (currentUserRole !== 'gestor' && (activeTab === 'book' || activeTab === 'market' || activeTab === 'admin')) {
@@ -424,78 +594,80 @@ export default function App() {
     if (currentUserRole === 'cliente' && (activeTab === 'metrics' || activeTab === 'billing' || activeTab === 'settings')) {
       setActiveTab('posts');
     }
-  }, [currentUserRole, activeTab, isClientLinkAccess]);
+  }, [currentUserRole, activeTab, isClientLinkAccess, authUser]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_posts', JSON.stringify(posts)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
     if (hasSupabaseCredentials()) {
       syncAllPostsToSupabase(posts);
     }
-    saveSharedServerStatePatch({ posts });
-  }, [posts]);
+    saveSharedServerStatePatch({ posts }, serverAuthToken);
+  }, [posts, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_inspirations', JSON.stringify(inspirations)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ inspirations });
-  }, [inspirations]);
+    saveSharedServerStatePatch({ inspirations }, serverAuthToken);
+  }, [inspirations, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_receipts', JSON.stringify(receipts)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ receipts });
-  }, [receipts]);
+    saveSharedServerStatePatch({ receipts }, serverAuthToken);
+  }, [receipts, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser) return;
     try { localStorage.setItem('social_saas_fee_per_post', String(feePerPost)); } catch {}
-  }, [feePerPost]);
+  }, [feePerPost, authUser]);
 
   React.useEffect(() => {
+    if (!authUser) return;
     try { localStorage.setItem('social_saas_saas_proofs', JSON.stringify(saasProofs)); } catch {}
-  }, [saasProofs]);
+  }, [saasProofs, authUser]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_tasks', JSON.stringify(tasks)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ tasks });
-  }, [tasks]);
+    saveSharedServerStatePatch({ tasks }, serverAuthToken);
+  }, [tasks, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_approval_records', JSON.stringify(approvalRecords)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ approvalRecords });
-  }, [approvalRecords]);
+    saveSharedServerStatePatch({ approvalRecords }, serverAuthToken);
+  }, [approvalRecords, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_bday_backgrounds', JSON.stringify(birthdayBackgrounds)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ birthdayBackgrounds });
-  }, [birthdayBackgrounds]);
+    saveSharedServerStatePatch({ birthdayBackgrounds }, serverAuthToken);
+  }, [birthdayBackgrounds, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_bday_groups', JSON.stringify(birthdayGroups)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ birthdayGroups });
-  }, [birthdayGroups]);
+    saveSharedServerStatePatch({ birthdayGroups }, serverAuthToken);
+  }, [birthdayGroups, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_bday_messages', JSON.stringify(birthdayMessages)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ birthdayMessages });
-  }, [birthdayMessages]);
+    saveSharedServerStatePatch({ birthdayMessages }, serverAuthToken);
+  }, [birthdayMessages, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_bday_people', JSON.stringify(birthdayPeople)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ birthdayPeople });
-  }, [birthdayPeople]);
+    saveSharedServerStatePatch({ birthdayPeople }, serverAuthToken);
+  }, [birthdayPeople, authUser, serverAuthToken]);
 
   React.useEffect(() => {
+    if (!authUser || !isRemoteHydratedRef.current) return;
     try { localStorage.setItem('social_saas_bday_audit', JSON.stringify(birthdayAuditLogs)); } catch {}
-    if (!isRemoteHydratedRef.current) return;
-    saveSharedServerStatePatch({ birthdayAuditLogs });
-  }, [birthdayAuditLogs]);
+    saveSharedServerStatePatch({ birthdayAuditLogs }, serverAuthToken);
+  }, [birthdayAuditLogs, authUser, serverAuthToken]);
 
   React.useEffect(() => {
     try { sessionStorage.setItem('social_saas_bday_client_sessions', JSON.stringify(birthdayClientSessions)); } catch {}
@@ -627,40 +799,94 @@ export default function App() {
   };
 
   // Identidade do Social Media Ativo (para separar visualização de clientes por profissional)
-  const [activeSocialMediaId, setActiveSocialMediaId] = useState<string>(() => {
-    if (initialClientLink.urlSmId) return initialClientLink.urlSmId;
-    return localStorage.getItem('social_saas_active_sm_id') || (socialMedias[0]?.id || 'sm-1');
-  });
+  const [activeSocialMediaId, setActiveSocialMediaId] = useState<string>(() => initialClientLink.urlSmId || '');
 
   const [approvalToastMessage, setApprovalToastMessage] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (activeSocialMediaId && !isClientLinkAccess) {
+    if (authUser && activeSocialMediaId && !isClientLinkAccess) {
       try { localStorage.setItem('social_saas_active_sm_id', activeSocialMediaId); } catch {}
     }
-  }, [activeSocialMediaId, isClientLinkAccess]);
+  }, [activeSocialMediaId, isClientLinkAccess, authUser]);
 
-  // Garante que activeSocialMediaId sempre aponte para um Social Media válido existente na lista
+  // Vincula automaticamente o usuário autenticado à sua identidade exata (Social Media ou Cliente) para evitar vazamento entre contas
   React.useEffect(() => {
+    if (isClientLinkAccess || !authUser) return;
+
+    if (authUser.role === 'social_media') {
+      const matchedSm = socialMedias.find(
+        sm => (sm.email && authUser.email && sm.email.toLowerCase() === authUser.email.toLowerCase()) || sm.id === authUser.id
+      );
+      const targetSmId = matchedSm?.id || authUser.id;
+      if (activeSocialMediaId !== targetSmId) {
+        setActiveSocialMediaId(targetSmId);
+      }
+      return;
+    }
+
+    if (authUser.role === 'cliente') {
+      const matchedClient = clients.find(
+        c => (c.email && authUser.email && c.email.toLowerCase() === authUser.email.toLowerCase()) || c.id === authUser.id
+      );
+      if (matchedClient && selectedClientId !== matchedClient.id) {
+        setSelectedClientId(matchedClient.id);
+      }
+      return;
+    }
+
     if (socialMedias.length > 0 && !socialMedias.some(sm => sm.id === activeSocialMediaId)) {
       setActiveSocialMediaId(socialMedias[0].id);
     }
-  }, [socialMedias, activeSocialMediaId]);
+  }, [socialMedias, clients, activeSocialMediaId, selectedClientId, authUser, isClientLinkAccess]);
 
-  const activeSmObj = socialMedias.find(sm => sm.id === activeSocialMediaId);
+  // Garante criação automática do perfil Social Media ao fazer primeiro acesso/login sem registro prévio
+  React.useEffect(() => {
+    if (!isRemoteHydrated || isClientLinkAccess || !authUser || authUser.role !== 'social_media') return;
+    if (autoCreatedSmForUserRef.current === authUser.id) return;
+
+    const alreadyExists = socialMedias.some(
+      sm => (sm.email && authUser.email && sm.email.toLowerCase() === authUser.email.toLowerCase()) || sm.id === authUser.id
+    );
+    autoCreatedSmForUserRef.current = authUser.id;
+
+    if (!alreadyExists) {
+      const newSmProfile: SocialMediaUser = {
+        id: authUser.id,
+        name: authUser.name || authUser.email.split('@')[0] || 'Social Media',
+        email: authUser.email,
+        whatsapp: '',
+        whatsappNumber: '',
+        socialProfile: '',
+        pixKey: '',
+        assignedClientIds: [],
+        totalPostsCreated: 0,
+        status: 'ativo'
+      };
+      setSocialMedias(prev => {
+        const existsNow = prev.some(
+          sm => (sm.email && newSmProfile.email && sm.email.toLowerCase() === newSmProfile.email.toLowerCase()) || sm.id === newSmProfile.id
+        );
+        return existsNow ? prev : [...prev, newSmProfile];
+      });
+      if (hasSupabaseCredentials()) {
+        syncSocialMediaToSupabase(newSmProfile);
+      }
+    }
+  }, [isRemoteHydrated, isClientLinkAccess, authUser, socialMedias]);
+
+  const effectiveSmId = currentUserRole === 'social_media'
+    ? (activeSocialMediaId || authUser?.id || '')
+    : activeSocialMediaId;
+  const activeSmObj = socialMedias.find(sm => sm.id === effectiveSmId);
   const urlClientParam = initialClientLink.urlClientId || null;
   const urlSmParam = initialClientLink.urlSmId || null;
 
   // Clientes acessíveis conforme o perfil atual:
-  // Se for Social Media, só visualiza a lista dos clientes que ele próprio cadastrou ou atrelou a ele!
+  // Se for Social Media, só visualiza os clientes vinculados a ele (suporta múltiplos Social Medias no mesmo cliente)!
   // Se for Cliente, fica restrito estritamente ao seu próprio espaço de cliente!
   // Se for Gestor, tem visão geral de todos os clientes.
   const userAccessibleClients = currentUserRole === 'social_media'
-    ? clients.filter(c =>
-        c.assignedSocialMediaId === activeSocialMediaId ||
-        (c as any).createdBySocialMediaId === activeSocialMediaId ||
-        (activeSmObj?.assignedClientIds || []).includes(c.id)
-      )
+    ? clients.filter(c => isClientLinkedToSocialMedia(c, effectiveSmId, activeSmObj))
     : currentUserRole === 'cliente'
       ? clients.filter(c => c.id === selectedClientId)
       : clients;
@@ -671,19 +897,16 @@ export default function App() {
       const isCurrentValid = userAccessibleClients.some(c => c.id === selectedClientId);
       if (!isCurrentValid && userAccessibleClients.length > 0) {
         setSelectedClientId(userAccessibleClients[0].id);
+      } else if (!isCurrentValid && selectedClientId) {
+        setSelectedClientId('');
       }
     } else if (currentUserRole === 'gestor') {
       const isCurrentValid = clients.some(c => c.id === selectedClientId);
       if (!isCurrentValid && clients.length > 0) {
         setSelectedClientId(clients[0].id);
       }
-    } else if (currentUserRole === 'cliente' && !isClientLinkAccess) {
-      const isCurrentValid = clients.some(c => c.id === selectedClientId);
-      if (!isCurrentValid && clients.length > 0) {
-        setSelectedClientId(clients[0].id);
-      }
     }
-  }, [currentUserRole, activeSocialMediaId, userAccessibleClients, clients, selectedClientId, isClientLinkAccess]);
+  }, [currentUserRole, effectiveSmId, userAccessibleClients, clients, selectedClientId]);
 
   // Verifica se há um cliente válido dentro do escopo permitido para o perfil atual (evita vazamento entre Social Medias)
   const matchedAccessibleClient = userAccessibleClients.find(c => c.id === selectedClientId)
@@ -697,11 +920,12 @@ export default function App() {
   };
   const scopedClientId = matchedAccessibleClient ? matchedAccessibleClient.id : '';
 
-  // Social media responsável pelo cliente ativo (sem fallback aleatório para outro SM)
+  // Social media(s) responsável(is) pelo cliente ativo (sem fallback aleatório para outro SM)
+  const clientAssignedSms = getClientAssignedSocialMedias(selectedClient, socialMedias);
   const responsibleSmId = currentUserRole === 'social_media'
-    ? activeSocialMediaId
-    : (urlSmParam || selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId);
-  const responsibleSm = responsibleSmId ? socialMedias.find(sm => sm.id === responsibleSmId) : undefined;
+    ? effectiveSmId
+    : (urlSmParam || selectedClient.assignedSocialMediaId || clientAssignedSms[0]?.id || (selectedClient as any).createdBySocialMediaId);
+  const responsibleSm = responsibleSmId ? (socialMedias.find(sm => sm.id === responsibleSmId) || clientAssignedSms[0]) : clientAssignedSms[0];
 
   // Inicializa modelo de exemplo, grupos padrão (Adultos, Adolescentes, Crianças) e mensagens base por cliente válido
   React.useEffect(() => {
@@ -849,6 +1073,22 @@ export default function App() {
       }
     }
 
+    if (isClientLinkAccess && targetPost?.approvalToken) {
+      if (newStatus === 'aprovado') {
+        if (hasSupabaseCredentials()) {
+          submitPublicApprovalActionToSupabase({
+            token: targetPost.approvalToken,
+            action: 'approve',
+            authorName: approverName
+          });
+        }
+        submitLocalPublicPostAction(targetPost.approvalToken, {
+          action: 'approve',
+          authorName: approverName
+        });
+      }
+    }
+
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
         const formattedTimestamp = now.toLocaleDateString('pt-BR', {
@@ -879,15 +1119,17 @@ export default function App() {
             updatedComments = [...p.comments, approvalComment];
 
             // Auditoria no Supabase se configurado
-            auditPostCommentToSupabase({
-              id: approvalComment.id,
-              postId: p.id,
-              postTitle: p.title,
-              clientId: p.clientProjectId,
-              authorRole: currentUserRole,
-              authorName: approverName,
-              text: approvalComment.text
-            });
+            if (!isClientLinkAccess) {
+              auditPostCommentToSupabase({
+                id: approvalComment.id,
+                postId: p.id,
+                postTitle: p.title,
+                clientId: p.clientProjectId,
+                authorRole: currentUserRole,
+                authorName: approverName,
+                text: approvalComment.text
+              });
+            }
           }
 
           // Mensagem de agradecimento e confirmação de agendamento
@@ -988,16 +1230,36 @@ export default function App() {
 
     const targetPost = posts.find(p => p.id === postId);
 
-    // Auditoria de Comentários no Supabase (se configurado)
-    auditPostCommentToSupabase({
-      id: newCommentObj.id,
-      postId,
-      postTitle: targetPost?.title,
-      clientId: targetPost?.clientProjectId || scopedClientId,
-      authorRole: role,
-      authorName,
-      text: commentText
-    });
+    if (isClientLinkAccess && targetPost?.approvalToken) {
+      const isAdjustment = commentText.startsWith('[Instrução de Ajuste]:');
+      const cleanComment = isAdjustment
+        ? commentText.replace('[Instrução de Ajuste]:', '').trim()
+        : commentText;
+      if (hasSupabaseCredentials()) {
+        submitPublicApprovalActionToSupabase({
+          token: targetPost.approvalToken,
+          action: isAdjustment ? 'request_change' : 'comment',
+          comment: cleanComment,
+          authorName
+        });
+      }
+      submitLocalPublicPostAction(targetPost.approvalToken, {
+        action: isAdjustment ? 'request_change' : 'comment',
+        comment: cleanComment,
+        authorName
+      });
+    } else {
+      // Auditoria de Comentários no Supabase (se configurado)
+      auditPostCommentToSupabase({
+        id: newCommentObj.id,
+        postId,
+        postTitle: targetPost?.title,
+        clientId: targetPost?.clientProjectId || scopedClientId,
+        authorRole: role,
+        authorName,
+        text: commentText
+      });
+    }
 
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
@@ -1063,7 +1325,7 @@ export default function App() {
 
     const nextPosts = [newPost, ...posts];
     setPosts(nextPosts);
-    saveSharedServerStatePatch({ posts: nextPosts });
+    saveSharedServerStatePatch({ posts: nextPosts }, serverAuthToken);
     if (hasSupabaseCredentials()) {
       syncPostToSupabase(newPost);
     }
@@ -1108,11 +1370,27 @@ export default function App() {
     };
     const nextTasks = [newTask, ...tasks];
     setTasks(nextTasks);
-    saveSharedServerStatePatch({ tasks: nextTasks });
+    saveSharedServerStatePatch({ tasks: nextTasks }, serverAuthToken);
     if (hasSupabaseCredentials()) {
-      const res = await syncTaskToSupabase(newTask);
-      if (res.missingTable) setTasksTableMissingInSupabase(true);
-      else if (res.success) setTasksTableMissingInSupabase(false);
+      if (isClientLinkAccess && newTask.clientProjectId) {
+        const rpcRes = await submitPublicMuralTaskToSupabase({
+          clientId: newTask.clientProjectId,
+          id: newTask.id,
+          title: newTask.title,
+          description: newTask.description,
+          deadline: newTask.deadline,
+          authorName: newTask.createdByName
+        });
+        if (!rpcRes.handledByRpc) {
+          const res = await syncTaskToSupabase(newTask);
+          if (res.missingTable) setTasksTableMissingInSupabase(true);
+          else if (res.success) setTasksTableMissingInSupabase(false);
+        }
+      } else {
+        const res = await syncTaskToSupabase(newTask);
+        if (res.missingTable) setTasksTableMissingInSupabase(true);
+        else if (res.success) setTasksTableMissingInSupabase(false);
+      }
     }
   };
 
@@ -1120,7 +1398,7 @@ export default function App() {
     const timestampedTask: ClientTask = { ...updatedTask, updatedAt: new Date().toISOString() };
     const nextTasks = tasks.map(t => t.id === updatedTask.id ? timestampedTask : t);
     setTasks(nextTasks);
-    saveSharedServerStatePatch({ tasks: nextTasks });
+    saveSharedServerStatePatch({ tasks: nextTasks }, serverAuthToken);
     if (hasSupabaseCredentials()) {
       const res = await syncTaskToSupabase(timestampedTask);
       if (res.missingTable) setTasksTableMissingInSupabase(true);
@@ -1131,7 +1409,7 @@ export default function App() {
   const handleDeleteTask = async (taskId: string) => {
     const nextTasks = tasks.filter(t => t.id !== taskId);
     setTasks(nextTasks);
-    saveSharedServerStatePatch({ tasks: nextTasks });
+    saveSharedServerStatePatch({ tasks: nextTasks }, serverAuthToken);
     if (hasSupabaseCredentials()) {
       await deleteTaskFromSupabase(taskId);
     }
@@ -1142,7 +1420,7 @@ export default function App() {
     const updatedTask: ClientTask = { ...task, status: 'em_andamento' as TaskStatus, updatedAt: new Date().toISOString() };
     const nextTasks = tasks.map(t => t.id === task.id ? updatedTask : t);
     setTasks(nextTasks);
-    saveSharedServerStatePatch({ tasks: nextTasks });
+    saveSharedServerStatePatch({ tasks: nextTasks }, serverAuthToken);
     if (hasSupabaseCredentials()) {
       syncTaskToSupabase(updatedTask);
     }
@@ -1205,7 +1483,7 @@ export default function App() {
     const targetClient = targetPost
       ? (clients.find(c => c.id === targetPost.clientProjectId) || selectedClient)
       : selectedClient;
-    saveSharedServerStatePatch({ posts, clients });
+    saveSharedServerStatePatch({ posts, clients }, serverAuthToken);
     if (hasSupabaseCredentials()) {
       if (targetClient?.id) syncClientToSupabase(targetClient);
       if (targetPost) syncPostToSupabase(targetPost);
@@ -1224,7 +1502,7 @@ export default function App() {
   // Envio da tela completa do Mural de Posts e Aprovações para o WhatsApp com isolamento de projetos
   const handleSendEntireMuralWhatsApp = () => {
     if (!hasValidSelectedClient || !scopedClientId) return;
-    saveSharedServerStatePatch({ posts, clients });
+    saveSharedServerStatePatch({ posts, clients }, serverAuthToken);
     if (hasSupabaseCredentials() && selectedClient?.id) {
       syncClientToSupabase(selectedClient);
     }
@@ -1239,10 +1517,11 @@ export default function App() {
     openWhatsAppDirect(selectedClient.whatsappNumber, text);
   };
 
-  const syncClientAssignmentInSocialMedias = (clientId: string, smId?: string) => {
+  const syncClientAssignmentInSocialMedias = (clientId: string, smIds: string[]) => {
+    const allowedSet = new Set(smIds.filter(Boolean));
     setSocialMedias(prev => prev.map(sm => {
       const currentIds = sm.assignedClientIds || [];
-      if (smId && sm.id === smId) {
+      if (allowedSet.has(sm.id)) {
         return currentIds.includes(clientId) ? sm : { ...sm, assignedClientIds: [...currentIds, clientId] };
       }
       if (currentIds.includes(clientId)) {
@@ -1253,33 +1532,54 @@ export default function App() {
   };
 
   const handleUpdateClient = (updatedClient: ClientProject) => {
-    const resolvedSmId = currentUserRole === 'social_media'
-      ? (updatedClient.assignedSocialMediaId || activeSocialMediaId)
-      : updatedClient.assignedSocialMediaId;
+    const rawIds = new Set<string>(getClientSocialMediaIds(updatedClient));
+    if (currentUserRole === 'social_media' && effectiveSmId) {
+      rawIds.add(effectiveSmId);
+    }
+    const normalizedIds = Array.from(rawIds);
+    const primarySmId =
+      (updatedClient.assignedSocialMediaId && normalizedIds.includes(updatedClient.assignedSocialMediaId))
+        ? updatedClient.assignedSocialMediaId
+        : normalizedIds[0];
+
     const normalizedClient: ClientProject = {
       ...updatedClient,
-      assignedSocialMediaId: resolvedSmId
+      assignedSocialMediaId: primarySmId,
+      assignedSocialMediaIds: normalizedIds,
+      createdBySocialMediaId: updatedClient.createdBySocialMediaId || primarySmId
     };
     setClients(prev => prev.map(c => c.id === normalizedClient.id ? normalizedClient : c));
-    syncClientAssignmentInSocialMedias(normalizedClient.id, resolvedSmId);
+    syncClientAssignmentInSocialMedias(normalizedClient.id, normalizedIds);
     syncClientToSupabase(normalizedClient);
   };
 
   const handleAddClient = (newClient: ClientProject) => {
-    const resolvedSmId = currentUserRole === 'social_media'
-      ? activeSocialMediaId
-      : (newClient.assignedSocialMediaId || activeSocialMediaId || undefined);
+    const rawIds = new Set<string>(getClientSocialMediaIds(newClient));
+    if (currentUserRole === 'social_media' && effectiveSmId) {
+      rawIds.add(effectiveSmId);
+    } else if (rawIds.size === 0 && activeSocialMediaId) {
+      rawIds.add(activeSocialMediaId);
+    }
+    const normalizedIds = Array.from(rawIds);
+    const primarySmId =
+      (newClient.assignedSocialMediaId && normalizedIds.includes(newClient.assignedSocialMediaId))
+        ? newClient.assignedSocialMediaId
+        : normalizedIds[0];
+
     const clientWithAuthor: ClientProject = {
       ...newClient,
-      assignedSocialMediaId: resolvedSmId,
-      createdBySocialMediaId: currentUserRole === 'social_media' ? activeSocialMediaId : (newClient.createdBySocialMediaId || resolvedSmId)
+      assignedSocialMediaId: primarySmId,
+      assignedSocialMediaIds: normalizedIds,
+      createdBySocialMediaId: currentUserRole === 'social_media'
+        ? effectiveSmId
+        : (newClient.createdBySocialMediaId || primarySmId)
     };
     setClients(prev => {
       const exists = prev.some(c => c.id === clientWithAuthor.id);
       if (exists) return prev.map(c => c.id === clientWithAuthor.id ? clientWithAuthor : c);
       return [...prev, clientWithAuthor];
     });
-    syncClientAssignmentInSocialMedias(clientWithAuthor.id, resolvedSmId);
+    syncClientAssignmentInSocialMedias(clientWithAuthor.id, normalizedIds);
     setSelectedClientId(clientWithAuthor.id);
     syncClientToSupabase(clientWithAuthor);
   };
@@ -1371,11 +1671,17 @@ export default function App() {
     };
     setSocialMedias(prev => [...prev, created]);
     if (created.assignedClientIds && created.assignedClientIds.length > 0) {
-      setClients(prev => prev.map(c =>
-        created.assignedClientIds.includes(c.id) && !c.assignedSocialMediaId
-          ? { ...c, assignedSocialMediaId: created.id }
-          : c
-      ));
+      setClients(prev => prev.map(c => {
+        if (!created.assignedClientIds.includes(c.id)) return c;
+        const nextIds = Array.from(new Set([...getClientSocialMediaIds(c), created.id]));
+        const updatedClient: ClientProject = {
+          ...c,
+          assignedSocialMediaId: c.assignedSocialMediaId || created.id,
+          assignedSocialMediaIds: nextIds
+        };
+        syncClientToSupabase(updatedClient);
+        return updatedClient;
+      }));
     }
     syncSocialMediaToSupabase(created);
   };
@@ -1384,16 +1690,28 @@ export default function App() {
     setSocialMedias(prev => prev.map(sm => sm.id === updatedSm.id ? updatedSm : sm));
     const assignedIds = updatedSm.assignedClientIds || [];
     setClients(prev => prev.map(c => {
+      const currentSmIds = getClientSocialMediaIds(c);
       if (assignedIds.includes(c.id)) {
-        if (c.assignedSocialMediaId !== updatedSm.id) {
-          const updatedClient = { ...c, assignedSocialMediaId: updatedSm.id };
+        if (!currentSmIds.includes(updatedSm.id)) {
+          const nextIds = Array.from(new Set([...currentSmIds, updatedSm.id]));
+          const updatedClient: ClientProject = {
+            ...c,
+            assignedSocialMediaId: c.assignedSocialMediaId || updatedSm.id,
+            assignedSocialMediaIds: nextIds
+          };
           syncClientToSupabase(updatedClient);
           return updatedClient;
         }
         return c;
       }
-      if (c.assignedSocialMediaId === updatedSm.id) {
-        const updatedClient = { ...c, assignedSocialMediaId: undefined };
+      if (currentSmIds.includes(updatedSm.id)) {
+        const nextIds = currentSmIds.filter(id => id !== updatedSm.id);
+        const nextPrimary = c.assignedSocialMediaId === updatedSm.id ? nextIds[0] : c.assignedSocialMediaId;
+        const updatedClient: ClientProject = {
+          ...c,
+          assignedSocialMediaId: nextPrimary,
+          assignedSocialMediaIds: nextIds
+        };
         syncClientToSupabase(updatedClient);
         return updatedClient;
       }
@@ -1405,8 +1723,15 @@ export default function App() {
   const handleDeleteSocialMedia = async (smId: string) => {
     setSocialMedias(prev => prev.filter(sm => sm.id !== smId));
     setClients(prev => prev.map(c => {
-      if (c.assignedSocialMediaId === smId) {
-        const updatedClient = { ...c, assignedSocialMediaId: undefined };
+      const currentSmIds = getClientSocialMediaIds(c);
+      if (currentSmIds.includes(smId) || c.assignedSocialMediaId === smId) {
+        const nextIds = currentSmIds.filter(id => id !== smId);
+        const nextPrimary = c.assignedSocialMediaId === smId ? nextIds[0] : c.assignedSocialMediaId;
+        const updatedClient: ClientProject = {
+          ...c,
+          assignedSocialMediaId: nextPrimary,
+          assignedSocialMediaIds: nextIds
+        };
         syncClientToSupabase(updatedClient);
         return updatedClient;
       }
@@ -1457,6 +1782,56 @@ export default function App() {
     }));
   };
 
+  // Bloqueio obrigatório de acesso na URL inicial (/) até que o usuário faça login
+  if (!isClientLinkAccess && authChecking) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center justify-center gap-3 p-6">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+        <p className="text-xs text-slate-400 font-medium">Verificando autenticação...</p>
+      </div>
+    );
+  }
+
+  if (!isClientLinkAccess && !authUser) {
+    return <LoginGate onAuthenticated={handleAuthenticatedSuccess} />;
+  }
+
+  if (isClientLinkAccess && isClientLinkLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center justify-center gap-3 p-6">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
+        <p className="text-xs text-slate-400 font-medium">Carregando espaço exclusivo de aprovação...</p>
+      </div>
+    );
+  }
+
+  if (isClientLinkAccess && !hasValidSelectedClient && !publicApprovalPost) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-bold text-white">Link não encontrado ou expirado</h2>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Este link exclusivo de aprovação não foi localizado ou não está mais disponível. Solicite um novo link ao seu Social Media ou acesse o painel com login.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              window.history.replaceState({}, '', '/');
+              window.location.reload();
+            }}
+            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold inline-flex items-center gap-2 transition-all"
+          >
+            <span>Ir para Tela de Login</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
       
@@ -1467,7 +1842,7 @@ export default function App() {
         onSelectClient={setSelectedClientId}
         currentUserRole={currentUserRole}
         onChangeUserRole={(role) => {
-          if (isClientLinkAccess && role !== 'cliente') return;
+          if (isClientLinkAccess || authUser?.role !== 'gestor') return;
           setCurrentUserRole(role);
         }}
         onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
@@ -1485,6 +1860,9 @@ export default function App() {
             setActiveTab('posts');
           }
         }}
+        authenticatedUser={authUser}
+        canSwitchRoles={authUser?.role === 'gestor'}
+        onLogout={handleLogout}
       />
 
       {/* Navigation Tab Bar */}
@@ -1566,7 +1944,12 @@ export default function App() {
                       </h2>
                       <span className="text-slate-500 text-xs hidden sm:inline">•</span>
                       <span className="text-xs sm:text-sm text-purple-300 font-medium">
-                        Social Media: <strong className="text-white font-bold">{responsibleSm?.name || 'Não vinculado'}</strong>
+                        {clientAssignedSms.length > 1 ? 'Social Medias:' : 'Social Media:'}{' '}
+                        <strong className="text-white font-bold">
+                          {clientAssignedSms.length > 0
+                            ? clientAssignedSms.map(s => s.name).join(', ')
+                            : (responsibleSm?.name || 'Não vinculado')}
+                        </strong>
                       </span>
                     </div>
                   </div>

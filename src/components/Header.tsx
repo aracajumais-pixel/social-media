@@ -1,6 +1,7 @@
 import React from 'react';
 import { ClientProject, UserRole } from '../types';
-import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Eye, Search, X } from 'lucide-react';
+import { UserCheck, Shield, Sparkles, Building, MessageSquare, HardDrive, Eye, Search, X, LogOut } from 'lucide-react';
+import { getClientAssignedSocialMedias } from '../utils/clientLinks';
 
 interface HeaderProps {
   clients: ClientProject[];
@@ -18,6 +19,9 @@ interface HeaderProps {
   onSelectSocialMedia?: (smId: string) => void;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
+  authenticatedUser?: { name: string; email: string; role: UserRole } | null;
+  canSwitchRoles?: boolean;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,7 +39,10 @@ export const Header: React.FC<HeaderProps> = ({
   activeSocialMediaId,
   onSelectSocialMedia,
   searchQuery = '',
-  onSearchChange
+  onSearchChange,
+  authenticatedUser,
+  canSwitchRoles = false,
+  onLogout
 }) => {
   const urlSmParam =
     typeof window !== 'undefined'
@@ -44,11 +51,12 @@ export const Header: React.FC<HeaderProps> = ({
 
   const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
   const validSelectedClientId = selectedClient ? selectedClient.id : '';
+  const selectedClientSms = getClientAssignedSocialMedias(selectedClient, socialMedias);
   const targetSmId =
     currentUserRole === 'social_media'
       ? activeSocialMediaId
-      : (urlSmParam || selectedClient?.assignedSocialMediaId || (selectedClient as any)?.createdBySocialMediaId);
-  const linkedSm = targetSmId ? socialMedias.find(sm => sm.id === targetSmId) : undefined;
+      : (urlSmParam || selectedClient?.assignedSocialMediaId || selectedClientSms[0]?.id || (selectedClient as any)?.createdBySocialMediaId);
+  const linkedSm = targetSmId ? (socialMedias.find(sm => sm.id === targetSmId) || selectedClientSms[0]) : selectedClientSms[0];
 
   const isClientLinkAccess =
     typeof window !== 'undefined' &&
@@ -142,10 +150,11 @@ export const Header: React.FC<HeaderProps> = ({
                   </option>
                 ) : (
                   clients.map(client => {
-                    const assignedSm = socialMedias.find(sm => sm.id === (client.assignedSocialMediaId || (client as any).createdBySocialMediaId));
+                    const assignedSms = getClientAssignedSocialMedias(client, socialMedias);
+                    const smLabel = assignedSms.map(sm => sm.name).join(', ');
                     return (
                       <option key={client.id} value={client.id} className="bg-slate-900 text-slate-200">
-                        {client.name} {assignedSm ? `• (SM: ${assignedSm.name})` : ''}
+                        {client.name} {smLabel ? `• (SM: ${smLabel})` : ''}
                       </option>
                     );
                   })
@@ -210,8 +219,8 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Role Switcher (Sempre oculto quando acessado por link direto de cliente) */}
-            {!isClientLinkAccess && (
+            {/* Role Switcher (Visível APENAS para o Gestor autenticado em modo de simulação) */}
+            {!isClientLinkAccess && canSwitchRoles && (
               <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
                 <button
                   onClick={() => onChangeUserRole('gestor')}
@@ -250,6 +259,24 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <Building className="w-3.5 h-3.5" />
                   <span className="hidden lg:inline">Cliente</span>
+                </button>
+              </div>
+            )}
+
+            {/* Usuário Autenticado + Botão Sair */}
+            {!isClientLinkAccess && authenticatedUser && onLogout && (
+              <div className="flex items-center gap-1.5 pl-1 border-l border-slate-800">
+                <span className="hidden xl:inline text-[11px] font-medium text-slate-300 max-w-[130px] truncate" title={authenticatedUser.email}>
+                  {authenticatedUser.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  title="Encerrar sessão e voltar ao login"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/70 text-slate-300 hover:text-rose-300 border border-slate-700/70 hover:border-rose-500/40 text-xs font-semibold transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Sair</span>
                 </button>
               </div>
             )}
@@ -319,10 +346,11 @@ export const Header: React.FC<HeaderProps> = ({
                   </option>
                 ) : (
                   clients.map(client => {
-                    const assignedSm = socialMedias.find(sm => sm.id === (client.assignedSocialMediaId || (client as any).createdBySocialMediaId));
+                    const assignedSms = getClientAssignedSocialMedias(client, socialMedias);
+                    const smLabel = assignedSms.map(sm => sm.name).join(', ');
                     return (
                       <option key={client.id} value={client.id}>
-                        {client.name} {assignedSm ? `• (${assignedSm.name})` : ''}
+                        {client.name} {smLabel ? `• (${smLabel})` : ''}
                       </option>
                     );
                   })

@@ -57,6 +57,33 @@ async function fetchPostAndClientByToken(token: string): Promise<{
   if (!sbUrl || !sbKey || !token) return { post: null };
 
   try {
+    const rpcResp = await fetch(`${sbUrl}/rest/v1/rpc/get_og_preview_data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: sbKey,
+        Authorization: `Bearer ${sbKey}`,
+      },
+      body: JSON.stringify({ p_token: token }),
+    });
+    if (rpcResp.ok) {
+      const rpcData = (await rpcResp.json()) as any;
+      if (rpcData && (rpcData.title || rpcData.media_url)) {
+        return {
+          post: {
+            title: rpcData.title || 'Publicação para Aprovação',
+            caption: rpcData.caption || '',
+            mediaUrl: rpcData.media_url || '',
+          },
+          clientName: rpcData.client_name || undefined,
+        };
+      }
+    }
+  } catch {
+    // fallback para consulta direta
+  }
+
+  try {
     const resp = await fetch(
       `${sbUrl}/rest/v1/posts?approval_token=eq.${encodeURIComponent(token)}&select=id,title,caption,media_url,client_project_id&limit=1`,
       {
@@ -105,6 +132,26 @@ async function fetchPostAndClientByToken(token: string): Promise<{
 async function fetchClientMuralById(clientId: string): Promise<{ name: string } | null> {
   const { url: sbUrl, key: sbKey } = getSupabaseEnv();
   if (!sbUrl || !sbKey || !clientId) return null;
+
+  try {
+    const rpcResp = await fetch(`${sbUrl}/rest/v1/rpc/get_og_preview_data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: sbKey,
+        Authorization: `Bearer ${sbKey}`,
+      },
+      body: JSON.stringify({ p_client_id: clientId }),
+    });
+    if (rpcResp.ok) {
+      const rpcData = (await rpcResp.json()) as any;
+      if (rpcData?.client_name) {
+        return { name: String(rpcData.client_name) };
+      }
+    }
+  } catch {
+    // fallback para consulta direta
+  }
 
   try {
     const resp = await fetch(

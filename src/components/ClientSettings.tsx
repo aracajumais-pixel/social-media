@@ -7,6 +7,7 @@ import { searchClientsInSupabase } from '../lib/supabase';
 import { createDriveFolderForClient, getSavedDriveWebhookUrl } from '../utils/driveAutomation';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 import { fetchAddressByCep, formatCep, buildFormattedAddress } from '../utils/cepHelper';
+import { getClientSocialMediaIds, isClientLinkedToSocialMedia, getClientAssignedSocialMedias } from '../utils/clientLinks';
 
 interface ClientSettingsProps {
   client: ClientProject;
@@ -84,7 +85,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     googleDriveFolderUrl: '',
     logoUrl: '',
     activeSocialNetworks: ['instagram', 'facebook'] as SocialNetwork[],
-    assignedSocialMediaId: socialMedias[0]?.id || '',
+    assignedSocialMediaIds: (activeSocialMediaId ? [activeSocialMediaId] : (socialMedias[0]?.id ? [socialMedias[0].id] : [])) as string[],
     additionalInfo: ''
   });
 
@@ -197,7 +198,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       googleDriveFolderUrl: '',
       logoUrl: '',
       activeSocialNetworks: ['instagram', 'facebook'],
-      assignedSocialMediaId: activeSocialMediaId || socialMedias[0]?.id || '',
+      assignedSocialMediaIds: activeSocialMediaId ? [activeSocialMediaId] : (socialMedias[0]?.id ? [socialMedias[0].id] : []),
       additionalInfo: ''
     });
     setIsClientModalOpen(true);
@@ -209,6 +210,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
     setDriveGenError(null);
     setDriveGenSuccess(false);
     setCepStatusMessage(null);
+    const existingSmIds = getClientSocialMediaIds(targetClient, socialMedias);
     setModalForm({
       id: targetClient.id,
       name: targetClient.name || '',
@@ -229,7 +231,7 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       googleDriveFolderUrl: targetClient.googleDriveFolderUrl || '',
       logoUrl: targetClient.logoUrl || '',
       activeSocialNetworks: targetClient.activeSocialNetworks || ['instagram', 'facebook'],
-      assignedSocialMediaId: targetClient.assignedSocialMediaId || socialMedias[0]?.id || '',
+      assignedSocialMediaIds: existingSmIds.length > 0 ? existingSmIds : (activeSocialMediaId ? [activeSocialMediaId] : []),
       additionalInfo: targetClient.additionalInfo || ''
     });
     setIsClientModalOpen(true);
@@ -293,10 +295,17 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
       cep: modalForm.cep.trim()
     }) || modalForm.address.trim() || 'Endereço Comercial';
 
-    const resolvedSmId =
-      currentUserRole === 'social_media' && activeSocialMediaId
-        ? activeSocialMediaId
-        : (modalForm.assignedSocialMediaId || activeSocialMediaId || undefined);
+    const selectedSmSet = new Set<string>(
+      modalForm.assignedSocialMediaIds.map(id => String(id || '').trim()).filter(Boolean)
+    );
+    if (currentUserRole === 'social_media' && activeSocialMediaId) {
+      selectedSmSet.add(activeSocialMediaId);
+    }
+    const resolvedSmIds: string[] = Array.from(selectedSmSet);
+    const primarySmId =
+      (editingClient?.assignedSocialMediaId && resolvedSmIds.includes(editingClient.assignedSocialMediaId))
+        ? editingClient.assignedSocialMediaId
+        : (resolvedSmIds[0] || undefined);
 
     if (editingClient) {
       // Edit Existing Client
@@ -320,8 +329,9 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
-        assignedSocialMediaId: resolvedSmId,
-        createdBySocialMediaId: editingClient.createdBySocialMediaId || resolvedSmId,
+        assignedSocialMediaId: primarySmId,
+        assignedSocialMediaIds: resolvedSmIds,
+        createdBySocialMediaId: editingClient.createdBySocialMediaId || primarySmId,
         additionalInfo: modalForm.additionalInfo.trim() || undefined
       };
 
@@ -353,8 +363,9 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
         googleDriveFolderUrl: modalForm.googleDriveFolderUrl.trim(),
         logoUrl: modalForm.logoUrl.trim(),
         activeSocialNetworks: modalForm.activeSocialNetworks,
-        assignedSocialMediaId: resolvedSmId,
-        createdBySocialMediaId: resolvedSmId,
+        assignedSocialMediaId: primarySmId,
+        assignedSocialMediaIds: resolvedSmIds,
+        createdBySocialMediaId: primarySmId,
         status: 'ativo',
         additionalInfo: modalForm.additionalInfo.trim() || undefined,
         driveStorageUsedGB: 0.5,
@@ -560,18 +571,14 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
 
   const activeSmObj = socialMedias.find(sm => sm.id === activeSocialMediaId);
 
-  // Clientes filtrados por escopo de papel (Social Media só visualiza seus próprios clientes)
+  // Clientes filtrados por escopo de papel (Social Media só visualiza seus próprios clientes; um cliente pode ter múltiplos SMs)
   const roleScopedClients = currentUserRole === 'social_media' && activeSocialMediaId
-    ? clients.filter(c =>
-        c.assignedSocialMediaId === activeSocialMediaId ||
-        (c as any).createdBySocialMediaId === activeSocialMediaId ||
-        (activeSmObj?.assignedClientIds || []).includes(c.id)
-      )
+    ? clients.filter(c => isClientLinkedToSocialMedia(c, activeSocialMediaId, activeSmObj))
     : currentUserRole === 'cliente'
       ? clients.filter(c => c.id === client.id)
       : clients;
 
-  // Social Medias visíveis conforme o perfil (Social Media só vê o próprio perfil)
+  // Social Medias visíveis conforme o perfil (Social Media só vê o próprio perfil na aba de perfil)
   const roleScopedSocialMedias = currentUserRole === 'social_media' && activeSocialMediaId
     ? socialMedias.filter(sm => sm.id === activeSocialMediaId)
     : socialMedias;
@@ -579,9 +586,9 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
   // Determine list of displayed clients
   const displayedClients = searchQuery.trim()
     ? (supabaseSearchResults !== null
-        ? supabaseSearchResults.filter(c => 
+        ? supabaseSearchResults.filter(c =>
             currentUserRole === 'social_media' && activeSocialMediaId
-              ? (c.assignedSocialMediaId === activeSocialMediaId || (c as any).createdBySocialMediaId === activeSocialMediaId || (activeSmObj?.assignedClientIds || []).includes(c.id))
+              ? isClientLinkedToSocialMedia(c, activeSocialMediaId, activeSmObj)
               : true
           )
         : roleScopedClients.filter(c => {
@@ -773,11 +780,12 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                             </div>
                             <p className="text-[11px] text-slate-400 truncate">{c.companyName || c.email || 'Sem dados adicionais'}</p>
                             {(() => {
-                              const assignedSm = socialMedias.find(sm => sm.id === (c.assignedSocialMediaId || (c as any).createdBySocialMediaId));
+                              const assignedSms = getClientAssignedSocialMedias(c, socialMedias);
                               return (
-                                <div className="flex items-center gap-1 mt-1">
+                                <div className="flex flex-wrap items-center gap-1 mt-1">
                                   <span className="text-[10px] text-purple-300 font-bold bg-purple-950/70 border border-purple-500/30 px-2 py-0.5 rounded-md">
-                                    👤 Social Media: {assignedSm ? assignedSm.name : 'Geral'}
+                                    👤 {assignedSms.length > 1 ? 'Social Medias:' : 'Social Media:'}{' '}
+                                    {assignedSms.length > 0 ? assignedSms.map(s => s.name).join(', ') : 'Sem vínculo'}
                                   </span>
                                 </div>
                               );
@@ -1334,33 +1342,68 @@ export const ClientSettings: React.FC<ClientSettingsProps> = ({
                   </div>
                 </div>
 
-                {/* Social Media Responsável (Garante vínculo exclusivo Social Media <-> Cliente no Banco) */}
-                <div className="bg-slate-950 p-3.5 rounded-xl border border-purple-500/30 space-y-1.5">
-                  <label className="block text-purple-300 font-bold flex items-center gap-1.5">
-                    <UserCheck className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Social Media Responsável (Acesso Exclusivo):</span>
-                  </label>
-                  {currentUserRole === 'social_media' ? (
-                    <div className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 text-xs font-semibold flex items-center justify-between">
-                      <span>{activeSmObj?.name || 'Social Media Ativo'}</span>
-                      <span className="text-[10px] text-purple-300 bg-purple-950/60 border border-purple-500/30 px-2 py-0.5 rounded-full">
-                        Vinculado ao seu perfil
-                      </span>
+                {/* Social Medias Responsáveis (Permite vincular múltiplos Social Medias ao mesmo cliente) */}
+                <div className="bg-slate-950 p-3.5 rounded-xl border border-purple-500/30 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-purple-300 font-bold flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Social Medias Vinculados (1 ou mais):</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      {modalForm.assignedSocialMediaIds.length} selecionado(s)
+                    </span>
+                  </div>
+
+                  {socialMedias.length === 0 ? (
+                    <div className="w-full bg-slate-900 text-slate-300 p-2.5 rounded-xl border border-slate-800 text-xs">
+                      {activeSmObj ? `${activeSmObj.name} (Você)` : 'Seu perfil será vinculado automaticamente ao salvar'}
                     </div>
                   ) : (
-                    <select
-                      value={modalForm.assignedSocialMediaId}
-                      onChange={(e) => setModalForm({ ...modalForm, assignedSocialMediaId: e.target.value })}
-                      className="w-full bg-slate-900 text-white p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-purple-500 text-xs font-semibold"
-                    >
-                      <option value="">Sem vínculo específico</option>
-                      {socialMedias.map(sm => (
-                        <option key={sm.id} value={sm.id}>
-                          {sm.name} {sm.companyName ? `(${sm.companyName})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {socialMedias.map(sm => {
+                        const isSelfLocked = currentUserRole === 'social_media' && activeSocialMediaId === sm.id;
+                        const isChecked = isSelfLocked || modalForm.assignedSocialMediaIds.includes(sm.id);
+                        return (
+                          <label
+                            key={sm.id}
+                            className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border text-xs transition-all ${
+                              isChecked
+                                ? 'bg-purple-950/50 border-purple-500/50 text-white'
+                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                            } ${isSelfLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                disabled={isSelfLocked}
+                                onChange={() => {
+                                  if (isSelfLocked) return;
+                                  setModalForm(prev => {
+                                    const exists = prev.assignedSocialMediaIds.includes(sm.id);
+                                    const nextIds = exists
+                                      ? prev.assignedSocialMediaIds.filter(id => id !== sm.id)
+                                      : [...prev.assignedSocialMediaIds, sm.id];
+                                    return { ...prev, assignedSocialMediaIds: nextIds };
+                                  });
+                                }}
+                                className="rounded border-slate-700 bg-slate-950 text-purple-500 focus:ring-purple-500"
+                              />
+                              <span className="font-semibold truncate">{sm.name}</span>
+                            </div>
+                            {isSelfLocked && (
+                              <span className="text-[10px] text-purple-300 bg-purple-900/60 px-1.5 py-0.5 rounded shrink-0">
+                                Você
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
                   )}
+                  <p className="text-[10px] text-slate-400">
+                    Apenas os profissionais selecionados visualizarão e gerenciarão este cliente.
+                  </p>
                 </div>
 
                 {/* Campo de Informações Adicionais */}

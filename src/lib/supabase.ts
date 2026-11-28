@@ -101,6 +101,25 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
   }
 }
 
+function normalizeClientSocialMediaIdsFromRow(row: any): string[] {
+  const ids = new Set<string>();
+  if (Array.isArray(row?.assigned_social_media_ids)) {
+    for (const id of row.assigned_social_media_ids) {
+      const clean = String(id || '').trim();
+      if (clean) ids.add(clean);
+    }
+  }
+  if (row?.assigned_social_media_id) {
+    const clean = String(row.assigned_social_media_id).trim();
+    if (clean) ids.add(clean);
+  }
+  if (row?.created_by_social_media_id) {
+    const clean = String(row.created_by_social_media_id).trim();
+    if (clean) ids.add(clean);
+  }
+  return Array.from(ids);
+}
+
 /**
  * Sincroniza dados do Cliente para a tabela `clients` no Supabase.
  */
@@ -108,15 +127,24 @@ export async function syncClientToSupabase(client: ClientProject) {
   const clientDb = getSupabaseClient();
   if (!clientDb) return null;
   try {
-    let assignedSocialMediaId = client.assignedSocialMediaId || null;
-    if (!assignedSocialMediaId) {
+    const linkedSet = new Set<string>(
+      Array.isArray(client.assignedSocialMediaIds) ? client.assignedSocialMediaIds.filter(Boolean) : []
+    );
+    if (client.assignedSocialMediaId) linkedSet.add(client.assignedSocialMediaId);
+    if (client.createdBySocialMediaId) linkedSet.add(client.createdBySocialMediaId);
+
+    if (linkedSet.size === 0) {
       const { data: sessionData } = await clientDb.auth.getSession();
       if (sessionData?.session?.user?.id) {
-        assignedSocialMediaId = sessionData.session.user.id;
+        linkedSet.add(sessionData.session.user.id);
       }
     }
 
-    const payload = {
+    const assignedSocialMediaIds = Array.from(linkedSet);
+    const primarySocialMediaId = client.assignedSocialMediaId || assignedSocialMediaIds[0] || null;
+    const createdBySocialMediaId = client.createdBySocialMediaId || primarySocialMediaId || null;
+
+    const basePayload = {
       id: client.id,
       name: client.name || '',
       company_name: client.companyName || '',
@@ -129,13 +157,33 @@ export async function syncClientToSupabase(client: ClientProject) {
       metrics_access: client.metricsAccess || 'ambos',
       drive_folder_url: client.googleDriveFolderUrl || '',
       logo_url: client.logoUrl || '',
-      assigned_social_media_id: assignedSocialMediaId,
+      assigned_social_media_id: primarySocialMediaId,
       status: client.status || 'ativo'
     };
+
     const { data, error } = await clientDb
       .from('clients')
-      .upsert([payload]);
+      .upsert([{
+        ...basePayload,
+        assigned_social_media_ids: assignedSocialMediaIds,
+        created_by_social_media_id: createdBySocialMediaId
+      }]);
     if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (
+        error.code === 'PGRST204' ||
+        msg.includes('column') ||
+        msg.includes('assigned_social_media_ids') ||
+        msg.includes('created_by_social_media_id')
+      ) {
+        const retry = await clientDb.from('clients').upsert([basePayload]);
+        if (retry.error) {
+          console.warn('Erro ao sincronizar Cliente no Supabase (retry):', retry.error.message);
+        } else {
+          console.log('✓ Cliente sincronizado no Supabase (colunas base)!', client.id);
+        }
+        return retry.data;
+      }
       console.warn('Erro ao sincronizar Cliente no Supabase:', error.message);
     } else {
       console.log('✓ Cliente sincronizado no Supabase com sucesso!', client.id);
@@ -171,23 +219,28 @@ export async function fetchClientsFromSupabase(): Promise<ClientProject[] | null
       return null;
     }
     if (data && data.length > 0) {
-      return data.map((row: any) => ({
-        id: row.id,
-        name: row.name || 'Cliente Sem Nome',
-        companyName: row.company_name || row.name || '',
-        cnpj: row.cnpj || '',
-        address: row.address || '',
-        contactName: row.contact_name || '',
-        whatsappNumber: row.whatsapp_number || '',
-        email: row.email || '',
-        pricePerPost: Number(row.price_per_post || 150),
-        metricsAccess: row.metrics_access || 'ambos',
-        googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
-        logoUrl: row.logo_url || '',
-        activeSocialNetworks: ['instagram', 'facebook'],
-        assignedSocialMediaId: row.assigned_social_media_id || undefined,
-        status: row.status || 'ativo'
-      }));
+      return data.map((row: any) => {
+        const smIds = normalizeClientSocialMediaIdsFromRow(row);
+        return {
+          id: row.id,
+          name: row.name || 'Cliente Sem Nome',
+          companyName: row.company_name || row.name || '',
+          cnpj: row.cnpj || '',
+          address: row.address || '',
+          contactName: row.contact_name || '',
+          whatsappNumber: row.whatsapp_number || '',
+          email: row.email || '',
+          pricePerPost: Number(row.price_per_post || 150),
+          metricsAccess: row.metrics_access || 'ambos',
+          googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
+          logoUrl: row.logo_url || '',
+          activeSocialNetworks: ['instagram', 'facebook'],
+          assignedSocialMediaId: row.assigned_social_media_id || smIds[0] || undefined,
+          assignedSocialMediaIds: smIds,
+          createdBySocialMediaId: row.created_by_social_media_id || row.assigned_social_media_id || undefined,
+          status: row.status || 'ativo'
+        };
+      });
     }
     return null;
   } catch (err) {
@@ -241,23 +294,28 @@ export async function searchClientsInSupabase(searchQuery: string): Promise<Clie
     }
 
     if (data && data.length > 0) {
-      return data.map((row: any) => ({
-        id: row.id,
-        name: row.name || 'Cliente Sem Nome',
-        companyName: row.company_name || row.name || '',
-        cnpj: row.cnpj || '',
-        address: row.address || '',
-        contactName: row.contact_name || '',
-        whatsappNumber: row.whatsapp_number || '',
-        email: row.email || '',
-        pricePerPost: Number(row.price_per_post || 150),
-        metricsAccess: row.metrics_access || 'ambos',
-        googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
-        logoUrl: row.logo_url || '',
-        activeSocialNetworks: ['instagram', 'facebook'],
-        assignedSocialMediaId: row.assigned_social_media_id || undefined,
-        status: row.status || 'ativo'
-      }));
+      return data.map((row: any) => {
+        const smIds = normalizeClientSocialMediaIdsFromRow(row);
+        return {
+          id: row.id,
+          name: row.name || 'Cliente Sem Nome',
+          companyName: row.company_name || row.name || '',
+          cnpj: row.cnpj || '',
+          address: row.address || '',
+          contactName: row.contact_name || '',
+          whatsappNumber: row.whatsapp_number || '',
+          email: row.email || '',
+          pricePerPost: Number(row.price_per_post || 150),
+          metricsAccess: row.metrics_access || 'ambos',
+          googleDriveFolderUrl: row.drive_folder_url || row.google_drive_folder_url || '',
+          logoUrl: row.logo_url || '',
+          activeSocialNetworks: ['instagram', 'facebook'],
+          assignedSocialMediaId: row.assigned_social_media_id || smIds[0] || undefined,
+          assignedSocialMediaIds: smIds,
+          createdBySocialMediaId: row.created_by_social_media_id || row.assigned_social_media_id || undefined,
+          status: row.status || 'ativo'
+        };
+      });
     }
     return [];
   } catch (err) {
@@ -431,6 +489,7 @@ export async function syncSocialMediaToSupabase(sm: {
   socialProfile?: string;
   pixKey?: string;
   customFeePerPost?: number;
+  assignedClientIds?: string[];
   status?: string;
   signatureUrl?: string;
   bankInfo?: string;
@@ -452,12 +511,19 @@ export async function syncSocialMediaToSupabase(sm: {
       .from('social_medias')
       .upsert([{
         ...basePayload,
+        assigned_client_ids: Array.isArray(sm.assignedClientIds) ? sm.assignedClientIds : [],
         signature_url: sm.signatureUrl || null,
         bank_info: sm.bankInfo || null
       }]);
     if (error) {
       const msg = String(error.message || '').toLowerCase();
-      if (error.code === 'PGRST204' || msg.includes('column') || msg.includes('signature_url') || msg.includes('bank_info')) {
+      if (
+        error.code === 'PGRST204' ||
+        msg.includes('column') ||
+        msg.includes('signature_url') ||
+        msg.includes('bank_info') ||
+        msg.includes('assigned_client_ids')
+      ) {
         const retry = await clientDb.from('social_medias').upsert([basePayload]);
         if (retry.error) {
           console.warn('Erro ao sincronizar Social Media no Supabase (retry):', retry.error.message);
@@ -850,7 +916,7 @@ export async function fetchSocialMediasFromSupabase(): Promise<SocialMediaUser[]
       whatsapp: row.whatsapp || '',
       socialProfile: row.social_profile || '',
       pixKey: row.pix_key || '',
-      assignedClientIds: [],
+      assignedClientIds: Array.isArray(row.assigned_client_ids) ? row.assigned_client_ids : [],
       totalPostsCreated: 0,
       status: row.status === 'bloqueado' ? 'bloqueado' : 'ativo',
       customFeePerPost: row.custom_fee_per_post !== null && row.custom_fee_per_post !== undefined
@@ -1091,4 +1157,463 @@ export async function fetchReceiptsFromSupabase(): Promise<BillingReceipt[] | nu
     return null;
   }
 }
+
+export async function resolveAuthenticatedAppRole(user: {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, any>;
+}): Promise<{ role: UserRole; fullName: string }> {
+  const fallbackName = String(
+    user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário'
+  ).trim();
+
+  const clientDb = getSupabaseClient();
+  if (!clientDb) {
+    return { role: 'social_media', fullName: fallbackName };
+  }
+
+  try {
+    const { data, error } = await clientDb
+      .from('profiles')
+      .select('role, full_name')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (!error && data?.role) {
+      return {
+        role: mapSupabaseRoleToAppRole(data.role),
+        fullName: (data.full_name || fallbackName).trim()
+      };
+    }
+  } catch {
+    // continua para resolução segura
+  }
+
+  // Se criado sem registro em profiles, prioriza vínculo na tabela social_medias / clients; caso contrário entra sempre como social_media
+  const userEmail = (user.email || '').trim().toLowerCase();
+  if (userEmail) {
+    try {
+      const { data: smRow } = await clientDb
+        .from('social_medias')
+        .select('id, name')
+        .ilike('email', userEmail)
+        .limit(1)
+        .maybeSingle();
+      if (smRow) {
+        return { role: 'social_media', fullName: smRow.name || fallbackName };
+      }
+      const { data: clientRow } = await clientDb
+        .from('clients')
+        .select('id, contact_name, name')
+        .ilike('email', userEmail)
+        .limit(1)
+        .maybeSingle();
+      if (clientRow) {
+        return { role: 'cliente', fullName: clientRow.contact_name || clientRow.name || fallbackName };
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return {
+    role: 'social_media',
+    fullName: fallbackName
+  };
+}
+
+export async function fetchPublicPostByTokenFromSupabase(token: string): Promise<{
+  post: PostItem | null;
+  client: ClientProject | null;
+  socialMedia: SocialMediaUser | null;
+}> {
+  const clientDb = getSupabaseClient();
+  const cleanToken = (token || '').trim();
+  if (!clientDb || !cleanToken) {
+    return { post: null, client: null, socialMedia: null };
+  }
+
+  // 1. Tenta RPC segura (SECURITY DEFINER) — funciona mesmo com RLS estrita bloqueando SELECT anônimo
+  try {
+    const { data, error } = await clientDb.rpc('get_public_approval_post', { p_token: cleanToken });
+    if (!error && data && typeof data === 'object' && (data as any).post) {
+      const payload = data as any;
+      const p = payload.post;
+      const c = payload.client;
+      const sm = payload.socialMedia;
+      return {
+        post: {
+          id: p.id,
+          clientProjectId: p.clientProjectId || '',
+          title: p.title || 'Post para Aprovação',
+          caption: p.caption || '',
+          mediaUrl: p.mediaUrl || '',
+          mediaType: p.mediaType || 'image',
+          socialNetworks: Array.isArray(p.socialNetworks) ? p.socialNetworks : ['instagram'],
+          scheduledDate: p.scheduledDate || '',
+          status: p.status || 'rascunho',
+          approvalToken: p.approvalToken || cleanToken,
+          tokenExpiresAt: p.tokenExpiresAt || undefined,
+          comments: Array.isArray(p.comments) ? p.comments : [],
+          isPublished: Boolean(p.isPublished),
+          publishedAt: p.publishedAt || undefined,
+          socialMediaAuthorId: p.socialMediaAuthorId || undefined,
+          createdAt: p.createdAt || new Date().toISOString(),
+          updatedAt: p.updatedAt || new Date().toISOString()
+        },
+        client: c
+          ? {
+              id: c.id,
+              name: c.name || 'Cliente',
+              companyName: c.name || '',
+              cnpj: '',
+              address: '',
+              contactName: c.contactName || c.name || 'Cliente',
+              whatsappNumber: '',
+              email: '',
+              pricePerPost: 0,
+              metricsAccess: c.metricsAccess || 'cliente',
+              logoUrl: c.logoUrl || '',
+              activeSocialNetworks: Array.isArray(c.activeSocialNetworks) ? c.activeSocialNetworks : ['instagram', 'facebook'],
+              assignedSocialMediaId: c.assignedSocialMediaId || undefined
+            }
+          : null,
+        socialMedia: sm
+          ? {
+              id: sm.id,
+              name: sm.name || 'Social Media',
+              email: '',
+              whatsapp: '',
+              socialProfile: sm.socialProfile || '',
+              pixKey: '',
+              assignedClientIds: [],
+              totalPostsCreated: 0
+            }
+          : null
+      };
+    }
+  } catch {
+    // tenta consulta direta filtrada como contingência
+  }
+
+  // 2. Fallback restrito por approval_token (nunca lista todos os posts/clientes)
+  try {
+    const { data: postRow, error } = await clientDb
+      .from('posts')
+      .select('*')
+      .eq('approval_token', cleanToken)
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !postRow) {
+      return { post: null, client: null, socialMedia: null };
+    }
+
+    const mappedPost: PostItem = {
+      id: postRow.id,
+      clientProjectId: postRow.client_project_id || '',
+      title: postRow.title || 'Post para Aprovação',
+      caption: postRow.caption || '',
+      mediaUrl: postRow.media_url || '',
+      mediaType: postRow.media_type || 'image',
+      socialNetworks: Array.isArray(postRow.social_networks) ? postRow.social_networks : ['instagram'],
+      scheduledDate: postRow.scheduled_date || '',
+      status: postRow.status || 'rascunho',
+      approvalToken: postRow.approval_token || undefined,
+      tokenExpiresAt: postRow.token_expires_at || undefined,
+      comments: Array.isArray(postRow.comments) ? postRow.comments : [],
+      isPublished: Boolean(postRow.is_published),
+      publishedAt: postRow.published_at || undefined,
+      socialMediaAuthorId: postRow.social_media_author_id || undefined,
+      createdAt: postRow.created_at || new Date().toISOString(),
+      updatedAt: postRow.updated_at || new Date().toISOString()
+    };
+
+    let mappedClient: ClientProject | null = null;
+    if (mappedPost.clientProjectId) {
+      const { data: cRow } = await clientDb
+        .from('clients')
+        .select('id, name, contact_name, logo_url, assigned_social_media_id, metrics_access')
+        .eq('id', mappedPost.clientProjectId)
+        .limit(1)
+        .maybeSingle();
+      if (cRow) {
+        mappedClient = {
+          id: cRow.id,
+          name: cRow.name || 'Cliente',
+          companyName: cRow.name || '',
+          cnpj: '',
+          address: '',
+          contactName: cRow.contact_name || '',
+          whatsappNumber: '',
+          email: '',
+          pricePerPost: 0,
+          metricsAccess: cRow.metrics_access || 'cliente',
+          logoUrl: cRow.logo_url || '',
+          activeSocialNetworks: ['instagram', 'facebook'],
+          assignedSocialMediaId: cRow.assigned_social_media_id || undefined
+        };
+      }
+    }
+
+    let mappedSm: SocialMediaUser | null = null;
+    const smId = mappedPost.socialMediaAuthorId || mappedClient?.assignedSocialMediaId;
+    if (smId) {
+      const { data: smRow } = await clientDb
+        .from('social_medias')
+        .select('id, name, social_profile')
+        .eq('id', smId)
+        .limit(1)
+        .maybeSingle();
+      if (smRow) {
+        mappedSm = {
+          id: smRow.id,
+          name: smRow.name || 'Social Media',
+          email: '',
+          whatsapp: '',
+          socialProfile: smRow.social_profile || '',
+          pixKey: '',
+          assignedClientIds: [],
+          totalPostsCreated: 0
+        };
+      }
+    }
+
+    return { post: mappedPost, client: mappedClient, socialMedia: mappedSm };
+  } catch {
+    return { post: null, client: null, socialMedia: null };
+  }
+}
+
+export async function submitPublicApprovalActionToSupabase(params: {
+  token: string;
+  action: 'approve' | 'request_change' | 'comment';
+  comment?: string;
+  authorName?: string;
+}): Promise<{ ok: boolean; handledByRpc?: boolean }> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !params.token) return { ok: false };
+
+  try {
+    const { data, error } = await clientDb.rpc('submit_public_approval_action', {
+      p_token: params.token,
+      p_action: params.action,
+      p_comment: params.comment || null,
+      p_author_name: params.authorName || 'Cliente'
+    });
+    if (!error && (data as any)?.ok) {
+      return { ok: true, handledByRpc: true };
+    }
+  } catch {
+    // usa fallback de sincronização se RPC ainda não existe
+  }
+  return { ok: false, handledByRpc: false };
+}
+
+export async function fetchPublicMuralByClientFromSupabase(
+  clientId: string,
+  smId?: string
+): Promise<{
+  client: ClientProject | null;
+  socialMedia: SocialMediaUser | null;
+  posts: PostItem[];
+  tasks: ClientTask[];
+  inspirations: InspirationFile[];
+}> {
+  const clientDb = getSupabaseClient();
+  const cleanClientId = (clientId || '').trim();
+  const cleanSmId = (smId || '').trim();
+  if (!clientDb || !cleanClientId) {
+    return { client: null, socialMedia: null, posts: [], tasks: [], inspirations: [] };
+  }
+
+  // 1. Tenta RPC segura primeiro
+  try {
+    const { data, error } = await clientDb.rpc('get_public_client_mural', {
+      p_client_id: cleanClientId,
+      p_sm_id: cleanSmId || null
+    });
+    if (!error && data && typeof data === 'object' && (data as any).client) {
+      const payload = data as any;
+      const c = payload.client;
+      const sm = payload.socialMedia;
+      return {
+        client: {
+          id: c.id,
+          name: c.name || 'Cliente',
+          companyName: c.name || '',
+          cnpj: '',
+          address: '',
+          contactName: c.contactName || c.name || 'Cliente',
+          whatsappNumber: '',
+          email: '',
+          pricePerPost: 0,
+          metricsAccess: c.metricsAccess || 'cliente',
+          logoUrl: c.logoUrl || '',
+          activeSocialNetworks: Array.isArray(c.activeSocialNetworks) ? c.activeSocialNetworks : ['instagram', 'facebook'],
+          assignedSocialMediaId: c.assignedSocialMediaId || undefined
+        },
+        socialMedia: sm
+          ? {
+              id: sm.id,
+              name: sm.name || 'Social Media',
+              email: '',
+              whatsapp: '',
+              socialProfile: sm.socialProfile || '',
+              pixKey: '',
+              assignedClientIds: [],
+              totalPostsCreated: 0
+            }
+          : null,
+        posts: Array.isArray(payload.posts) ? payload.posts : [],
+        tasks: Array.isArray(payload.tasks) ? payload.tasks : [],
+        inspirations: Array.isArray(payload.inspirations) ? payload.inspirations : []
+      };
+    }
+  } catch {
+    // tenta fallback filtrado por client_id
+  }
+
+  // 2. Fallback restrito exclusivamente ao clientId solicitado
+  try {
+    const { data: cRow } = await clientDb
+      .from('clients')
+      .select('id, name, contact_name, logo_url, assigned_social_media_id, metrics_access')
+      .eq('id', cleanClientId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!cRow) {
+      return { client: null, socialMedia: null, posts: [], tasks: [], inspirations: [] };
+    }
+
+    const mappedClient: ClientProject = {
+      id: cRow.id,
+      name: cRow.name || 'Cliente',
+      companyName: cRow.name || '',
+      cnpj: '',
+      address: '',
+      contactName: cRow.contact_name || '',
+      whatsappNumber: '',
+      email: '',
+      pricePerPost: 0,
+      metricsAccess: cRow.metrics_access || 'cliente',
+      logoUrl: cRow.logo_url || '',
+      activeSocialNetworks: ['instagram', 'facebook'],
+      assignedSocialMediaId: cRow.assigned_social_media_id || undefined
+    };
+
+    const targetSmId = cleanSmId || mappedClient.assignedSocialMediaId;
+    const [postsRes, tasksRes, inspRes, smRes] = await Promise.all([
+      clientDb.from('posts').select('*').eq('client_project_id', cleanClientId),
+      clientDb.from('client_tasks').select('*').eq('client_project_id', cleanClientId).order('created_at', { ascending: false }),
+      clientDb.from('inspirations').select('*').eq('client_project_id', cleanClientId),
+      targetSmId
+        ? clientDb.from('social_medias').select('id, name, social_profile').eq('id', targetSmId).limit(1).maybeSingle()
+        : Promise.resolve({ data: null })
+    ]);
+
+    const mappedPosts: PostItem[] = (postsRes.data || []).map((row: any) => ({
+      id: row.id,
+      clientProjectId: row.client_project_id || cleanClientId,
+      title: row.title || 'Post sem título',
+      caption: row.caption || '',
+      mediaUrl: row.media_url || '',
+      mediaType: row.media_type || 'image',
+      socialNetworks: Array.isArray(row.social_networks) ? row.social_networks : ['instagram'],
+      scheduledDate: row.scheduled_date || '',
+      status: row.status || 'rascunho',
+      approvalToken: row.approval_token || undefined,
+      tokenExpiresAt: row.token_expires_at || undefined,
+      comments: Array.isArray(row.comments) ? row.comments : [],
+      isPublished: Boolean(row.is_published),
+      publishedAt: row.published_at || undefined,
+      socialMediaAuthorId: row.social_media_author_id || undefined,
+      createdAt: row.created_at || new Date().toISOString(),
+      updatedAt: row.updated_at || new Date().toISOString()
+    }));
+
+    const mappedTasks: ClientTask[] = (tasksRes.data || []).map((row: any) => ({
+      id: row.id,
+      clientProjectId: row.client_project_id || cleanClientId,
+      title: row.title || 'Tarefa',
+      description: row.description || '',
+      deadline: row.deadline || '',
+      status: (row.status as TaskStatus) || 'novo',
+      linkedPostId: row.linked_post_id || undefined,
+      createdByRole: (row.created_by_role as UserRole) || 'cliente',
+      createdByName: row.created_by_name || undefined,
+      createdAt: row.created_at || new Date().toISOString(),
+      updatedAt: row.updated_at || undefined
+    }));
+
+    const mappedInspirations: InspirationFile[] = (inspRes.data || []).map((row: any) => ({
+      id: row.id,
+      clientProjectId: row.client_project_id || cleanClientId,
+      title: row.title || 'Inspiração',
+      description: row.description || undefined,
+      url: row.url || '',
+      type: row.type || 'Referência Geral',
+      category: row.type || 'Referência Geral',
+      uploadedByRole: (row.uploaded_by_role as UserRole) || 'cliente',
+      uploadedByName: row.uploaded_by_name || 'Cliente',
+      createdAt: row.created_at || new Date().toISOString(),
+      isUsed: Boolean(row.is_used),
+      usedAt: row.used_at || undefined
+    }));
+
+    const smData = (smRes as any)?.data;
+    const mappedSm: SocialMediaUser | null = smData
+      ? {
+          id: smData.id,
+          name: smData.name || 'Social Media',
+          email: '',
+          whatsapp: '',
+          socialProfile: smData.social_profile || '',
+          pixKey: '',
+          assignedClientIds: [],
+          totalPostsCreated: 0
+        }
+      : null;
+
+    return {
+      client: mappedClient,
+      socialMedia: mappedSm,
+      posts: mappedPosts,
+      tasks: mappedTasks,
+      inspirations: mappedInspirations
+    };
+  } catch {
+    return { client: null, socialMedia: null, posts: [], tasks: [], inspirations: [] };
+  }
+}
+
+export async function submitPublicMuralTaskToSupabase(params: {
+  clientId: string;
+  id: string;
+  title: string;
+  description?: string;
+  deadline?: string;
+  authorName?: string;
+}): Promise<{ ok: boolean; handledByRpc?: boolean }> {
+  const clientDb = getSupabaseClient();
+  if (!clientDb || !params.clientId) return { ok: false };
+  try {
+    const { data, error } = await clientDb.rpc('submit_public_mural_task', {
+      p_client_id: params.clientId,
+      p_id: params.id,
+      p_title: params.title,
+      p_description: params.description || '',
+      p_deadline: params.deadline || '',
+      p_author_name: params.authorName || 'Cliente'
+    });
+    if (!error && (data as any)?.ok) {
+      return { ok: true, handledByRpc: true };
+    }
+  } catch {
+    // fallback
+  }
+  return { ok: false, handledByRpc: false };
+}
+
 

@@ -245,7 +245,8 @@ export const ClientTasksSection: React.FC<ClientTasksSectionProps> = ({
 );
 ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Permitir acesso total client_tasks" ON client_tasks;
-CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);`;
+DROP POLICY IF EXISTS "Tasks acesso por vinculo" ON client_tasks;
+CREATE POLICY "Tasks acesso por vinculo" ON client_tasks FOR ALL TO authenticated USING (public.is_my_client(client_project_id)) WITH CHECK (public.is_my_client(client_project_id));`;
               navigator.clipboard.writeText(sql);
               setCopiedTaskSql(true);
               setTimeout(() => setCopiedTaskSql(false), 3500);

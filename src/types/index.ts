@@ -155,6 +155,7 @@ export interface ClientProject {
   logoUrl?: string; // Logomarca para recibo PDF e perfil
   activeSocialNetworks: SocialNetwork[]; // Redes sociais que o cliente utiliza
   assignedSocialMediaId?: string;
+  assignedSocialMediaIds?: string[]; // Múltiplos Social Medias vinculados ao mesmo cliente
   createdBySocialMediaId?: string;
   status?: 'ativo' | 'bloqueado';
   additionalInfo?: string; // Informações adicionais, orientações ou regras específicas

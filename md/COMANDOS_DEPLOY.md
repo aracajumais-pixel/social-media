@@ -2,8 +2,27 @@
 
 ### 📂 Passo 0: Acessar a Pasta do Projeto no PowerShell
 ```powershell
-cd C:\5social-media
+cd C:\Users\MASTER\Videos\5social-media
 ```
+
+---
+
+## 👤 Conferir Quem Está Logado (Vercel e Git)
+
+Antes de fazer o deploy, você pode conferir qual conta está autenticada no terminal:
+
+**Vercel CLI:**
+```powershell
+npx vercel whoami
+```
+*(Se precisar trocar de conta na Vercel: `npx vercel logout` e depois `npx vercel login`)*
+
+**Git (autor dos commits) e GitHub CLI:**
+```powershell
+git config user.name
+git config user.email
+```
+*(Se usar GitHub CLI: `gh auth status`)*
 
 ---
 
@@ -37,7 +56,7 @@ git push origin main
 ### 💡 Dica: Caso queira enviar tudo de uma vez em uma única linha no PowerShell:
 
 ```powershell
-cd C:\5social-media; npm run build; git add .; git commit -m "Deploy atualizacao sistema"; git push
+cd C:\Users\MASTER\Videos\5social-media; npm run build; git add .; git commit -m "Deploy atualizacao sistema"; git push
 ```
 
 ---

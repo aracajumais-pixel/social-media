@@ -14,8 +14,10 @@ import {
   syncAllClientsToSupabase, syncAllPostsToSupabase, syncSocialMediaToSupabase,
   syncApprovalRecordToSupabase
 } from '../lib/supabase';
+import { FULL_SUPABASE_SECURITY_SQL } from '../lib/supabaseSecuritySql';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 import { fetchAddressByCep, formatCep, buildFormattedAddress } from '../utils/cepHelper';
+import { getClientSocialMediaIds, isClientLinkedToSocialMedia, getClientAssignedSocialMedias } from '../utils/clientLinks';
 
 interface AdminSaaSDashboardProps {
   clients: ClientProject[];
@@ -102,7 +104,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     pricePerPost: 150,
     googleDriveFolderUrl: '',
     logoUrl: '',
-    assignedSocialMediaId: socialMedias[0]?.id || '',
+    assignedSocialMediaIds: (socialMedias[0]?.id ? [socialMedias[0].id] : []) as string[],
     additionalInfo: ''
   });
 
@@ -155,7 +157,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
     pricePerPost: 150,
     googleDriveFolderUrl: '',
     logoUrl: '',
-    assignedSocialMediaId: '',
+    assignedSocialMediaIds: [] as string[],
     additionalInfo: ''
   });
 
@@ -265,7 +267,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
       pricePerPost: c.pricePerPost ?? 150,
       googleDriveFolderUrl: c.googleDriveFolderUrl || '',
       logoUrl: c.logoUrl || '',
-      assignedSocialMediaId: c.assignedSocialMediaId || '',
+      assignedSocialMediaIds: getClientSocialMediaIds(c, socialMedias),
       additionalInfo: c.additionalInfo || ''
     });
     setIsEditingClientModal(true);
@@ -569,7 +571,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
               <p className="text-slate-500 italic text-center py-2">Nenhum social media cadastrado.</p>
             ) : (
               socialMedias.map(sm => {
-                const smClients = clients.filter(c => c.assignedSocialMediaId === sm.id || (sm.assignedClientIds || []).includes(c.id));
+                const smClients = clients.filter(c => isClientLinkedToSocialMedia(c, sm.id, sm));
                 return (
                   <div key={sm.id} className="flex items-center justify-between py-1 border-b border-slate-800/60 last:border-0">
                     <div className="flex items-center gap-2 truncate">
@@ -592,7 +594,9 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
               onClick={() => {
                 setNewClientForm(prev => ({
                   ...prev,
-                  assignedSocialMediaId: prev.assignedSocialMediaId || socialMedias[0]?.id || ''
+                  assignedSocialMediaIds: prev.assignedSocialMediaIds.length > 0
+                    ? prev.assignedSocialMediaIds
+                    : (socialMedias[0]?.id ? [socialMedias[0].id] : [])
                 }));
                 setIsAddingClientModal(true);
               }}
@@ -761,7 +765,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {socialMedias.map(sm => {
-                    const smClients = clients.filter(c => c.assignedSocialMediaId === sm.id || (sm.assignedClientIds || []).includes(c.id));
+                    const smClients = clients.filter(c => isClientLinkedToSocialMedia(c, sm.id, sm));
                     const smClientIds = new Set(smClients.map(c => c.id));
                     const smReceipts = receipts.filter(r => r.socialMediaId === sm.id || smClientIds.has(r.clientProjectId));
                     const smApprovals = effectiveApprovalRecords.filter(
@@ -1304,7 +1308,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {socialMedias.map(sm => {
-              const assignedClientsList = clients.filter(c => sm.assignedClientIds.includes(c.id));
+              const assignedClientsList = clients.filter(c => isClientLinkedToSocialMedia(c, sm.id, sm));
               const isBlocked = sm.status === 'bloqueado';
 
               return (
@@ -1449,7 +1453,8 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
             {clients.map(client => {
               const clientPosts = posts.filter(p => p.clientProjectId === client.id);
               const published = clientPosts.filter(p => p.isPublished).length;
-              const assignedSm = socialMedias.find(sm => sm.id === client.assignedSocialMediaId);
+              const assignedSms = getClientAssignedSocialMedias(client, socialMedias);
+              const assignedSmsLabel = assignedSms.length > 0 ? assignedSms.map(s => s.name).join(', ') : 'Sem vínculo';
               const isBlocked = client.status === 'bloqueado';
 
               const usedGB = client.driveStorageUsedGB || 4.2;
@@ -1467,7 +1472,7 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                         <p className="text-[10px] text-slate-500 font-mono">CNPJ: {client.cnpj}</p>
                         <div className="mt-1">
                           <span className="text-[10px] text-purple-300 font-bold bg-purple-950/70 border border-purple-500/30 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                            👤 Social Media: {assignedSm ? assignedSm.name : 'Geral'}
+                            👤 {assignedSms.length > 1 ? 'Social Medias:' : 'Social Media:'} {assignedSmsLabel}
                           </span>
                         </div>
                       </div>
@@ -1545,9 +1550,9 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
 
                   {/* Drive Link & Assigned Social Media */}
                   <div className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between text-slate-300 bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                      <span className="text-slate-400 font-bold">Social Media Responsável:</span>
-                      <span className="font-bold text-purple-300">{assignedSm?.name || 'Não atribuído'}</span>
+                    <div className="flex items-center justify-between gap-2 text-slate-300 bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 font-bold shrink-0">Social Media(s):</span>
+                      <span className="font-bold text-purple-300 text-right truncate">{assignedSms.length > 0 ? assignedSmsLabel : 'Não atribuído'}</span>
                     </div>
 
                     {client.googleDriveFolderUrl && (
@@ -1799,196 +1804,18 @@ export const AdminSaaSDashboard: React.FC<AdminSaaSDashboardProps> = ({
                 </div>
               )}
 
-              {/* Script SQL Completo do Supabase */}
+              {/* Script SQL Completo do Supabase com RLS Real */}
               <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-slate-300 font-bold text-xs flex items-center gap-1.5">
                     <Code2 className="w-3.5 h-3.5 text-indigo-400" />
-                    Script SQL Completo para Criar Tabelas e Políticas (RLS) no Supabase:
+                    Script SQL Completo de Segurança (RLS Privada + Perfis + Links Públicos):
                   </span>
                   <button
                     type="button"
                     onClick={() => {
-                      const fullSql = `-- 1. TABELA DE CLIENTES
-CREATE TABLE IF NOT EXISTS clients (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  company_name TEXT,
-  cnpj TEXT,
-  address TEXT,
-  contact_name TEXT,
-  whatsapp_number TEXT,
-  email TEXT,
-  price_per_post NUMERIC(10,2) DEFAULT 150,
-  metrics_access TEXT DEFAULT 'ambos',
-  drive_folder_url TEXT,
-  logo_url TEXT,
-  assigned_social_media_id TEXT,
-  status TEXT DEFAULT 'ativo',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 2. TABELA DE POSTS (RASCUNHOS E CONTEÚDOS)
-CREATE TABLE IF NOT EXISTS posts (
-  id TEXT PRIMARY KEY,
-  client_project_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  caption TEXT,
-  media_url TEXT,
-  media_type TEXT DEFAULT 'image',
-  social_networks JSONB DEFAULT '[]'::jsonb,
-  scheduled_date TEXT,
-  status TEXT DEFAULT 'rascunho',
-  approval_token TEXT,
-  token_expires_at TIMESTAMPTZ,
-  comments JSONB DEFAULT '[]'::jsonb,
-  is_published BOOLEAN DEFAULT false,
-  published_at TIMESTAMPTZ,
-  social_media_author_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. TABELA DE AUDITORIA DE COMENTÁRIOS DOS POSTS
-CREATE TABLE IF NOT EXISTS post_comments_audit (
-  id TEXT PRIMARY KEY,
-  post_id TEXT NOT NULL,
-  post_title TEXT,
-  client_id TEXT,
-  author_role TEXT NOT NULL,
-  author_name TEXT NOT NULL,
-  comment_text TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 4. TABELA DE SOCIAL MEDIAS E TAXAS PERSONALIZADAS
-CREATE TABLE IF NOT EXISTS social_medias (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL,
-  whatsapp TEXT,
-  social_profile TEXT,
-  pix_key TEXT,
-  custom_fee_per_post NUMERIC(10,2),
-  status TEXT DEFAULT 'ativo',
-  signature_url TEXT,
-  bank_info TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. TABELA DE REGISTROS OFICIAIS DE APROVAÇÃO (AUDITORIA DE FATURAMENTO)
-CREATE TABLE IF NOT EXISTS approval_records (
-  id TEXT PRIMARY KEY,
-  post_id TEXT NOT NULL,
-  post_title TEXT NOT NULL,
-  client_project_id TEXT NOT NULL,
-  client_name TEXT,
-  social_media_id TEXT,
-  social_media_name TEXT,
-  approved_at TIMESTAMPTZ NOT NULL,
-  approved_by_role TEXT NOT NULL,
-  approved_by_name TEXT NOT NULL,
-  approved_by_phone TEXT,
-  approved_by_email TEXT,
-  price_per_post_snapshot NUMERIC(10,2) DEFAULT 150,
-  fee_per_post_snapshot NUMERIC(10,2) DEFAULT 0.50,
-  billing_status TEXT DEFAULT 'computado',
-  post_deleted_at TIMESTAMPTZ
-);
-
--- 6. TABELA DE TAREFAS SOLICITADAS PELO CLIENTE
-CREATE TABLE IF NOT EXISTS client_tasks (
-  id TEXT PRIMARY KEY,
-  client_project_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  deadline TEXT,
-  status TEXT DEFAULT 'novo',
-  linked_post_id TEXT,
-  created_by_role TEXT DEFAULT 'cliente',
-  created_by_name TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 7. TABELA DE INSPIRAÇÕES E RECIBOS
-CREATE TABLE IF NOT EXISTS inspirations (
-  id TEXT PRIMARY KEY,
-  client_project_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  url TEXT NOT NULL,
-  type TEXT DEFAULT 'image',
-  uploaded_by_role TEXT DEFAULT 'cliente',
-  uploaded_by_name TEXT,
-  is_used BOOLEAN DEFAULT false,
-  used_at TIMESTAMPTZ,
-  retention_option TEXT,
-  expires_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS receipts (
-  id TEXT PRIMARY KEY,
-  receipt_number TEXT,
-  client_project_id TEXT NOT NULL,
-  period TEXT,
-  issue_date TEXT,
-  due_date TEXT,
-  items JSONB DEFAULT '[]'::jsonb,
-  subtotal NUMERIC(10,2) DEFAULT 0,
-  discount NUMERIC(10,2) DEFAULT 0,
-  total_amount NUMERIC(10,2) DEFAULT 0,
-  platform_fee_total NUMERIC(10,2) DEFAULT 0,
-  payment_method TEXT,
-  notes TEXT,
-  status TEXT DEFAULT 'rascunho',
-  city_state TEXT,
-  service_summary_text TEXT,
-  custom_receipt_text TEXT,
-  social_media_name TEXT,
-  social_media_pix TEXT,
-  social_media_bank TEXT,
-  social_media_cpf_cnpj TEXT,
-  social_media_signature_url TEXT,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 8. HABILITAR SEGURANÇA (RLS) E PERMISSÕES DE ACESSO
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE post_comments_audit ENABLE ROW LEVEL SECURITY;
-ALTER TABLE social_medias ENABLE ROW LEVEL SECURITY;
-ALTER TABLE approval_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inspirations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE receipts ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Permitir acesso total clientes" ON clients;
-CREATE POLICY "Permitir acesso total clientes" ON clients FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir acesso total posts" ON posts;
-CREATE POLICY "Permitir acesso total posts" ON posts FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir acesso total audit" ON post_comments_audit;
-CREATE POLICY "Permitir acesso total audit" ON post_comments_audit FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir acesso total social_medias" ON social_medias;
-CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir acesso total approval_records" ON approval_records;
-CREATE POLICY "Permitir acesso total approval_records" ON approval_records FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir acesso total client_tasks" ON client_tasks;
-CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir acesso total inspirations" ON inspirations;
-CREATE POLICY "Permitir acesso total inspirations" ON inspirations FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts;
-CREATE POLICY "Permitir acesso total receipts" ON receipts FOR ALL USING (true) WITH CHECK (true);`;
-                      navigator.clipboard.writeText(fullSql);
-                      alert('Script SQL Completo do Supabase copiado! Cole no SQL Editor do seu Supabase e clique em "Run".');
+                      navigator.clipboard.writeText(FULL_SUPABASE_SECURITY_SQL);
+                      alert('Script SQL de Segurança (RLS) copiado! Cole no SQL Editor do seu Supabase e clique em "Run".');
                     }}
                     className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-3 py-1 rounded-lg transition-all"
                   >
@@ -1997,39 +1824,7 @@ CREATE POLICY "Permitir acesso total receipts" ON receipts FOR ALL USING (true) 
                 </div>
 
                 <pre className="bg-slate-900 text-indigo-300 p-3 rounded-xl font-mono text-[10px] overflow-x-auto border border-slate-800 leading-relaxed max-h-48">
-{`-- 1. TABELA DE CLIENTES
-CREATE TABLE IF NOT EXISTS clients (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, company_name TEXT, cnpj TEXT,
-  address TEXT, contact_name TEXT, whatsapp_number TEXT, email TEXT,
-  price_per_post NUMERIC(10,2) DEFAULT 150, metrics_access TEXT DEFAULT 'ambos',
-  drive_folder_url TEXT, logo_url TEXT, assigned_social_media_id TEXT, status TEXT DEFAULT 'ativo'
-);
-
--- 2. TABELA DE POSTS (PROJETOS & CONTEÚDOS)
-CREATE TABLE IF NOT EXISTS posts (
-  id TEXT PRIMARY KEY, client_project_id TEXT NOT NULL, title TEXT NOT NULL,
-  caption TEXT, media_url TEXT, media_type TEXT DEFAULT 'image', social_networks JSONB DEFAULT '[]'::jsonb,
-  scheduled_date TEXT, status TEXT DEFAULT 'rascunho', approval_token TEXT, token_expires_at TIMESTAMPTZ,
-  comments JSONB DEFAULT '[]'::jsonb, is_published BOOLEAN DEFAULT false, published_at TIMESTAMPTZ,
-  social_media_author_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. AUDITORIA, SOCIAL MEDIAS, APROVAÇÕES E TAREFAS DO CLIENTE
-CREATE TABLE IF NOT EXISTS post_comments_audit ( id TEXT PRIMARY KEY, post_id TEXT NOT NULL, post_title TEXT, client_id TEXT, author_role TEXT NOT NULL, author_name TEXT NOT NULL, comment_text TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() );
-CREATE TABLE IF NOT EXISTS social_medias ( id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, whatsapp TEXT, social_profile TEXT, pix_key TEXT, custom_fee_per_post NUMERIC(10,2), status TEXT DEFAULT 'ativo', signature_url TEXT, bank_info TEXT, created_at TIMESTAMPTZ DEFAULT NOW() );
-CREATE TABLE IF NOT EXISTS approval_records ( id TEXT PRIMARY KEY, post_id TEXT NOT NULL, post_title TEXT NOT NULL, client_project_id TEXT NOT NULL, client_name TEXT, social_media_id TEXT, social_media_name TEXT, approved_at TIMESTAMPTZ NOT NULL, approved_by_role TEXT NOT NULL, approved_by_name TEXT NOT NULL, approved_by_phone TEXT, approved_by_email TEXT, price_per_post_snapshot NUMERIC(10,2) DEFAULT 150, fee_per_post_snapshot NUMERIC(10,2) DEFAULT 0.50, billing_status TEXT DEFAULT 'computado', post_deleted_at TIMESTAMPTZ );
-CREATE TABLE IF NOT EXISTS client_tasks ( id TEXT PRIMARY KEY, client_project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, deadline TEXT, status TEXT DEFAULT 'novo', linked_post_id TEXT, created_by_role TEXT DEFAULT 'cliente', created_by_name TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW() );
-
--- 4. POLÍTICAS DE ACESSO (RLS - CRUCIAL PARA SALVAR SEM ERRO)
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY; ALTER TABLE posts ENABLE ROW LEVEL SECURITY; ALTER TABLE post_comments_audit ENABLE ROW LEVEL SECURITY; ALTER TABLE social_medias ENABLE ROW LEVEL SECURITY; ALTER TABLE approval_records ENABLE ROW LEVEL SECURITY; ALTER TABLE client_tasks ENABLE ROW LEVEL SECURITY; ALTER TABLE inspirations ENABLE ROW LEVEL SECURITY; ALTER TABLE receipts ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Permitir acesso total clientes" ON clients; CREATE POLICY "Permitir acesso total clientes" ON clients FOR ALL USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "Permitir acesso total posts" ON posts; CREATE POLICY "Permitir acesso total posts" ON posts FOR ALL USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "Permitir acesso total audit" ON post_comments_audit; CREATE POLICY "Permitir acesso total audit" ON post_comments_audit FOR ALL USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "Permitir acesso total social_medias" ON social_medias; CREATE POLICY "Permitir acesso total social_medias" ON social_medias FOR ALL USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "Permitir acesso total approval_records" ON approval_records; CREATE POLICY "Permitir acesso total approval_records" ON approval_records FOR ALL USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "Permitir acesso total client_tasks" ON client_tasks; CREATE POLICY "Permitir acesso total client_tasks" ON client_tasks FOR ALL USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "Permitir acesso total inspirations" ON inspirations; CREATE POLICY "Permitir acesso total inspirations" ON inspirations FOR ALL USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts; CREATE POLICY "Permitir acesso total receipts" ON receipts FOR ALL USING (true) WITH CHECK (true);`}
+{FULL_SUPABASE_SECURITY_SQL}
                 </pre>
               </div>
             </div>
@@ -2723,7 +2518,8 @@ DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts; CREATE POLIC
                   googleDriveFolderUrl: newClientForm.googleDriveFolderUrl.trim(),
                   logoUrl: newClientForm.logoUrl.trim(),
                   activeSocialNetworks: ['instagram', 'facebook'],
-                  assignedSocialMediaId: newClientForm.assignedSocialMediaId || undefined,
+                  assignedSocialMediaId: newClientForm.assignedSocialMediaIds[0] || undefined,
+                  assignedSocialMediaIds: newClientForm.assignedSocialMediaIds,
                   status: 'ativo',
                   additionalInfo: newClientForm.additionalInfo.trim() || undefined,
                   driveStorageUsedGB: 0.5,
@@ -2755,7 +2551,7 @@ DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts; CREATE POLIC
                     pricePerPost: 150,
                     googleDriveFolderUrl: '',
                     logoUrl: '',
-                    assignedSocialMediaId: socialMedias[0]?.id || '',
+                    assignedSocialMediaIds: socialMedias[0]?.id ? [socialMedias[0].id] : [],
                     additionalInfo: ''
                   });
                   setCepAdminStatus(null);
@@ -3005,18 +2801,50 @@ DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts; CREATE POLIC
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">Social Media Responsável:</label>
-                <select
-                  value={newClientForm.assignedSocialMediaId}
-                  onChange={(e) => setNewClientForm({ ...newClientForm, assignedSocialMediaId: e.target.value })}
-                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none cursor-pointer"
-                >
-                  <option value="">Nenhum Alocado</option>
-                  {socialMedias.map(sm => (
-                    <option key={sm.id} value={sm.id}>{sm.name} ({sm.email})</option>
-                  ))}
-                </select>
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-300 font-bold">Social Medias Vinculados (1 ou mais):</label>
+                  <span className="text-[10px] text-slate-400">
+                    {newClientForm.assignedSocialMediaIds.length} selecionado(s)
+                  </span>
+                </div>
+                {socialMedias.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">Nenhum Social Media cadastrado ainda.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                    {socialMedias.map(sm => {
+                      const isChecked = newClientForm.assignedSocialMediaIds.includes(sm.id);
+                      return (
+                        <label
+                          key={sm.id}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-cyan-950/40 border-cyan-500/50 text-white'
+                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setNewClientForm(prev => {
+                                const exists = prev.assignedSocialMediaIds.includes(sm.id);
+                                return {
+                                  ...prev,
+                                  assignedSocialMediaIds: exists
+                                    ? prev.assignedSocialMediaIds.filter(id => id !== sm.id)
+                                    : [...prev.assignedSocialMediaIds, sm.id]
+                                };
+                              });
+                            }}
+                            className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500"
+                          />
+                          <span className="truncate font-semibold">{sm.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -3105,7 +2933,11 @@ DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts; CREATE POLIC
                   pricePerPost: Number(clientEditForm.pricePerPost) || 150,
                   googleDriveFolderUrl: clientEditForm.googleDriveFolderUrl.trim(),
                   logoUrl: clientEditForm.logoUrl.trim(),
-                  assignedSocialMediaId: clientEditForm.assignedSocialMediaId || undefined,
+                  assignedSocialMediaId:
+                    (editingClient.assignedSocialMediaId && clientEditForm.assignedSocialMediaIds.includes(editingClient.assignedSocialMediaId))
+                      ? editingClient.assignedSocialMediaId
+                      : (clientEditForm.assignedSocialMediaIds[0] || undefined),
+                  assignedSocialMediaIds: clientEditForm.assignedSocialMediaIds,
                   additionalInfo: clientEditForm.additionalInfo.trim() || undefined
                 };
                 if (onUpdateClient) {
@@ -3358,18 +3190,50 @@ DROP POLICY IF EXISTS "Permitir acesso total receipts" ON receipts; CREATE POLIC
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">Social Media Responsável:</label>
-                <select
-                  value={clientEditForm.assignedSocialMediaId}
-                  onChange={(e) => setClientEditForm({ ...clientEditForm, assignedSocialMediaId: e.target.value })}
-                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-800 focus:outline-none cursor-pointer"
-                >
-                  <option value="">Nenhum Alocado</option>
-                  {socialMedias.map(sm => (
-                    <option key={sm.id} value={sm.id}>{sm.name} ({sm.email})</option>
-                  ))}
-                </select>
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-300 font-bold">Social Medias Vinculados (1 ou mais):</label>
+                  <span className="text-[10px] text-slate-400">
+                    {clientEditForm.assignedSocialMediaIds.length} selecionado(s)
+                  </span>
+                </div>
+                {socialMedias.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">Nenhum Social Media cadastrado ainda.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                    {socialMedias.map(sm => {
+                      const isChecked = clientEditForm.assignedSocialMediaIds.includes(sm.id);
+                      return (
+                        <label
+                          key={sm.id}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-cyan-950/40 border-cyan-500/50 text-white'
+                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setClientEditForm(prev => {
+                                const exists = prev.assignedSocialMediaIds.includes(sm.id);
+                                return {
+                                  ...prev,
+                                  assignedSocialMediaIds: exists
+                                    ? prev.assignedSocialMediaIds.filter(id => id !== sm.id)
+                                    : [...prev.assignedSocialMediaIds, sm.id]
+                                };
+                              });
+                            }}
+                            className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500"
+                          />
+                          <span className="truncate font-semibold">{sm.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div>

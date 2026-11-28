@@ -199,6 +199,27 @@ async function lookupMediaUrl(req: VercelReq): Promise<string> {
   const rawClientId = (getParam(req, 'clientId') || (pathClient ? decodeURIComponent(pathClient) : '')).replace(/\.(jpg|jpeg|png|webp)$/i, '').trim();
 
   try {
+    if (rawToken || rawClientId) {
+      const rpcResp = await fetch(`${sbUrl}/rest/v1/rpc/get_og_preview_data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: sbKey,
+          Authorization: `Bearer ${sbKey}`,
+        },
+        body: JSON.stringify(rawToken ? { p_token: rawToken } : { p_client_id: rawClientId }),
+      });
+      if (rpcResp.ok) {
+        const rpcData = (await rpcResp.json()) as any;
+        const url = rpcData?.media_url || rpcData?.logo_url;
+        if (url) return String(url);
+      }
+    }
+  } catch {
+    // continua para consulta direta
+  }
+
+  try {
     if (rawToken) {
       const resp = await fetch(
         `${sbUrl}/rest/v1/posts?approval_token=eq.${encodeURIComponent(rawToken)}&select=media_url&limit=1`,
@@ -266,7 +287,13 @@ export default async function handler(req: VercelReq, res: ServerResponse) {
     }
 
     // 3. Google Drive link
-    if (mediaUrl.includes('drive.google.com') || mediaUrl.includes('googleusercontent.com')) {
+    let parsedHost = '';
+    try {
+      parsedHost = new URL(mediaUrl).hostname.toLowerCase();
+    } catch {
+      parsedHost = '';
+    }
+    if (parsedHost === 'drive.google.com' || parsedHost.endsWith('.googleusercontent.com')) {
       const driveId = extractDriveFileId(mediaUrl);
       if (driveId) {
         const candidates = [

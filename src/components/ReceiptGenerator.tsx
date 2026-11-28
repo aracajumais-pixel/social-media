@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { SupabaseMediaUploader } from './SupabaseMediaUploader';
 import { SaasBillingClosureModal } from './SaasBillingClosureModal';
+import { getClientSocialMediaIds } from '../utils/clientLinks';
 
 interface ReceiptGeneratorProps {
   receipts: BillingReceipt[];
@@ -56,10 +57,11 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
     return new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
+  const clientSmIds = getClientSocialMediaIds(selectedClient, socialMedias);
   const targetSmId =
     currentUserRole === 'social_media' && activeSocialMediaId
       ? activeSocialMediaId
-      : (selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId);
+      : (selectedClient.assignedSocialMediaId || clientSmIds[0] || (selectedClient as any).createdBySocialMediaId);
   const assignedSm = (targetSmId ? socialMedias.find(sm => sm.id === targetSmId) : undefined) || socialMedias[0];
 
   const [period, setPeriod] = useState(existingReceipt?.period || '');
@@ -95,10 +97,11 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({
   // Sincroniza e garante data no dia atual ao alternar clientes
   useEffect(() => {
     setIssueDate(getTodayDateString());
+    const nextClientSmIds = getClientSocialMediaIds(selectedClient, socialMedias);
     const resolvedSmId =
       currentUserRole === 'social_media' && activeSocialMediaId
         ? activeSocialMediaId
-        : (selectedClient.assignedSocialMediaId || (selectedClient as any).createdBySocialMediaId);
+        : (selectedClient.assignedSocialMediaId || nextClientSmIds[0] || (selectedClient as any).createdBySocialMediaId);
     const sm = (resolvedSmId ? socialMedias.find(s => s.id === resolvedSmId) : undefined) || socialMedias[0];
 
     if (existingReceipt) {

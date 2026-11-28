@@ -137,14 +137,14 @@ export const PostCard: React.FC<PostCardProps> = ({
                 onQuickApprove(post.id);
               }
             }}
-            className={`w-full py-2.5 px-3 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+            className={`w-full py-2.5 px-3 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
               post.status === 'aprovado'
                 ? 'bg-emerald-600/25 text-emerald-300 cursor-default'
-                : 'bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white'
+                : 'bg-white hover:bg-slate-100 text-slate-900'
             }`}
             title={post.status === 'aprovado' ? 'Projeto já aprovado' : 'Aprovar Publicação'}
           >
-            <CheckCircle className="w-3.5 h-3.5" />
+            <CheckCircle className={`w-3.5 h-3.5 ${post.status === 'aprovado' ? '' : 'text-emerald-600'}`} />
             <span>{post.status === 'aprovado' ? 'Aprovado' : 'Aprovar'}</span>
           </button>
         </div>

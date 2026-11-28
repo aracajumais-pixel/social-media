@@ -6,6 +6,7 @@ import {
   Calendar, FileText, Sparkles, Edit3, Globe
 } from 'lucide-react';
 import { openWhatsAppDirect } from '../utils/whatsappHelper';
+import { getClientAssignedSocialMedias } from '../utils/clientLinks';
 
 interface ClientDetailsCardModalProps {
   client: ClientProject | null;
@@ -26,7 +27,7 @@ export const ClientDetailsCardModal: React.FC<ClientDetailsCardModalProps> = ({
 }) => {
   if (!isOpen || !client) return null;
 
-  const assignedSm = socialMedias.find(sm => sm.id === (client.assignedSocialMediaId || (client as any).createdBySocialMediaId));
+  const assignedSms = getClientAssignedSocialMedias(client, socialMedias);
 
   const networkColors: Record<string, string> = {
     instagram: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
@@ -188,39 +189,43 @@ export const ClientDetailsCardModal: React.FC<ClientDetailsCardModalProps> = ({
           {/* Seção 4: Social Media Responsável & Redes Sociais */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             
-            {/* Social Media Responsável */}
+            {/* Social Media(s) Responsável(is) */}
             <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-2">
               <h3 className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-900 pb-2">
                 <UserCheck className="w-3.5 h-3.5" />
-                Social Media Responsável
+                {assignedSms.length > 1 ? 'Social Medias Vinculados' : 'Social Media Responsável'}
               </h3>
-              {assignedSm ? (
-                <div className="space-y-1.5 pt-1">
-                  <div className="flex items-center gap-2.5">
-                    {assignedSm.avatarUrl ? (
-                      <img src={assignedSm.avatarUrl} alt={assignedSm.name} className="w-9 h-9 rounded-xl object-cover border border-purple-500/30" />
-                    ) : (
-                      <div className="w-9 h-9 rounded-xl bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-purple-300 font-bold">
-                        {assignedSm.name.charAt(0)}
+              {assignedSms.length > 0 ? (
+                <div className="space-y-3 pt-1">
+                  {assignedSms.map(sm => (
+                    <div key={sm.id} className="space-y-1 pb-2 border-b border-slate-900/70 last:border-0 last:pb-0">
+                      <div className="flex items-center gap-2.5">
+                        {sm.avatarUrl ? (
+                          <img src={sm.avatarUrl} alt={sm.name} className="w-8 h-8 rounded-xl object-cover border border-purple-500/30" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-purple-300 font-bold">
+                            {sm.name.charAt(0)}
+                          </div>
+                        )}
+                        <div>
+                          <strong className="block text-white text-xs">{sm.name}</strong>
+                          <span className="text-[11px] text-slate-400">{sm.companyName || 'Social Media Profissional'}</span>
+                        </div>
                       </div>
-                    )}
-                    <div>
-                      <strong className="block text-white text-xs">{assignedSm.name}</strong>
-                      <span className="text-[11px] text-slate-400">{assignedSm.companyName || 'Social Media Profissional'}</span>
+                      {sm.whatsapp && (
+                        <div className="text-[11px] text-slate-300">
+                          <span className="text-slate-500 font-semibold">WhatsApp: </span>
+                          <span className="text-emerald-400 font-mono">{sm.whatsapp}</span>
+                        </div>
+                      )}
+                      {sm.email && (
+                        <div className="text-[11px] text-slate-300">
+                          <span className="text-slate-500 font-semibold">E-mail: </span>
+                          <span className="text-slate-300">{sm.email}</span>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  {assignedSm.whatsapp && (
-                    <div className="text-[11px] text-slate-300 pt-1">
-                      <span className="text-slate-500 font-semibold">WhatsApp: </span>
-                      <span className="text-emerald-400 font-mono">{assignedSm.whatsapp}</span>
-                    </div>
-                  )}
-                  {assignedSm.email && (
-                    <div className="text-[11px] text-slate-300">
-                      <span className="text-slate-500 font-semibold">E-mail: </span>
-                      <span className="text-slate-300">{assignedSm.email}</span>
-                    </div>
-                  )}
+                  ))}
                 </div>
               ) : (
                 <p className="text-xs text-slate-400 italic pt-1">Nenhum social media atribuído especificamente.</p>
